@@ -82,9 +82,9 @@ The engine sits behind one interface (`src/server/engine`). If OpenCode ever bec
 
 - ✅ Router verified with a real Google key (2026-09-23): a tool-calling turn hit a 503 on `gemini-3.8-flash`, failed over to `gemini-3.5-flash-lite`, and the follow-up turn (which needs the Gemini thought signature restored) succeeded on `gemini-3.8-flash`.
 - Gemini 3.8 Flash on the free tier returns 503 "high demand" and 429 often. The router fails over, but each failover adds several seconds; the UI shows the engine's retry status while this happens.
-- Creating a session in a folder under `%LOCALAPPDATA%\Temp` made the engine return "Unexpected server error" before any model call. Normal folders (git and non-git) work. Not yet diagnosed.
+- A session whose directory does not exist makes the engine return a bare "Unexpected server error". The workspace picker only offers existing folders, so this only bites API callers.
 - `GET /session/{id}/diff` returned empty for sessions that did write files; the Changes panel falls back to listing touched files.
-- After an engine instance reload, one skill (`firecrawl-build`) stopped being listed even though its `SKILL.md` is on disk. Engine-side discovery quirk.
+- Skills with the same name in two roots (e.g. `~/.claude/skills` and `~/.agents/skills`) trigger the engine's "duplicate skill name" warning and only one is listed; which one can change between reloads. That is why a skill occasionally disappears from the list. Fix on the user side: keep one copy.
 - OpenCode Zen free models cannot be routed by syrup (they only accept requests from OpenCode itself). They remain selectable directly.
 
 ## Data (SQLite via Drizzle)
