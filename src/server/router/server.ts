@@ -370,6 +370,14 @@ async function chatCompletions(req: http.IncomingMessage, res: http.ServerRespon
   })
 }
 
+/** Only the engine (and the MCP client inside it) know the per-process secret. */
+function authorized(req: http.IncomingMessage): boolean {
+  const h = req.headers.authorization ?? ""
+  const token = h.startsWith("Bearer ") ? h.slice(7) : ""
+  if (!token || token.length !== env.internalSecret.length) return false
+  return crypto.timingSafeEqual(Buffer.from(token), Buffer.from(env.internalSecret))
+}
+
 function models(res: http.ServerResponse) {
   json(res, 200, {
     object: "list",
@@ -385,6 +393,10 @@ export function startRouter(): Promise<string> {
     g.__syrupRouter = new Promise((resolve, reject) => {
       const server = http.createServer((req, res) => {
         const url = new URL(req.url ?? "/", "http://localhost")
+        if (url.pathname !== "/health" && !authorized(req)) {
+          slog("router", "request.unauthorized", { method: req.method, path: url.pathname }, { level: "warn" })
+          return json(res, 401, { error: { message: "syrup router: missing or invalid bearer" } })
+        }
         if (req.method === "POST" && url.pathname === "/v1/chat/completions") return void chatCompletions(req, res)
         if (req.method === "GET" && url.pathname === "/v1/models") return models(res)
         if (url.pathname === "/mcp")

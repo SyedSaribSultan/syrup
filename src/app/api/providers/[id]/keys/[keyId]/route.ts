@@ -1,26 +1,32 @@
+import { handler, requireUser } from "@/server/cloud/session"
+import { env } from "@/server/env"
 import { activateKey, removeKey } from "@/server/providers"
 
 export const dynamic = "force-dynamic"
 
 type Ctx = { params: Promise<{ id: string; keyId: string }> }
 
-/** Make this key the one the engine uses for the provider. */
-export async function PATCH(_req: Request, ctx: Ctx) {
+/** Make this key the one the agent uses for the provider. */
+export const PATCH = handler(async (_req: Request, ctx: Ctx) => {
   const { id, keyId } = await ctx.params
-  try {
+  if (env.isCloud) {
+    const me = await requireUser()
+    const cloud = await import("@/server/cloud/keys")
+    await cloud.activateKey(me.id, id, keyId)
+  } else {
     await activateKey(id, keyId)
-    return Response.json({ ok: true })
-  } catch (err) {
-    return Response.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 })
   }
-}
+  return Response.json({ ok: true })
+})
 
-export async function DELETE(_req: Request, ctx: Ctx) {
+export const DELETE = handler(async (_req: Request, ctx: Ctx) => {
   const { id, keyId } = await ctx.params
-  try {
+  if (env.isCloud) {
+    const me = await requireUser()
+    const cloud = await import("@/server/cloud/keys")
+    await cloud.removeKey(me.id, id, keyId)
+  } else {
     await removeKey(id, keyId)
-    return Response.json({ ok: true })
-  } catch (err) {
-    return Response.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 })
   }
-}
+  return Response.json({ ok: true })
+})

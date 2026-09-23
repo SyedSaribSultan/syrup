@@ -1,0 +1,173 @@
+import { boolean, index, integer, jsonb, pgTable, primaryKey, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core"
+import type { AdapterAccountType } from "next-auth/adapters"
+
+/**
+ * Cloud schema (Postgres). Conventions from docs/PLAN.md §5:
+ * ULID text ids, timestamptz, user_id on every tenant table, soft delete via
+ * deleted_at. Row-level security for tenant tables is set up in
+ * drizzle-pg/0001_rls.sql (Drizzle generates the tables, the policies are
+ * hand-written there).
+ */
+
+const ts = (name: string) => timestamp(name, { withTimezone: true, mode: "date" })
+
+// ---------------------------------------------------------------- identity (Auth.js)
+
+export const users = pgTable("users", {
+  id: text("id").primaryKey(),
+  name: text("name"),
+  email: text("email").notNull().unique(),
+  emailVerified: ts("email_verified"),
+  image: text("image"),
+  plan: text("plan").notNull().default("free"),
+  /** Product analytics opt-out (PLAN §6 layer B). */
+  analyticsOptOut: boolean("analytics_opt_out").notNull().default(false),
+  createdAt: ts("created_at").notNull().defaultNow(),
+  lastSeenAt: ts("last_seen_at"),
+  deletedAt: ts("deleted_at"),
+})
+
+export const accounts = pgTable(
+  "accounts",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    type: text("type").$type<AdapterAccountType>().notNull(),
+    provider: text("provider").notNull(),
+    providerAccountId: text("provider_account_id").notNull(),
+    refresh_token: text("refresh_token"),
+    access_token: text("access_token"),
+    expires_at: integer("expires_at"),
+    token_type: text("token_type"),
+    scope: text("scope"),
+    id_token: text("id_token"),
+    session_state: text("session_state"),
+  },
+  (t) => [primaryKey({ columns: [t.provider, t.providerAccountId] }), index("accounts_user_idx").on(t.userId)],
+)
+
+/** Kept for Auth.js adapter compatibility; sessions are JWT cookies, so this stays empty. */
+export const sessions = pgTable("sessions", {
+  sessionToken: text("session_token").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  expires: ts("expires").notNull(),
+})
+
+export const verificationTokens = pgTable("verification_tokens", {
+  identifier: text("identifier").notNull(),
+  token: text("token").notNull(),
+  expires: ts("expires").notNull(),
+}, (t) => [primaryKey({ columns: [t.identifier, t.token] })])
+
+/** One data-encryption key per user, wrapped by SYRUP_MASTER_KEY (envelope encryption, PLAN §3.4). */
+export const userKeys = pgTable("user_keys", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  /** AES-256-GCM(master, dek), base64: iv | tag | ciphertext. */
+  dekWrapped: text("dek_wrapped").notNull(),
+  wrapVersion: integer("wrap_version").notNull().default(1),
+  createdAt: ts("created_at").notNull().defaultNow(),
+})
+
+// ---------------------------------------------------------------- access
+
+/** Sign-in succeeds only for an email with an open invite, an existing user, or an admin. */
+export const invites = pgTable("invites", {
+  id: text("id").primaryKey(),
+  email: text("email").notNull(),
+  invitedBy: text("invited_by"),
+  note: text("note"),
+  createdAt: ts("created_at").notNull().defaultNow(),
+  acceptedAt: ts("accepted_at"),
+  revokedAt: ts("revoked_at"),
+}, (t) => [uniqueIndex("invites_email_idx").on(t.email)])
+
+// ---------------------------------------------------------------- providers
+
+export const providerKeys = pgTable("provider_keys", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  providerId: text("provider_id").notNull(),
+  label: text("label").notNull(),
+  /** AES-256-GCM under the user's DEK, base64. */
+  secretEnc: text("secret_enc").notNull(),
+  hint: text("hint").notNull().default(""),
+  tier: text("tier", { enum: ["free", "paid"] }).notNull().default("free"),
+  enabled: boolean("enabled").notNull().default(true),
+  active: boolean("active").notNull().default(false),
+  createdAt: ts("created_at").notNull().defaultNow(),
+  lastUsedAt: ts("last_used_at"),
+}, (t) => [index("provider_keys_user_idx").on(t.userId, t.providerId)])
+
+// ---------------------------------------------------------------- trust, safety, legal
+
+export const legalDocuments = pgTable("legal_documents", {
+  id: text("id").primaryKey(),
+  /** "terms" | "privacy" | "research" | "cookies" */
+  kind: text("kind").notNull(),
+  version: text("version").notNull(),
+  contentHash: text("content_hash").notNull(),
+  publishedAt: ts("published_at").notNull().defaultNow(),
+}, (t) => [uniqueIndex("legal_kind_version_idx").on(t.kind, t.version)])
+
+/** Append-only. Current consent for a kind = latest row for that kind with no revoked_at. */
+export const consents = pgTable("consents", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  legalDocumentId: text("legal_document_id")
+    .notNull()
+    .references(() => legalDocuments.id),
+  kind: text("kind").notNull(),
+  grantedAt: ts("granted_at").notNull().defaultNow(),
+  revokedAt: ts("revoked_at"),
+  ipHash: text("ip_hash"),
+  userAgent: text("user_agent"),
+}, (t) => [index("consents_user_kind_idx").on(t.userId, t.kind, t.grantedAt)])
+
+export const dataRequests = pgTable("data_requests", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  /** "export" | "delete" */
+  type: text("type").notNull(),
+  /** "requested" | "running" | "done" | "failed" */
+  status: text("status").notNull().default("requested"),
+  requestedAt: ts("requested_at").notNull().defaultNow(),
+  completedAt: ts("completed_at"),
+  downloadUrlEnc: text("download_url_enc"),
+  expiresAt: ts("expires_at"),
+}, (t) => [index("data_requests_user_idx").on(t.userId, t.requestedAt)])
+
+export const auditLog = pgTable("audit_log", {
+  id: text("id").primaryKey(),
+  userId: text("user_id"),
+  /** "user" | "system" | "admin" */
+  actor: text("actor").notNull(),
+  action: text("action").notNull(),
+  target: text("target"),
+  data: jsonb("data"),
+  ipHash: text("ip_hash"),
+  createdAt: ts("created_at").notNull().defaultNow(),
+}, (t) => [index("audit_user_idx").on(t.userId, t.createdAt)])
+
+// ---------------------------------------------------------------- operations
+
+export const logs = pgTable("logs", {
+  id: text("id").primaryKey(),
+  ts: ts("ts").notNull().defaultNow(),
+  level: text("level").notNull().default("info"),
+  source: text("source").notNull(),
+  event: text("event").notNull(),
+  userId: text("user_id"),
+  workspaceId: text("workspace_id"),
+  data: jsonb("data"),
+}, (t) => [index("logs_ts_idx").on(t.ts), index("logs_user_idx").on(t.userId, t.ts)])

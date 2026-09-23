@@ -1,4 +1,6 @@
 import { z } from "zod"
+import { handler, requireUser } from "@/server/cloud/session"
+import { env } from "@/server/env"
 import { addKey } from "@/server/providers"
 
 export const dynamic = "force-dynamic"
@@ -9,14 +11,14 @@ const Body = z.object({
   tier: z.enum(["free", "paid"]).default("free"),
 })
 
-export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+export const POST = handler(async (req: Request, ctx: { params: Promise<{ id: string }> }) => {
   const { id } = await ctx.params
   const parsed = Body.safeParse(await req.json().catch(() => ({})))
   if (!parsed.success) return Response.json({ error: parsed.error.issues[0]?.message ?? "Invalid input" }, { status: 400 })
-  try {
-    const key = await addKey(id, parsed.data.key, parsed.data.label, parsed.data.tier)
-    return Response.json(key)
-  } catch (err) {
-    return Response.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 })
+  if (env.isCloud) {
+    const me = await requireUser()
+    const { addKey: cloudAdd } = await import("@/server/cloud/keys")
+    return Response.json(await cloudAdd(me.id, id, parsed.data.key, parsed.data.label, parsed.data.tier))
   }
-}
+  return Response.json(await addKey(id, parsed.data.key, parsed.data.label, parsed.data.tier))
+})

@@ -6,6 +6,11 @@ import { slog } from "./log"
 
 /** Server boot: log the environment, start the engine (which starts the router and MCP), then the ledger. */
 export async function boot() {
+  if (env.isCloud) {
+    // Cloud: no local engine. The agent runs in a sandbox per workspace (Phase 2); Postgres migrates lazily on first use.
+    console.log(`[syrup] cloud mode, ${env.appUrl}`)
+    return
+  }
   slog("boot", "starting", {
     node: process.version,
     platform: `${os.platform()} ${os.release()} ${os.arch()}`,

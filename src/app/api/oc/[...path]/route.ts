@@ -1,4 +1,4 @@
-import { engine } from "@/server/engine/opencode"
+import { engine, engineAuthHeader } from "@/server/engine/opencode"
 import { ensureSarib } from "@/server/sarib"
 
 /**
@@ -31,8 +31,10 @@ async function proxy(req: Request, ctx: { params: Promise<{ path: string[] }> })
 
   const headers = new Headers()
   req.headers.forEach((v, k) => {
-    if (!HOP_BY_HOP.has(k.toLowerCase())) headers.set(k, v)
+    if (!HOP_BY_HOP.has(k.toLowerCase()) && k.toLowerCase() !== "authorization") headers.set(k, v)
   })
+  // The engine is password-protected; only this proxy knows the password.
+  headers.set("authorization", engineAuthHeader())
 
   const init: RequestInit & { duplex?: "half" } = {
     method: req.method,

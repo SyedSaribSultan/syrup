@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { useEngine } from "@/lib/engine-store"
+import { useOptionalEngine } from "@/lib/engine-store"
 
 type Tier = "free" | "paid"
 type KeyInfo = { id: string; label: string; tier: Tier; hint: string; active: boolean; createdAt: number }
@@ -21,7 +21,8 @@ export default function ProvidersPage() {
   const [providers, setProviders] = useState<ProviderInfo[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [q, setQ] = useState("")
-  const { refreshProviders } = useEngine()
+  const engine = useOptionalEngine()
+  const refreshProviders = engine?.refreshProviders
 
   const load = useCallback(async () => {
     const r = await fetch("/api/providers", { cache: "no-store" })
@@ -52,7 +53,7 @@ export default function ProvidersPage() {
   // After any key change, reload this page's data and the model picker's catalog.
   const changed = useCallback(async () => {
     await load()
-    await refreshProviders()
+    await refreshProviders?.()
   }, [load, refreshProviders])
 
   const connected = useMemo(() => (providers ?? []).filter((p) => p.connected && p.id !== "opencode"), [providers])
@@ -76,7 +77,7 @@ export default function ProvidersPage() {
       <div className="mx-auto w-full max-w-[880px] px-6 py-8">
         <h1 className="font-serif text-[1.75rem] font-medium tracking-tight text-ink">Providers</h1>
         <p className="mt-1 max-w-[640px] text-sm text-muted">
-          Add API keys from any provider. Keys are encrypted and stay on this machine. You can keep several keys per provider; the active one is what the agent uses.
+          Add API keys from any provider. Keys are encrypted at rest and only ever used for requests you start. You can keep several keys per provider; the active one is what the agent uses.
         </p>
 
         {error && <div className="mt-4 rounded-lg border border-err/30 bg-err/5 px-3 py-2 text-[13px] text-err">{error}</div>}
