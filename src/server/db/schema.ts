@@ -64,6 +64,27 @@ export const routerEvents = sqliteTable("router_events", {
   error: text("error"),
 })
 
+/**
+ * Long-term memory. Searched through the FTS5 index `memories_fts`, which is
+ * created and kept in sync by triggers in the migration (Drizzle cannot model
+ * virtual tables).
+ */
+export const memories = sqliteTable("memories", {
+  id: text("id").primaryKey(),
+  /** "fact" | "preference" | "project" | "reference" | "note" */
+  kind: text("kind").notNull().default("note"),
+  title: text("title").notNull(),
+  content: text("content").notNull(),
+  /** Comma-separated lowercase tags. */
+  tags: text("tags").notNull().default(""),
+  /** Session that created it, if any. */
+  sessionId: text("session_id"),
+  /** "agent" | "user" */
+  source: text("source").notNull().default("agent"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+})
+
 export const settings = sqliteTable("settings", {
   key: text("key").primaryKey(),
   value: text("value").notNull(),

@@ -71,6 +71,12 @@ export function Sidebar() {
       </nav>
 
       <div className="space-y-0.5 border-t border-line p-2">
+        <NavLink href="/memory" active={pathname === "/memory"} icon="memory">
+          Memory
+        </NavLink>
+        <NavLink href="/skills" active={pathname === "/skills"} icon="skill">
+          Skills
+        </NavLink>
         <NavLink href="/settings/providers" active={pathname === "/settings/providers"} icon="key">
           Providers
         </NavLink>
@@ -82,7 +88,28 @@ export function Sidebar() {
   )
 }
 
-function NavLink({ href, active, icon, children }: { href: string; active: boolean; icon: "key" | "chart"; children: React.ReactNode }) {
+const ICONS: Record<string, React.ReactNode> = {
+  key: (
+    <>
+      <circle cx="5" cy="9" r="3" />
+      <path d="M7.2 6.8 12 2M10 4l2 2" />
+    </>
+  ),
+  chart: <path d="M2 12h10M3.5 10V6M7 10V3M10.5 10V7.5" />,
+  memory: (
+    <>
+      <path d="M4 2.5h6a1.5 1.5 0 0 1 1.5 1.5v6A1.5 1.5 0 0 1 10 11.5H4A1.5 1.5 0 0 1 2.5 10V4A1.5 1.5 0 0 1 4 2.5Z" />
+      <path d="M5 5.5h4M5 8h2.5" />
+    </>
+  ),
+  skill: (
+    <>
+      <path d="M7 1.5 8.6 5l3.6.4-2.7 2.4.8 3.6L7 9.6l-3.3 1.8.8-3.6L1.8 5.4 5.4 5 7 1.5Z" />
+    </>
+  ),
+}
+
+function NavLink({ href, active, icon, children }: { href: string; active: boolean; icon: keyof typeof ICONS; children: React.ReactNode }) {
   return (
     <Link
       href={href}
@@ -91,16 +118,7 @@ function NavLink({ href, active, icon, children }: { href: string; active: boole
       }`}
     >
       <svg width="14" height="14" viewBox="0 0 14 14" className="shrink-0 opacity-70" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-        {icon === "key" ? (
-          <>
-            <circle cx="5" cy="9" r="3" />
-            <path d="M7.2 6.8 12 2M10 4l2 2" />
-          </>
-        ) : (
-          <>
-            <path d="M2 12h10M3.5 10V6M7 10V3M10.5 10V7.5" />
-          </>
-        )}
+        {ICONS[icon]}
       </svg>
       {children}
     </Link>
