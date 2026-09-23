@@ -21,7 +21,7 @@ No subscription. No single vendor. Bring keys from Google AI Studio, Groq, Mistr
 ## Requirements
 
 - Node 22+ (24 recommended) and pnpm 10+
-- The local server listens on `127.0.0.1` only. Provider keys are encrypted with a key kept in `%APPDATA%syrup` (Windows) or `~/.config/syrup`. See [SECURITY.md](SECURITY.md).
+- The local server listens on `127.0.0.1` only. Provider keys are encrypted with a key kept in `%APPDATA%\syrup` (Windows) or `~/.config/syrup`. See [SECURITY.md](SECURITY.md).
 - Git (used to install skills from GitHub)
 - OpenCode installed globally:
 
