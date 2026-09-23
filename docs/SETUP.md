@@ -27,11 +27,11 @@ Companion to [PLAN.md](PLAN.md). Verified against each provider's docs on 2026-0
 **In Vercel**
 1. Project → **Settings** → **Domains** → **Add Domain**.
 2. Enter `syrup.syedsarib.com` → **Add**.
-3. Vercel shows the record it wants: **Type CNAME**, **Name `syrup`**, **Value** something like `cname.vercel-dns.com` **or** a project-specific host like `d1d4fc829fe7bc7c.vercel-dns-017.com`. **Copy the exact value shown.** Leave this tab open.
+3. Vercel shows the record it wants. As of 2026-09 it recommends an **A record**: **Type A**, **Name `syrup`**, **IPv4 `76.76.21.21`**. (Older guides say CNAME `cname.vercel-dns.com`; either works, use what Vercel shows.) Leave this tab open.
 
 **In Cloudflare**
 4. https://dash.cloudflare.com → account → **syedsarib.com** → **DNS** → **Records** → **Add record**.
-5. **Type:** CNAME · **Name:** `syrup` · **Target:** the exact value from step 3 · **Proxy status:** **DNS only** (grey cloud, *not* orange) · **TTL:** Auto → **Save**.
+5. **Type:** A · **Name:** `syrup` · **IPv4 address:** `76.76.21.21` · **Proxy status:** **DNS only** (grey cloud, *not* orange) · **TTL:** Auto → **Save**.
    - Why DNS-only: Vercel's docs say a Cloudflare proxy in front of Vercel causes redirect loops and TLS conflicts, and Vercel does not recommend it. Vercel already provides CDN, TLS and DDoS protection.
 6. Back in Vercel, the domain status flips to **Valid Configuration** within minutes (DNS can take up to an hour). Vercel issues the TLS certificate automatically.
 7. Optional but recommended: Cloudflare → **DNS** → **Settings** → enable **DNSSEC** (follow the DS-record step at your registrar if the registrar is not Cloudflare).
@@ -77,6 +77,8 @@ Companion to [PLAN.md](PLAN.md). Verified against each provider's docs on 2026-0
 15. Google notes changes can take **5 minutes to a few hours** to propagate. Don't debug a "redirect_uri_mismatch" in the first minutes.
 
 ## Part 4 — Neon Postgres
+
+**Done 2026-09-23 via Vercel Storage.** If your Neon account is managed by Vercel (it is here), create the database from Vercel, not the Neon console: Vercel → project → **Storage** → **Create Database** → **Neon** → region **Frankfurt (fra1)** → plan **Free** → **Auth toggle off** (we use Auth.js) → connect to project `syrup`, environments Production + Preview + Development, **database branch for Preview** ticked, **no custom prefix**. Vercel injects `DATABASE_URL`, `DATABASE_URL_UNPOOLED` and the `POSTGRES_*`/`PG*` variants automatically. `vercel.json` pins functions to `fra1` so they sit next to the database. The steps below are the manual path for a standalone Neon account.
 
 1. https://console.neon.tech → sign up (GitHub or Google sign-in is fine). Free plan is the default.
 2. **New Project**:
@@ -129,8 +131,8 @@ Project → **Settings** → **Environment Variables** → **Add New**. For each
 | `AUTH_SECRET` | 32+ random bytes, base64 | run `npx auth secret --raw` or `openssl rand -base64 33` | Rotating it signs everyone out. |
 | `AUTH_GOOGLE_ID` | Client ID | Part 3 E | |
 | `AUTH_GOOGLE_SECRET` | Client secret | Part 3 E | Tick **Sensitive** so it can't be read back. |
-| `DATABASE_URL` | pooled Neon string | Part 4 | Sensitive. |
-| `DATABASE_URL_UNPOOLED` | direct Neon string | Part 4 | Sensitive. Migrations only. |
+| `DATABASE_URL` | pooled Neon string | Part 4 | Set automatically by the Neon integration. |
+| `DATABASE_URL_UNPOOLED` | direct Neon string | Part 4 | Set automatically. Migrations only. |
 | `SYRUP_MASTER_KEY` | 32 random bytes, base64 | `openssl rand -base64 32` | Wraps every user's data key. **Back it up offline.** Losing it loses every stored provider key. Sensitive. |
 | `SYRUP_ADMIN_EMAILS` | your Google email | Part 6 | Comma-separated if more than one. |
 | `SYRUP_INVITES` | first invitees' emails | Part 6 | Temporary until the admin page. |
