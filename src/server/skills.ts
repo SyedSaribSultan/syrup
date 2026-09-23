@@ -4,6 +4,7 @@ import os from "node:os"
 import path from "node:path"
 import { promisify } from "node:util"
 import { engine } from "./engine/opencode"
+import { slog } from "./log"
 
 const run = promisify(execFile)
 
@@ -65,6 +66,7 @@ function validName(name: string) {
 async function reload() {
   const { client } = await engine()
   await client.instance.dispose()
+  slog("engine", "instance.reloaded", { reason: "skills changed" })
 }
 
 /** Create a skill from SKILL.md text. */
@@ -75,6 +77,7 @@ export async function createSkill(content: string, nameOverride?: string): Promi
   const dir = path.join(skillsDir(), name)
   fs.mkdirSync(dir, { recursive: true })
   fs.writeFileSync(path.join(dir, "SKILL.md"), content, "utf8")
+  slog("skills", "created", { name, dir, chars: content.length })
   await reload()
   return name
 }
@@ -123,8 +126,12 @@ export async function installFromGit(source: string): Promise<string[]> {
       fs.cpSync(dir, dest, { recursive: true, filter: (src) => !src.includes(`${path.sep}.git`) })
       installed.push(name)
     }
+    slog("skills", "installed", { source, repo, sub, installed })
     await reload()
     return installed
+  } catch (err) {
+    slog("skills", "install.failed", { source, err }, { level: "warn" })
+    throw err
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true })
   }
@@ -135,5 +142,6 @@ export async function removeSkill(name: string): Promise<void> {
   const dir = path.join(skillsDir(), name)
   if (!fs.existsSync(dir)) throw new Error("Only skills installed by syrup can be removed here")
   fs.rmSync(dir, { recursive: true, force: true })
+  slog("skills", "removed", { name, dir })
   await reload()
 }

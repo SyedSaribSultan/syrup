@@ -2,6 +2,7 @@ import crypto from "node:crypto"
 import { and, eq } from "drizzle-orm"
 import { db, dbReady, schema } from "./db"
 import { engine } from "./engine/opencode"
+import { slog } from "./log"
 import { hint, open, seal } from "./vault"
 
 /**
@@ -171,6 +172,8 @@ async function setEngineKey(providerID: string, key: string | null) {
   }
   // Providers are resolved when the instance boots; reload so the change is live.
   await client.instance.dispose()
+  slog("providers", key ? "engine.key_set" : "engine.key_removed", { providerID, hint: key ? hint(key) : null })
+  slog("engine", "instance.reloaded", { reason: "provider key changed", providerID })
 }
 
 export async function addKey(providerID: string, key: string, label: string, tier: Tier): Promise<KeyInfo> {
@@ -191,6 +194,7 @@ export async function addKey(providerID: string, key: string, label: string, tie
     active: 1,
     createdAt: now,
   })
+  slog("providers", "key.added", { providerID, keyId: id, label, tier, hint: hint(key) })
   await setEngineKey(providerID, key)
   return { id, label: label || `${providerID} key`, tier, hint: hint(key), active: true, createdAt: now }
 }
@@ -205,6 +209,7 @@ export async function activateKey(providerID: string, keyID: string): Promise<vo
   if (!row) throw new Error("key not found")
   await d.update(schema.providerKeys).set({ active: 0 }).where(eq(schema.providerKeys.providerId, providerID))
   await d.update(schema.providerKeys).set({ active: 1 }).where(eq(schema.providerKeys.id, keyID))
+  slog("providers", "key.activated", { providerID, keyId: keyID, label: row.label, tier: row.tier })
   await setEngineKey(providerID, open(row.secret))
 }
 
@@ -217,6 +222,7 @@ export async function removeKey(providerID: string, keyID: string): Promise<void
     .where(and(eq(schema.providerKeys.id, keyID), eq(schema.providerKeys.providerId, providerID)))
   if (!row) return
   await d.delete(schema.providerKeys).where(eq(schema.providerKeys.id, keyID))
+  slog("providers", "key.removed", { providerID, keyId: keyID, label: row.label, wasActive: row.active === 1 })
   if (row.active === 1) {
     // Fall back to the newest remaining key, or disconnect the provider.
     const rest = await d.select().from(schema.providerKeys).where(eq(schema.providerKeys.providerId, providerID))

@@ -2,6 +2,7 @@ import type http from "node:http"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js"
 import { z } from "zod"
+import { slog } from "./log"
 import { deleteMemory, getMemory, KINDS, listMemories, saveMemory, searchMemories, updateMemory } from "./memory"
 
 /**
@@ -10,9 +11,28 @@ import { deleteMemory, getMemory, KINDS, listMemories, saveMemory, searchMemorie
  * to it as the remote MCP server "syrup".
  */
 
-function text(s: string) {
-  return { content: [{ type: "text" as const, text: s }] }
+type Result = { content: { type: "text"; text: string }[] }
+
+function text(s: string): Result {
+  return { content: [{ type: "text", text: s }] }
 }
+
+/** Wraps a tool handler so every call, result size and failure is logged. */
+function logged<A>(name: string, fn: (args: A) => Promise<Result>) {
+  return async (args: A): Promise<Result> => {
+    const t0 = Date.now()
+    try {
+      const out = await fn(args)
+      slog("mcp", "tool.call", { tool: name, args, ms: Date.now() - t0, resultChars: out.content.reduce((n, c) => n + c.text.length, 0), resultPreview: out.content[0]?.text.slice(0, 300) })
+      return out
+    } catch (err) {
+      slog("mcp", "tool.error", { tool: name, args, ms: Date.now() - t0, err }, { level: "error" })
+      throw err
+    }
+  }
+}
+
+const kindEnum = z.enum(KINDS as [string, ...string[]])
 
 function buildServer(): McpServer {
   const server = new McpServer({ name: "syrup", version: "0.1.0" })
@@ -27,11 +47,11 @@ function buildServer(): McpServer {
         limit: z.number().int().min(1).max(25).optional().describe("Max results, default 8"),
       },
     },
-    async ({ query, limit }) => {
+    logged("memory_search", async ({ query, limit }) => {
       const rows = await searchMemories(query, limit ?? 8)
       if (rows.length === 0) return text("No memories match.")
       return text(rows.map((r) => `[${r.id}] ${r.title} (${r.kind}${r.tags ? `; ${r.tags}` : ""})\n${r.content}`).join("\n\n"))
-    },
+    }),
   )
 
   server.registerTool(
@@ -41,20 +61,20 @@ function buildServer(): McpServer {
       description: "List the most recently updated memories.",
       inputSchema: { limit: z.number().int().min(1).max(100).optional() },
     },
-    async ({ limit }) => {
+    logged("memory_list", async ({ limit }) => {
       const rows = await listMemories(limit ?? 20)
       if (rows.length === 0) return text("No memories saved yet.")
       return text(rows.map((r) => `[${r.id}] ${r.title} (${r.kind}${r.tags ? `; ${r.tags}` : ""}) — ${r.content.slice(0, 200)}`).join("\n"))
-    },
+    }),
   )
 
   server.registerTool(
     "memory_get",
     { title: "Get a memory", description: "Read one memory in full by id.", inputSchema: { id: z.string() } },
-    async ({ id }) => {
+    logged("memory_get", async ({ id }) => {
       const m = await getMemory(id)
       return text(m ? `[${m.id}] ${m.title} (${m.kind}${m.tags ? `; ${m.tags}` : ""})\n${m.content}` : "Not found.")
-    },
+    }),
   )
 
   server.registerTool(
@@ -66,14 +86,14 @@ function buildServer(): McpServer {
       inputSchema: {
         title: z.string().min(1).max(200).describe("Short, specific title"),
         content: z.string().min(1).describe("The fact itself, plus why it matters if not obvious"),
-        kind: z.enum(KINDS as [string, ...string[]]).optional().describe("fact | preference | project | reference | note"),
+        kind: kindEnum.optional().describe("fact | preference | project | reference | note"),
         tags: z.array(z.string()).optional().describe("Lowercase tags for retrieval"),
       },
     },
-    async ({ title, content, kind, tags }) => {
+    logged("memory_save", async ({ title, content, kind, tags }) => {
       const m = await saveMemory({ title, content, kind, tags, source: "agent" })
       return text(`Saved memory ${m.id}: ${m.title}`)
-    },
+    }),
   )
 
   server.registerTool(
@@ -85,23 +105,23 @@ function buildServer(): McpServer {
         id: z.string(),
         title: z.string().min(1).max(200).optional(),
         content: z.string().min(1).optional(),
-        kind: z.enum(KINDS as [string, ...string[]]).optional(),
+        kind: kindEnum.optional(),
         tags: z.array(z.string()).optional(),
       },
     },
-    async ({ id, ...patch }) => {
+    logged("memory_update", async ({ id, ...patch }) => {
       const m = await updateMemory(id, patch)
       return text(m ? `Updated ${m.id}: ${m.title}` : "Not found.")
-    },
+    }),
   )
 
   server.registerTool(
     "memory_forget",
     { title: "Forget a memory", description: "Delete a memory that is wrong or no longer relevant.", inputSchema: { id: z.string() } },
-    async ({ id }) => {
+    logged("memory_forget", async ({ id }) => {
       await deleteMemory(id)
       return text(`Forgot ${id}.`)
-    },
+    }),
   )
 
   return server
@@ -124,10 +144,13 @@ export async function handleMcp(req: http.IncomingMessage, res: http.ServerRespo
   try {
     body = await readJson(req)
   } catch {
+    slog("mcp", "request.bad_json", {}, { level: "warn" })
     res.writeHead(400, { "content-type": "application/json" })
     res.end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32700, message: "Parse error" }, id: null }))
     return
   }
+  const method = (body as { method?: string })?.method
+  if (method && method !== "tools/call") slog("mcp", "request", { method }, { level: "debug" })
   const server = buildServer()
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined })
   res.on("close", () => {

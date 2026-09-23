@@ -1,6 +1,7 @@
 "use client"
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, type ReactNode } from "react"
+import { clog, installClientLogging } from "./clientlog"
 import { oc, type Message, type Model, type Part, type Provider, type Session, type SessionStatus } from "./oc"
 
 /**
@@ -227,8 +228,11 @@ export function EngineProvider({ children }: { children: ReactNode }) {
 
   // Boot: engine default directory, saved workspace, providers, saved model.
   useEffect(() => {
+    installClientLogging()
     void (async () => {
+      const t0 = Date.now()
       const [pathRes, prov, projRes] = await Promise.all([oc().path.get(), oc().config.providers(), oc().project.list()])
+      clog("boot.loaded", { ms: Date.now() - t0, providers: prov.data?.providers.map((p) => `${p.id}(${Object.keys(p.models).length})`), defaultDirectory: pathRes.data?.directory, projects: projRes.data?.length })
       const defaultDirectory = pathRes.data?.directory ?? ""
       let saved = ""
       try {
@@ -272,6 +276,7 @@ export function EngineProvider({ children }: { children: ReactNode }) {
           if (!res.ok || !res.body) throw new Error(`event stream ${res.status}`)
           failures = 0
           dispatch({ type: "connected", value: true })
+          clog("sse.connected", { directory: dir }, { directory: dir })
           const reader = res.body.getReader()
           const dec = new TextDecoder()
           let buf = ""
@@ -298,6 +303,7 @@ export function EngineProvider({ children }: { children: ReactNode }) {
           if (ctrl.signal.aborted) return
           // The engine restarts when keys or skills change; stay quiet for the first few misses.
           if (++failures > 3) console.warn("[syrup] event stream dropped", err)
+          clog("sse.dropped", { failures, error: err instanceof Error ? err.message : String(err) }, { level: failures > 3 ? "warn" : "info", directory: dir })
         }
         dispatch({ type: "connected", value: false })
         await new Promise((r) => setTimeout(r, Math.min(1500 * Math.max(1, failures), 8000)))
@@ -335,6 +341,7 @@ export function EngineProvider({ children }: { children: ReactNode }) {
         case "session.error": {
           const e = p.error as { data?: { message?: string }; name?: string } | undefined
           dispatch({ type: "error", sessionID: p.sessionID as string, error: e?.data?.message ?? e?.name ?? "Unknown error" })
+          clog("session.error.shown", { error: e }, { level: "error", sessionId: p.sessionID as string })
           break
         }
         case "permission.updated": // v1 shape
@@ -386,6 +393,7 @@ export function EngineProvider({ children }: { children: ReactNode }) {
       const recent = readRecent().filter((x) => x !== d)
       localStorage.setItem(RECENT_KEY, JSON.stringify([d, ...recent].slice(0, 10)))
     } catch {}
+    clog("workspace.changed", { directory: d }, { directory: d })
     dispatch({ type: "directory", directory: d })
   }, [])
 
@@ -410,7 +418,11 @@ export function EngineProvider({ children }: { children: ReactNode }) {
 
   const createSession = useCallback(async () => {
     const res = await oc(dir).session.create({ body: {} })
-    if (!res.data) throw new Error("could not create session")
+    if (!res.data) {
+      clog("session.create.failed", { error: res.error }, { level: "error", directory: dir })
+      throw new Error("could not create session")
+    }
+    clog("session.created", { id: res.data.id }, { sessionId: res.data.id, directory: dir })
     dispatch({ type: "session", session: res.data })
     void refreshProjects()
     return res.data
@@ -422,15 +434,23 @@ export function EngineProvider({ children }: { children: ReactNode }) {
       const parts: ({ type: "text"; text: string } | { type: "file"; mime: string; filename: string; url: string })[] = []
       if (text) parts.push({ type: "text", text })
       for (const f of files) parts.push({ type: "file", mime: f.mime, filename: f.name, url: f.url })
-      await oc(dir).session.promptAsync({
+      clog("prompt.sent", { model: state.model, chars: text.length, files: files.map((f) => ({ name: f.name, mime: f.mime, bytes: f.url.length })) }, { sessionId: sessionID, directory: dir })
+      const res = await oc(dir).session.promptAsync({
         path: { id: sessionID },
         body: { model: state.model ?? undefined, parts },
       })
+      if (res.error) clog("prompt.failed", { error: res.error }, { level: "error", sessionId: sessionID, directory: dir })
     },
     [dir, state.model],
   )
 
-  const abort = useCallback(async (sessionID: string) => void (await oc(dir).session.abort({ path: { id: sessionID } })), [dir])
+  const abort = useCallback(
+    async (sessionID: string) => {
+      clog("prompt.aborted", {}, { sessionId: sessionID, directory: dir })
+      await oc(dir).session.abort({ path: { id: sessionID } })
+    },
+    [dir],
+  )
 
   const renameSession = useCallback(
     async (sessionID: string, title: string) => {
@@ -454,6 +474,7 @@ export function EngineProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const setModel = useCallback((m: ModelRef) => {
+    clog("model.changed", m)
     dispatch({ type: "model", model: m })
     try {
       localStorage.setItem(MODEL_KEY, JSON.stringify(m))
@@ -462,6 +483,7 @@ export function EngineProvider({ children }: { children: ReactNode }) {
 
   const replyPermission = useCallback(
     async (req: PermissionReq, response: "once" | "always" | "reject") => {
+      clog("permission.replied", { id: req.id, title: req.title, response }, { sessionId: req.sessionID, directory: dir })
       dispatch({ type: "permission.done", id: req.id })
       await oc(dir).postSessionIdPermissionsPermissionId({ path: { id: req.sessionID, permissionID: req.id }, body: { response } })
     },
@@ -470,6 +492,7 @@ export function EngineProvider({ children }: { children: ReactNode }) {
 
   const replyQuestion = useCallback(
     async (req: QuestionReq, answers: string[][]) => {
+      clog("question.answered", { id: req.id, answers }, { sessionId: req.sessionID, directory: dir })
       dispatch({ type: "question.done", id: req.id })
       await fetch(`/api/oc/question/${req.id}/reply?directory=${encodeURIComponent(dir)}`, {
         method: "POST",
