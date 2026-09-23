@@ -39,7 +39,6 @@ export const BASE_URL: Record<string, string> = {
 const PREFER: Record<Alias, [provider: string, model: string][]> = {
   auto: [
     ["google", "gemini-3.8-flash"],
-    ["google", "gemini-flash-latest"],
     ["nvidia", "z-ai/glm-5.3"],
     ["nvidia", "deepseek-ai/deepseek-v4-pro-0813"],
     ["nvidia", "moonshotai/kimi-k3"],
@@ -48,6 +47,8 @@ const PREFER: Record<Alias, [provider: string, model: string][]> = {
     ["openrouter", "*free*"],
     ["cerebras", "gpt-oss-120b"],
     ["groq", "openai/gpt-oss-120b"],
+    // Same-provider fallback when the flagship is rate limited or under load.
+    ["google", "gemini-3.5-flash-lite"],
     ["cohere", "north-mini-code-1-0"],
     ["huggingface", "deepseek-ai/DeepSeek-V4.1-Flash"],
     ["openai", "gpt-6-luna"],

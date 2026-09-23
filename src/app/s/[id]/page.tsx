@@ -71,6 +71,14 @@ export default function SessionPage() {
             <MessageView key={e.info.id} entry={e} streaming={busy && e.info.id === lastID && e.info.role === "assistant"} />
           ))}
           <Prompts sessionID={id} />
+          {status[id]?.type === "retry" && (
+            <div className="flex items-center gap-2 rounded-lg border border-warn/30 bg-warn/5 px-3 py-2 text-[13px] text-ink-2">
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warn pulse" />
+              <span>
+                Provider is busy, retrying (attempt {status[id].attempt}){status[id].message ? ` — ${status[id].message}` : ""}
+              </span>
+            </div>
+          )}
           {errors[id] && <div className="rounded-lg border border-err/30 bg-err/5 px-3 py-2 text-[13px] text-err">{errors[id]}</div>}
         </div>
       </div>
