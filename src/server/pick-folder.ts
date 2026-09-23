@@ -12,23 +12,15 @@ const run = promisify(execFile)
 
 let busy: Promise<string | null> | null = null
 
-// Runs under Windows PowerShell 5.1 (.NET Framework, classic tree dialog) and
-// PowerShell 7 (.NET, modern dialog). Properties that only exist on one are guarded.
+// Windows Shell folder dialog via COM. Works from a plain console PowerShell
+// without a WinForms message loop, on Windows PowerShell 5.1 and PowerShell 7.
+// BIF flags: 0x40 NEWDIALOGSTYLE | 0x10 EDITBOX | 0x1 RETURNONLYFSDIRS.
 const PS_SCRIPT = `
-Add-Type -AssemblyName System.Windows.Forms
-$owner = New-Object System.Windows.Forms.Form
-$owner.TopMost = $true
-$owner.ShowInTaskbar = $false
-$owner.Opacity = 0
-$owner.Show()
-$d = New-Object System.Windows.Forms.FolderBrowserDialog
-$d.Description = 'Choose a workspace folder for syrup'
-$d.ShowNewFolderButton = $true
-if ($d.PSObject.Properties['UseDescriptionForTitle']) { $d.UseDescriptionForTitle = $true }
-if ($env:SYRUP_PICK_START -and (Test-Path -LiteralPath $env:SYRUP_PICK_START)) { $d.SelectedPath = $env:SYRUP_PICK_START }
-$r = $d.ShowDialog($owner)
-$owner.Close()
-if ($r -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Out.Write($d.SelectedPath) }
+$shell = New-Object -ComObject Shell.Application
+$start = 0
+if ($env:SYRUP_PICK_START -and (Test-Path -LiteralPath $env:SYRUP_PICK_START)) { $start = $env:SYRUP_PICK_START }
+$folder = $shell.BrowseForFolder(0, 'Choose a workspace folder for syrup', 0x51, $start)
+if ($folder -ne $null) { [Console]::Out.Write($folder.Self.Path) }
 `
 
 let pwshChecked: string | null | undefined
@@ -37,7 +29,7 @@ let pwshChecked: string | null | undefined
 async function powershell(): Promise<string> {
   if (pwshChecked === undefined) {
     try {
-      await run("pwsh.exe", ["-NoProfile", "-Command", "exit 0"], { timeout: 15_000, windowsHide: true })
+      await run("pwsh.exe", ["-NoProfile", "-Command", "exit 0"], { timeout: 15_000 })
       pwshChecked = "pwsh.exe"
     } catch {
       pwshChecked = null
@@ -50,9 +42,9 @@ async function open(startIn?: string): Promise<string | null> {
   const timeout = 10 * 60_000
   if (process.platform === "win32") {
     const exe = await powershell()
-    const { stdout } = await run(exe, ["-NoProfile", "-NonInteractive", "-STA", "-ExecutionPolicy", "Bypass", "-Command", PS_SCRIPT], {
+    // No windowsHide: it can keep the dialog from ever being shown.
+    const { stdout } = await run(exe, ["-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-Command", PS_SCRIPT], {
       timeout,
-      windowsHide: true,
       env: { ...process.env, SYRUP_PICK_START: startIn ?? "" },
     })
     return stdout.trim() || null
