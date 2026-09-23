@@ -102,7 +102,7 @@ Companion to [PLAN.md](PLAN.md). Verified against each provider's docs on 2026-0
 ## Part 6 — Invites (who gets in)
 
 Nothing to set up in a console. Two things to decide:
-1. **Your admin Google account.** The email you sign in with becomes the first admin (allow-listed in code via `SYRUP_ADMIN_EMAILS`).
+1. **Your admin Google account: `sadakhan2002@gmail.com`.** It becomes the first admin (allow-listed via `SYRUP_ADMIN_EMAILS`) and is the User support email in Part 3.
 2. **The first invite list.** Any number of emails. Until the admin page exists (Phase 3), invites are seeded from `SYRUP_INVITES` (comma-separated) in Vercel env; after that, from the admin page. Sign-in with an email not on the list shows "invite only".
 
 ## Part 7 — Legal documents and the lawyer
