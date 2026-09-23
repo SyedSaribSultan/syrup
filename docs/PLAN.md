@@ -150,10 +150,10 @@ Rights and plumbing (needed under GDPR/UK GDPR/CCPA regardless of where the comp
 
 Each phase ends with something deployed and usable. Estimates are working days for one person with Claude.
 
-### Phase 0 — Cut the immediate risks (1–2 days)
+### Phase 0 — Cut the immediate risks (1–2 days) ✅ 2026-09-24
 - S2, S3, S4, S7 for local mode; `SECURITY.md`; branch protection; Dependabot; secret scanning. Ship as one commit. Local users are safe from now on and the repo is ready to be public.
 
-### Phase 1 — Foundation on Vercel (4–6 days)
+### Phase 1 — Foundation on Vercel (4–6 days) ✅ 2026-09-24 (first sign-in pending)
 - `SYRUP_MODE=cloud|local` switch in `env.ts`; engine behind an interface (`LocalEngine` today, `SandboxEngine` in Phase 2).
 - Auth.js v5 + Google provider; `proxy.ts` guarding all routes; sign-in page; account menu.
 - Neon project (EU); Drizzle Postgres schema from §5; RLS policies; `set local app.user_id`; envelope encryption for keys.
@@ -213,7 +213,7 @@ Each phase ends with something deployed and usable. Estimates are working days f
 - **Snapshots persist the filesystem.** Anything the agent writes to disk persists, including secrets a user pastes into a file. Warn in the UI; keys themselves never touch disk (§3.5).
 - **You are the only admin.** The admin page and the runbook exist so that stays manageable.
 
-## 10. What Sarib has to do (accounts and approvals)
+## 10. What Sarib has to do (accounts and approvals) — all done 2026-09-23, see SETUP.md
 
 1. **Google Cloud**: create a project "syrup", OAuth consent screen (External, Production, scopes `openid email profile`), OAuth client (Web) with redirect `https://syrup.syedsarib.com/api/auth/callback/google` and `http://localhost:3000/api/auth/callback/google`. Give Claude the client id and secret as Vercel env values (not in chat).
 2. **Vercel**: create the project from the GitHub repo, add the domain `syrup.syedsarib.com`, enable Sandbox for the project.
