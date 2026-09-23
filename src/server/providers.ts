@@ -1,7 +1,7 @@
 import crypto from "node:crypto"
 import { and, eq } from "drizzle-orm"
 import { db, dbReady, schema } from "./db"
-import { engine } from "./engine/opencode"
+import { engine, engineAuthHeader } from "./engine/opencode"
 import { slog } from "./log"
 import { hint, open, seal } from "./vault"
 
@@ -167,7 +167,7 @@ async function setEngineKey(providerID: string, key: string | null) {
     await client.auth.set({ path: { id: providerID }, body: { type: "api", key } })
   } else {
     // The v1 SDK has no typed wrapper for DELETE /auth/{id}; call it directly.
-    const res = await fetch(`${url}/auth/${encodeURIComponent(providerID)}`, { method: "DELETE" })
+    const res = await fetch(`${url}/auth/${encodeURIComponent(providerID)}`, { method: "DELETE", headers: { authorization: engineAuthHeader() } })
     if (!res.ok) throw new Error(`engine: could not remove auth (${res.status})`)
   }
   // Providers are resolved when the instance boots; reload so the change is live.

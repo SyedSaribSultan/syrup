@@ -3,3 +3,7 @@ allowBuilds:
   esbuild: false
   sharp: false
   unrs-resolver: false
+
+# core-js ships a postinstall banner script; nothing we use needs it to run.
+ignoredBuiltDependencies:
+  - core-js

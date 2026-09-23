@@ -1,5 +1,5 @@
 import os from "node:os"
-import { engine } from "./engine/opencode"
+import { engine, engineAuthHeader } from "./engine/opencode"
 import { env } from "./env"
 import { startLedger } from "./ledger"
 import { slog } from "./log"
@@ -26,7 +26,7 @@ export async function boot() {
 
   try {
     const { url } = await engine()
-    const health = await fetch(`${url}/global/health`)
+    const health = await fetch(`${url}/global/health`, { headers: { authorization: engineAuthHeader() } })
       .then((r) => r.json() as Promise<{ version?: string }>)
       .catch(() => undefined)
     slog("boot", "engine.ready", { url, engineVersion: health?.version })

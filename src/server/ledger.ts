@@ -1,6 +1,6 @@
 import type { AssistantMessage, Event, Model } from "@opencode-ai/sdk/client"
 import { db, dbReady, schema } from "./db"
-import { engine } from "./engine/opencode"
+import { engine, engineAuthHeader } from "./engine/opencode"
 import { slog } from "./log"
 
 /**
@@ -167,7 +167,7 @@ async function run() {
   // Reconnect forever: the engine instance restarts when keys or skills change.
   for (;;) {
     try {
-      const res = await fetch(`${url}/global/event`, { cache: "no-store" })
+      const res = await fetch(`${url}/global/event`, { cache: "no-store", headers: { authorization: engineAuthHeader() } })
       if (!res.ok) throw new Error(`global event stream ${res.status}`)
       slog("ledger", "event_stream.connected", { url })
       for await (const ev of sse<GlobalEvent>(res)) {
