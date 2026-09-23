@@ -12,6 +12,8 @@ export const env = {
   opencodeHostname: process.env.OPENCODE_HOSTNAME || "127.0.0.1",
   /** Directory the agent works in. */
   workspace: path.resolve(process.env.SYRUP_WORKSPACE || process.cwd()),
+  /** Port for the in-process OpenAI-compatible router the engine calls. */
+  routerPort: int(process.env.SYRUP_ROUTER_PORT, 4210),
   dbUrl: process.env.SYRUP_DB || "file:./data/syrup.db",
   vaultKey: process.env.SYRUP_VAULT_KEY || undefined,
 }

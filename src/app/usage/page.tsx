@@ -16,12 +16,14 @@ type Sums = {
   freeTokens: number
   paidTokens: number
 }
+type RSums = { requests: number; ok: number; rateLimited: number; errors: number; input: number; output: number; cost: number; avgLatency: number }
 type Usage = {
   days: number
   totals: Sums
   byModel: (Sums & { providerId: string; modelId: string; free: number })[]
   byDay: (Sums & { day: string })[]
   bySession: (Sums & { sessionId: string; last: number })[]
+  routed: { totals: RSums; byBackend: (RSums & { alias: string; providerId: string; modelId: string; tier: string })[] }
 }
 
 export default function UsagePage() {
@@ -40,7 +42,10 @@ export default function UsagePage() {
   }, [days])
 
   const t = data?.totals
+  const rt = data?.routed.totals
   const allTokens = t ? t.input + t.output + t.reasoning : 0
+  // Engine-reported cost plus what the router actually spent on syrup/* requests.
+  const spent = (t?.cost ?? 0) + (rt?.cost ?? 0)
   const maxDay = data ? Math.max(1, ...data.byDay.map((d) => d.input + d.output + d.reasoning)) : 1
 
   return (
@@ -61,7 +66,7 @@ export default function UsagePage() {
         </div>
 
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <Stat label="Spent" value={fmtCost(t?.cost)} hint={t && t.cost === 0 ? "all free so far" : undefined} accent />
+          <Stat label="Spent" value={fmtCost(spent)} hint={data && spent === 0 ? "all free so far" : rt && rt.cost > 0 ? `${fmtCost(rt.cost)} via router` : undefined} accent />
           <Stat label="Tokens" value={fmtTokens(allTokens)} hint={t ? `${fmtTokens(t.input)} in · ${fmtTokens(t.output)} out` : undefined} />
           <Stat label="Free tokens" value={fmtTokens(t?.freeTokens)} hint={allTokens ? `${Math.round(((t?.freeTokens ?? 0) / allTokens) * 100)}% of total` : undefined} />
           <Stat label="Messages" value={String(t?.messages ?? 0)} hint={t ? `${fmtTokens(t.cacheRead)} cached reads` : undefined} />
@@ -98,6 +103,33 @@ export default function UsagePage() {
               fmtTokens(m.input),
               fmtTokens(m.output),
               fmtCost(m.cost),
+            ])}
+          />
+        </Section>
+
+        <Section title="Routed via syrup">
+          {data && data.routed.byBackend.length === 0 && <Empty />}
+          {rt && rt.requests > 0 && (
+            <div className="mb-3 text-xs text-muted">
+              {rt.requests} requests · {rt.ok} ok · {rt.rateLimited} rate limited · {rt.errors} errors · {Math.round(rt.avgLatency)}ms avg
+            </div>
+          )}
+          <Table
+            head={["Backend", "Alias", "Tier", "Requests", "Rate limited", "In", "Out", "Cost"]}
+            rows={(data?.routed.byBackend ?? []).map((b) => [
+              <span key="b">
+                <span className="text-muted">{b.providerId}/</span>
+                {b.modelId}
+              </span>,
+              b.alias,
+              <span key="t" className={`rounded px-1 text-[10px] font-medium ${b.tier === "free" ? "bg-accent-soft text-accent" : "bg-surface-2 text-ink-2"}`}>
+                {b.tier}
+              </span>,
+              String(b.requests),
+              String(b.rateLimited),
+              fmtTokens(b.input),
+              fmtTokens(b.output),
+              fmtCost(b.cost),
             ])}
           />
         </Section>

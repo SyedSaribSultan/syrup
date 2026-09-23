@@ -50,5 +50,26 @@ export async function GET(req: Request) {
     .orderBy(desc(sql`max(${u.createdAt})`))
     .limit(50)
 
-  return Response.json({ days, since, totals, byModel, byDay, bySession })
+  // What the router actually ran. The engine sees "syrup/*" at $0; this is the real spend.
+  const r = schema.routerEvents
+  const rsums = {
+    requests: sql<number>`count(*)`,
+    ok: sql<number>`coalesce(sum(case when ${r.status}='ok' then 1 else 0 end),0)`,
+    rateLimited: sql<number>`coalesce(sum(case when ${r.status}='rate_limited' then 1 else 0 end),0)`,
+    errors: sql<number>`coalesce(sum(case when ${r.status}='error' then 1 else 0 end),0)`,
+    input: sql<number>`coalesce(sum(${r.inputTokens}),0)`,
+    output: sql<number>`coalesce(sum(${r.outputTokens}),0)`,
+    cost: sql<number>`coalesce(sum(${r.cost}),0)`,
+    avgLatency: sql<number>`coalesce(avg(case when ${r.status}='ok' then ${r.latencyMs} end),0)`,
+  }
+  const rwhere = sql`${r.ts} >= ${since}`
+  const [routedTotals] = await d.select(rsums).from(r).where(rwhere)
+  const routedByBackend = await d
+    .select({ alias: r.alias, providerId: r.providerId, modelId: r.modelId, tier: r.tier, ...rsums })
+    .from(r)
+    .where(rwhere)
+    .groupBy(r.alias, r.providerId, r.modelId, r.tier)
+    .orderBy(desc(rsums.requests))
+
+  return Response.json({ days, since, totals, byModel, byDay, bySession, routed: { totals: routedTotals, byBackend: routedByBackend } })
 }

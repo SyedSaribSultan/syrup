@@ -68,9 +68,9 @@ The engine sits behind one interface (`src/server/engine`). If OpenCode ever bec
 
 ## Phasing
 
-**Phase 1 — drive OpenCode from the browser.** Spawn `opencode serve`, relay SSE, render sessions and streaming messages, handle permissions and questions. Providers configured directly in OpenCode. Ledger reads cost/tokens from OpenCode messages. Result: a working agent with a cost dashboard.
+**Phase 1 — drive OpenCode from the browser.** ✅ Spawn `opencode serve`, relay SSE, render sessions and streaming messages, handle permissions and questions. Ledger reads cost/tokens from OpenCode messages.
 
-**Phase 2 — key vault + router.** OpenAI-compatible router at `/api/router/v1`. OpenCode is pointed at it as a custom provider. Router selects key/provider, tracks rate limits, fails over on 429, logs usage. Multiple keys per provider.
+**Phase 2 — key vault + router.** ✅ Vault: many encrypted keys per provider with a free/paid tier; the active one is written into OpenCode auth. Router: an in-process OpenAI-compatible server (port 4210) registered in OpenCode as the `syrup` provider with `syrup/auto` and `syrup/fast`. It resolves an alias to ranked backends from the user's connected keys (free tiers first), injects the key, fails over on 429/5xx with per-key cooldowns, and logs every attempt with real cost to `router_events`. OpenCode Zen free models cannot be routed (they only accept requests from OpenCode itself); they remain selectable directly.
 
 **Phase 3 — memory + skills UI.** Memory MCP server backed by SQLite with embeddings. Skills browser and installer.
 
