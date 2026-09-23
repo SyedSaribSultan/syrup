@@ -74,9 +74,15 @@ The engine sits behind one interface (`src/server/engine`). If OpenCode ever bec
 
 **Phase 3 — memory + skills.** ✅ Memory: `memories` table with an FTS5 index (no embedding model needed), a Streamable HTTP MCP server on the router port exposing `memory_search/list/get/save/update/forget`, and a generated `data/memory/MEMORY.md` loaded as engine instructions so the agent always sees its index. Skills: list from the engine, create from pasted `SKILL.md`, install from GitHub (packs supported) into `~/.config/opencode/skills`, remove.
 
-**Phase 4 — product completeness.** ✅ Workspaces (per-folder sessions, folder browser, recents), session rename/delete, attachments (images/files as data URLs), Changes panel (engine snapshot diff, falling back to files touched by write/edit tools), first-run banner, production build verified.
+**Phase 4 — product completeness.** ✅ Workspaces (per-folder sessions, native OS folder dialog, typed paths, recents), session rename/delete, attachments (images/files as data URLs), Changes panel (engine snapshot diff, falling back to files touched by write/edit tools), first-run banner, production build verified.
 
-**Later.** Terminal (PTY endpoints exist), budgets and alerts, theme toggle, mobile layout, OAuth provider logins (ChatGPT / Copilot), multi-user.
+**Logs.** ✅ `slog()` writes structured events (level, source, event, session, directory, redacted JSON) to the `logs` table in batches, so hot paths never wait on SQLite. A Logs modal, opened from the sidebar, shows them app-wide by default and copies a debugging bundle.
+
+**Folder dialog.** The server opens the OS dialog on its own desktop (self-hosted, so browser and server share one). Windows: the modern Explorer picker (`IFileOpenDialog`, folder mode) called over COM from Windows PowerShell 5.1, owned by an invisible TopMost window so it opens in front. macOS: `osascript choose folder`. Linux: `zenity`, then `kdialog`. One dialog at a time; a new request replaces a stuck one; 3-minute timeout.
+
+**`.sarib` (optional).** If `sarib-mcp` is on PATH at boot, it is registered as a local MCP server. OpenCode runs local MCP servers in the session's directory, so it serves that workspace's `.sarib` files. Absent means no change.
+
+**Later.** Terminal (PTY endpoints exist), budgets and alerts, theme toggle, mobile layout, Google OAuth provider login (the only OAuth provider planned), multi-user.
 
 ## Known issues
 
@@ -89,9 +95,11 @@ The engine sits behind one interface (`src/server/engine`). If OpenCode ever bec
 
 ## Data (SQLite via Drizzle)
 
-- `providers_keys` — provider id, label, encrypted key, tier (free/paid), rate-limit hints, enabled.
+- `provider_keys` — provider id, label, encrypted key, tier (free/paid), rate-limit hints, enabled.
 - `usage_events` — one row per assistant message: session, message, provider, model, tokens, cost, timestamp, key used.
+- `router_events` — one row per routed request: alias, provider, model, key, tier, status, attempts, latency, tokens, real cost, error.
 - `memories` — id, kind, content, embedding, tags, source session, timestamps.
+- `logs` — structured application log: timestamp, level, source, event, session, directory, redacted JSON data.
 - `settings` — key/value.
 
 OpenCode keeps its own session and message storage. syrup does not duplicate it; the ledger keys off OpenCode message ids.

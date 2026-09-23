@@ -15,14 +15,75 @@ const TIMEOUT_MS = 3 * 60_000
 
 let current: { proc: ChildProcess; promise: Promise<string | null> } | null = null
 
-// Windows: WinForms FolderBrowserDialog owned by an invisible TopMost form, so
-// the dialog itself stays on top. Windows only lets the foreground process take
-// focus, so a harmless Alt keypress is sent first (the classic workaround),
-// then the owner is activated. Runs on Windows PowerShell 5.1 and PowerShell 7.
+// Windows: the modern Explorer-style picker (IFileOpenDialog with
+// FOS_PICKFOLDERS), called through COM. WinForms FolderBrowserDialog would give
+// the legacy tree dialog on Windows PowerShell 5.1 / .NET Framework.
+// The dialog is owned by an invisible TopMost form so it stays on top. Windows
+// only lets the foreground process take focus, so a harmless Alt keypress is
+// sent first (the classic workaround), then the owner is activated.
 const PS_SCRIPT = `
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
-[System.Windows.Forms.Application]::EnableVisualStyles()
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class SyrupPicker {
+  [ComImport, Guid("DC1C5A9C-E88A-4dde-A5A1-60F82A20AEF7")] class FileOpenDialog {}
+  [ComImport, Guid("42f85136-db7e-439c-85f1-e4075d135fc8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+  interface IFileDialog {
+    [PreserveSig] int Show(IntPtr owner);
+    void SetFileTypes(uint c, IntPtr f);
+    void SetFileTypeIndex(uint i);
+    void GetFileTypeIndex(out uint i);
+    void Advise(IntPtr sink, out uint cookie);
+    void Unadvise(uint cookie);
+    void SetOptions(uint fos);
+    void GetOptions(out uint fos);
+    void SetDefaultFolder(IShellItem item);
+    void SetFolder(IShellItem item);
+    void GetFolder(out IShellItem item);
+    void GetCurrentSelection(out IShellItem item);
+    void SetFileName([MarshalAs(UnmanagedType.LPWStr)] string name);
+    void GetFileName([MarshalAs(UnmanagedType.LPWStr)] out string name);
+    void SetTitle([MarshalAs(UnmanagedType.LPWStr)] string title);
+    void SetOkButtonLabel([MarshalAs(UnmanagedType.LPWStr)] string text);
+    void SetFileNameLabel([MarshalAs(UnmanagedType.LPWStr)] string label);
+    void GetResult(out IShellItem item);
+  }
+  [ComImport, Guid("43826d1e-e718-42ee-bc55-a1e261c37bfe"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+  interface IShellItem {
+    void BindToHandler(IntPtr pbc, ref Guid bhid, ref Guid riid, out IntPtr ppv);
+    void GetParent(out IShellItem parent);
+    void GetDisplayName(uint sigdn, [MarshalAs(UnmanagedType.LPWStr)] out string name);
+  }
+  [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = false)]
+  static extern void SHCreateItemFromParsingName(string path, IntPtr pbc, [MarshalAs(UnmanagedType.LPStruct)] Guid riid, out IShellItem item);
+
+  public static string Pick(IntPtr owner, string title, string startIn) {
+    IFileDialog d = (IFileDialog)new FileOpenDialog();
+    uint fos;
+    d.GetOptions(out fos);
+    d.SetOptions(fos | 0x20 | 0x40 | 0x800); // PICKFOLDERS | FORCEFILESYSTEM | PATHMUSTEXIST
+    d.SetTitle(title);
+    d.SetOkButtonLabel("Select folder");
+    if (!String.IsNullOrEmpty(startIn)) {
+      try {
+        IShellItem start;
+        SHCreateItemFromParsingName(startIn, IntPtr.Zero, typeof(IShellItem).GUID, out start);
+        d.SetFolder(start);
+      } catch { }
+    }
+    int hr = d.Show(owner);
+    if (hr == unchecked((int)0x800704C7)) return null; // cancelled
+    if (hr != 0) Marshal.ThrowExceptionForHR(hr);
+    IShellItem result;
+    d.GetResult(out result);
+    string path;
+    result.GetDisplayName(0x80058000, out path); // SIGDN_FILESYSPATH
+    return path;
+  }
+}
+'@
 $owner = New-Object System.Windows.Forms.Form
 $owner.Text = 'syrup'
 $owner.TopMost = $true
@@ -34,19 +95,15 @@ $owner.Show()
 [System.Windows.Forms.SendKeys]::SendWait('%')
 $owner.Activate()
 $owner.BringToFront()
-$d = New-Object System.Windows.Forms.FolderBrowserDialog
-$d.Description = 'Choose a workspace folder for syrup'
-$d.ShowNewFolderButton = $true
-$d.RootFolder = [System.Environment+SpecialFolder]::MyComputer
-if ($d.PSObject.Properties['UseDescriptionForTitle']) { $d.UseDescriptionForTitle = $true }
-if ($env:SYRUP_PICK_START -and (Test-Path -LiteralPath $env:SYRUP_PICK_START)) { $d.SelectedPath = $env:SYRUP_PICK_START }
+$start = ''
+if ($env:SYRUP_PICK_START -and (Test-Path -LiteralPath $env:SYRUP_PICK_START)) { $start = $env:SYRUP_PICK_START }
 [Console]::Error.Write('dialog-shown')
-$r = $d.ShowDialog($owner)
+$path = [SyrupPicker]::Pick($owner.Handle, 'Choose a workspace folder for syrup', $start)
 $owner.Close()
-if ($r -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Out.Write($d.SelectedPath) }
+if ($path) { [Console]::Out.Write($path) }
 `
 
-function runDialog(startIn?: string): { proc: ChildProcess; promise: Promise<string | null> } {
+function runDialog(startIn?: string, linux: "zenity" | "kdialog" = "zenity"): { proc: ChildProcess; promise: Promise<string | null> } {
   let cmd: string
   let args: string[]
   if (process.platform === "win32") {
@@ -55,6 +112,9 @@ function runDialog(startIn?: string): { proc: ChildProcess; promise: Promise<str
   } else if (process.platform === "darwin") {
     cmd = "osascript"
     args = ["-e", `POSIX path of (choose folder with prompt "Choose a workspace folder for syrup"${startIn ? ` default location POSIX file "${startIn.replace(/"/g, '\\"')}"` : ""})`]
+  } else if (linux === "kdialog") {
+    cmd = "kdialog"
+    args = ["--getexistingdirectory", startIn ?? process.env.HOME ?? "/", "--title", "Choose a workspace folder for syrup"]
   } else {
     cmd = "zenity"
     args = ["--file-selection", "--directory", "--title=Choose a workspace folder for syrup", ...(startIn ? [`--filename=${startIn}/`] : [])]
@@ -103,7 +163,17 @@ export function pickFolder(startIn?: string): Promise<string | null> {
   }
   const run = runDialog(startIn)
   current = run
-  return run.promise.finally(() => {
-    if (current === run) current = null
-  })
+  return run.promise
+    .catch((err: NodeJS.ErrnoException) => {
+      // Linux without zenity: try kdialog (KDE).
+      if (process.platform === "win32" || process.platform === "darwin" || err.code !== "ENOENT") throw err
+      const kde = runDialog(startIn, "kdialog")
+      if (current === run) current = kde
+      return kde.promise.finally(() => {
+        if (current === kde) current = null
+      })
+    })
+    .finally(() => {
+      if (current === run) current = null
+    })
 }

@@ -7,13 +7,15 @@ No subscription. No single vendor. Bring keys from Google AI Studio, Groq, Mistr
 ## What you get
 
 - **A full coding agent** in a clean chat UI: streaming replies, tool calls (read, write, edit, run, search), permission prompts, plan/build agents, subagents, LSP diagnostics, context compaction. The engine is [OpenCode](https://opencode.ai), the most-used open-source coding agent.
-- **Workspaces.** Point it at any folder on your machine. Chats are per folder.
+- **Workspaces.** Point it at any folder on your machine with the native OS folder dialog, or type a path. Chats are per folder.
 - **Bring your own keys.** Add as many keys as you like per provider, label them, mark them free or paid. Keys are encrypted at rest and never leave your machine.
 - **Router.** Pick **Auto** and syrup sends each request to the strongest connected model with tool calling and a large context, free tiers first, falling over on rate limits. **Fast** does the same for small tasks.
 - **Cost dashboard.** Tokens and dollars per message, session, model and day. Free-tier usage is shown separately from real spend.
 - **Long-term memory.** The agent saves and searches facts across sessions (SQLite + full-text search), exposed to it as MCP tools. You can edit everything it remembers.
 - **Skills.** Install `SKILL.md` skills from GitHub or paste your own. Works with skills you already have in `~/.claude/skills`.
 - **Attachments.** Drop or paste images and files into the composer.
+- **Logs.** A structured application log (secrets redacted), one click away in the sidebar, with a copy-for-debugging button.
+- **Optional `.sarib` tools.** If [`sarib-mcp`](https://github.com/SyedSaribSultan/sarib-lang) is installed, the agent can query and edit `.sarib` files in the workspace by id instead of rewriting them.
 - **Free out of the box.** OpenCode's free models work with no key at all, so you can try it before adding anything.
 
 ## Requirements
@@ -25,6 +27,9 @@ No subscription. No single vendor. Bring keys from Google AI Studio, Groq, Mistr
 ```bash
 npm i -g opencode-ai
 ```
+
+- Linux only: `zenity` or `kdialog` for the folder dialog (you can always type a path instead)
+- Optional: `pip install "sarib[mcp]"` (Python 3.10+) to give the agent the `.sarib` tools. syrup picks it up on the next start.
 
 ## Run it
 
