@@ -1,6 +1,4 @@
-import { existsSync } from "node:fs"
-import path from "node:path"
-import { createOpencodeClient, type Config, type McpLocalConfig, type OpencodeClient } from "@opencode-ai/sdk/client"
+import { createOpencodeClient, type Config, type OpencodeClient } from "@opencode-ai/sdk/client"
 import { createOpencodeServer } from "@opencode-ai/sdk/server"
 import { env } from "../env"
 import { slog } from "../log"
@@ -15,33 +13,8 @@ export type Engine = {
 
 const g = globalThis as unknown as { __syrupEngine?: Promise<Engine> }
 
-/** Full path of an executable on PATH, or null. */
-function onPath(name: string): string | null {
-  const exts = process.platform === "win32" ? (process.env.PATHEXT || ".EXE;.CMD;.BAT").split(";") : [""]
-  for (const dir of (process.env.PATH || "").split(path.delimiter)) {
-    if (!dir) continue
-    for (const ext of exts) {
-      const p = path.join(dir, name + ext.toLowerCase())
-      if (existsSync(p)) return p
-    }
-  }
-  return null
-}
-
-/**
- * Optional .sarib MCP server (`pip install "sarib[mcp]"`), registered only when
- * installed. No folder argument: OpenCode runs local MCP servers in the session's
- * directory, so it serves the .sarib files of whichever workspace is open.
- */
-function saribMcp(): McpLocalConfig | null {
-  const bin = onPath("sarib-mcp")
-  slog("engine", bin ? "sarib_mcp.found" : "sarib_mcp.absent", { bin })
-  return bin ? { type: "local", command: [bin], enabled: true, timeout: 10_000 } : null
-}
-
 /** OpenCode config injected at boot: syrup router as a provider, syrup MCP for memory, memory index as instructions. */
 function engineConfig(routerURL: string, memoryIndex: string): Config {
-  const sarib = saribMcp()
   const models: NonNullable<NonNullable<Config["provider"]>[string]["models"]> = {}
   for (const [id, a] of Object.entries(ALIASES)) {
     models[id] = {
@@ -60,7 +33,6 @@ function engineConfig(routerURL: string, memoryIndex: string): Config {
     instructions: [memoryIndex],
     mcp: {
       syrup: { type: "remote", url: routerURL.replace(/\/v1$/, "/mcp"), enabled: true, timeout: 10_000 },
-      ...(sarib ? { sarib } : {}),
     },
     provider: {
       syrup: {

@@ -1,4 +1,5 @@
 import { engine } from "@/server/engine/opencode"
+import { ensureSarib } from "@/server/sarib"
 
 /**
  * Transparent proxy to the embedded OpenCode server. The browser uses the
@@ -17,6 +18,16 @@ async function proxy(req: Request, ctx: { params: Promise<{ path: string[] }> })
   const incoming = new URL(req.url)
   const target = new URL(`${base}/${path.join("/")}`)
   target.search = incoming.search
+
+  // Give workspaces with .sarib files the sarib tools. Before a prompt it is
+  // awaited (bounded) so the turn already sees them; otherwise it runs in the background.
+  const dir = incoming.searchParams.get("directory")
+  if (dir) {
+    const ready = ensureSarib(dir)
+    if (req.method === "POST" && /^session\/[^/]+\/(prompt_async|message)$/.test(path.join("/"))) {
+      await Promise.race([ready, new Promise((r) => setTimeout(r, 5_000))])
+    }
+  }
 
   const headers = new Headers()
   req.headers.forEach((v, k) => {
