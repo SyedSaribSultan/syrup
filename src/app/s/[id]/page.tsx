@@ -1,10 +1,10 @@
 "use client"
 
 import { useParams } from "next/navigation"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef } from "react"
 import { Changes } from "@/components/changes"
 import { Composer } from "@/components/composer"
-import { LogsModal } from "@/components/logs-modal"
+import { useLogs } from "@/components/logs-modal"
 import { MessageView } from "@/components/message"
 import { Prompts } from "@/components/prompts"
 import { useEngine } from "@/lib/engine-store"
@@ -18,7 +18,7 @@ export default function SessionPage() {
   const busy = status[id]?.type === "busy" || status[id]?.type === "retry"
   const scroller = useRef<HTMLDivElement>(null)
   const stickToBottom = useRef(true)
-  const [logsOpen, setLogsOpen] = useState(false)
+  const { open: openLogs } = useLogs()
 
   useEffect(() => {
     void loadMessages(id)
@@ -63,12 +63,11 @@ export default function SessionPage() {
             </div>
           )}
           <Changes sessionID={id} />
-          <button type="button" onClick={() => setLogsOpen(true)} className="rounded-lg px-2 py-1 text-xs text-ink-2 transition hover:bg-surface-2 hover:text-ink">
+          <button type="button" onClick={openLogs} className="rounded-lg px-2 py-1 text-xs text-ink-2 transition hover:bg-surface-2 hover:text-ink">
             Logs
           </button>
         </div>
       </header>
-      {logsOpen && <LogsModal sessionID={id} onClose={() => setLogsOpen(false)} />}
 
       <div ref={scroller} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-[720px] space-y-6 px-6 pt-6 pb-40">

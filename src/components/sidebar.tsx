@@ -5,10 +5,12 @@ import { useParams, usePathname, useRouter } from "next/navigation"
 import { useMemo } from "react"
 import { useEngine } from "@/lib/engine-store"
 import { fmtRelative } from "@/lib/format"
+import { useLogs } from "./logs-modal"
 import { WorkspaceSwitcher } from "./workspace-switcher"
 
 export function Sidebar() {
   const { sessions, sessionsLoaded, status, connected, renameSession, deleteSession } = useEngine()
+  const { open: openLogs } = useLogs()
   const params = useParams<{ id?: string }>()
   const pathname = usePathname()
   const router = useRouter()
@@ -98,6 +100,12 @@ export function Sidebar() {
         <NavLink href="/usage" active={pathname === "/usage"} icon="chart">
           Usage & cost
         </NavLink>
+        <button type="button" onClick={openLogs} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-ink-2 transition hover:bg-surface/70 hover:text-ink">
+          <svg width="14" height="14" viewBox="0 0 14 14" className="shrink-0 opacity-70" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 2.5h8v9H3zM5 5h4M5 7h4M5 9h2.5" />
+          </svg>
+          Logs
+        </button>
       </div>
     </aside>
   )

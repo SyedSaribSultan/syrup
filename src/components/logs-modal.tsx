@@ -1,7 +1,30 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { useParams } from "next/navigation"
 import { clog } from "@/lib/clientlog"
+
+/** App-wide access to the Logs modal, so any page can open it. */
+const LogsContext = createContext<{ open(): void } | null>(null)
+
+export function LogsProvider({ children }: { children: ReactNode }) {
+  const [isOpen, setOpen] = useState(false)
+  const params = useParams<{ id?: string }>()
+  const open = useCallback(() => setOpen(true), [])
+  const close = useCallback(() => setOpen(false), [])
+  return (
+    <LogsContext.Provider value={{ open }}>
+      {children}
+      {isOpen && <LogsModal sessionID={params?.id} onClose={close} />}
+    </LogsContext.Provider>
+  )
+}
+
+export function useLogs() {
+  const ctx = useContext(LogsContext)
+  if (!ctx) throw new Error("useLogs outside LogsProvider")
+  return ctx
+}
 
 /**
  * Full-screen log viewer. Simple list, click a row for the full record,
@@ -44,7 +67,8 @@ export function LogsModal({ sessionID, onClose }: { sessionID?: string; onClose(
   const [engineTail, setEngineTail] = useState<string[]>([])
   const [sources, setSources] = useState<Set<string>>(new Set(SOURCES))
   const [minLevel, setMinLevel] = useState<"debug" | "info" | "warn">("debug")
-  const [onlySession, setOnlySession] = useState(!!sessionID)
+  // Logs are app-wide; narrowing to the open chat is opt-in.
+  const [onlySession, setOnlySession] = useState(false)
   const [q, setQ] = useState("")
   const [open, setOpen] = useState<number | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
@@ -132,7 +156,8 @@ export function LogsModal({ sessionID, onClose }: { sessionID?: string; onClose(
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line bg-surface px-5 py-3">
         <h2 className="font-serif text-[1.2rem] font-medium text-ink">Logs</h2>
         <span className="text-xs text-muted">
-          {rows.length} rows · <span className={counts.error ? "text-err" : ""}>{counts.error} errors</span> · <span className={counts.warn ? "text-warn" : ""}>{counts.warn} warnings</span>
+          {onlySession && sessionID ? "this chat" : "whole app"} · last 24h · {rows.length} rows · <span className={counts.error ? "text-err" : ""}>{counts.error} errors</span> ·{" "}
+          <span className={counts.warn ? "text-warn" : ""}>{counts.warn} warnings</span>
         </span>
         <span className="flex-1" />
         <CopyBtn onClick={() => copy("5m")} done={copied === "5m"} primary>
