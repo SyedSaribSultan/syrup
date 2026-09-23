@@ -80,7 +80,7 @@ function Picker({ current, projects, onChoose }: { current: string; projects: st
     setPicking(true)
     setPickErr(null)
     try {
-      const r = await fetch("/api/workspace/pick", { method: "POST" })
+      const r = await fetch("/api/workspace/pick", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ startIn: current }) })
       const j = await r.json()
       if (j.path) onChoose(j.path)
       else if (j.cancelled) return

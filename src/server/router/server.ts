@@ -138,14 +138,30 @@ async function chatCompletions(req: http.IncomingMessage, res: http.ServerRespon
   const stream = body.stream === true
   if (stream) body.stream_options = { ...(body.stream_options as object | undefined), include_usage: true }
 
-  const list = (await candidates(alias)).filter((c) => (cooldown.get(coolKey(c)) ?? 0) < Date.now())
-  if (list.length === 0) {
+  const all = await candidates(alias)
+  if (all.length === 0) {
     return json(res, 503, {
       error: {
         type: "syrup_no_backend",
         message: "syrup router: no connected provider can serve this request. Add an API key under Providers, or pick a model directly.",
       },
     })
+  }
+  const now = Date.now()
+  const list = all.filter((c) => (cooldown.get(coolKey(c)) ?? 0) < now)
+  if (list.length === 0) {
+    // Everything is cooling down after 429/5xx. Tell the engine when to come back.
+    const soonest = Math.min(...all.map((c) => cooldown.get(coolKey(c)) ?? now))
+    const wait = Math.max(1, Math.ceil((soonest - now) / 1000))
+    res.writeHead(429, { "content-type": "application/json", "retry-after": String(wait) })
+    return res.end(
+      JSON.stringify({
+        error: {
+          type: "syrup_all_cooling_down",
+          message: `syrup router: all ${all.length} connected model${all.length === 1 ? " is" : "s are"} busy or rate limited right now. Retrying in ${wait}s.`,
+        },
+      }),
+    )
   }
 
   const errors: string[] = []
