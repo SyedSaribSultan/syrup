@@ -3,7 +3,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { promisify } from "node:util"
-import { engine } from "./engine/opencode"
+import { engine, engineAuthHeader } from "./engine/opencode"
 import { slog } from "./log"
 
 const run = promisify(execFile)
@@ -41,7 +41,7 @@ export function parseFrontmatter(md: string): { name?: string; description?: str
 
 export async function listSkills(): Promise<SkillInfo[]> {
   const { url } = await engine()
-  const res = await fetch(`${url}/skill`)
+  const res = await fetch(`${url}/skill`, { headers: { authorization: engineAuthHeader() } })
   if (!res.ok) throw new Error(`engine: could not list skills (${res.status})`)
   const rows = (await res.json()) as { name: string; description?: string; location: string; content: string }[]
   const managedRoot = path.resolve(skillsDir()).toLowerCase()
