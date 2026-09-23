@@ -8,6 +8,8 @@ Companion to [PLAN.md](PLAN.md). Verified against each provider's docs on 2026-0
 
 ## Part 1 — Vercel project (do this first; other parts need its URL)
 
+**Done 2026-09-23.** Project `syrup` (prj_WmRuGkrzhHssMoyHMBkjwzWLO6cY), team `syedsaribsultans-projects`, linked from the repo via `vercel link`, functions pinned to `fra1` in `vercel.json`.
+
 1. Sign in at https://vercel.com with the GitHub account that owns `SyedSaribSultan/syrup`. Hobby (free) is the default.
 2. Dashboard → **Add New…** → **Project**.
 3. Under **Import Git Repository**, pick `SyedSaribSultan/syrup`. If it is missing, click **Adjust GitHub App Permissions** and grant access to that repo.
@@ -24,6 +26,8 @@ Companion to [PLAN.md](PLAN.md). Verified against each provider's docs on 2026-0
 
 ## Part 2 — Domain: `syrup.syedsarib.com`
 
+**Done 2026-09-23.** A record `syrup → 76.76.21.21`, DNS only. Live over HTTPS.
+
 **In Vercel**
 1. Project → **Settings** → **Domains** → **Add Domain**.
 2. Enter `syrup.syedsarib.com` → **Add**.
@@ -37,6 +41,8 @@ Companion to [PLAN.md](PLAN.md). Verified against each provider's docs on 2026-0
 7. Optional but recommended: Cloudflare → **DNS** → **Settings** → enable **DNSSEC** (follow the DS-record step at your registrar if the registrar is not Cloudflare).
 
 ## Part 3 — Google sign-in (Google Auth Platform)
+
+**Done 2026-09-23.** Project `syrup`, external, in production, web client created; `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` in Vercel (Production, Preview).
 
 **A. Project and app registration**
 1. https://console.cloud.google.com → project picker (top bar) → **New Project** → **Project name:** `syrup` → **Create** → select it.
@@ -93,6 +99,8 @@ Companion to [PLAN.md](PLAN.md). Verified against each provider's docs on 2026-0
 7. Optional: Neon → **Integrations** → **Vercel** → connect the `syrup` project. This auto-creates a **Neon branch per Vercel preview deployment** with its own connection string, so PRs test against real schema. Free.
 
 ## Part 5 — PostHog (EU)
+
+**Done 2026-09-23.** EU project created, key in Vercel for all environments. Products enabled: Product Analytics, Session Replay, Web Analytics, Feature Flags, Error Tracking, MCP analytics. Wizard, warehouse and snippet steps were skipped on purpose; Phase 1 adds the code. Pending in PostHog UI: Session replay → Mask all inputs + Mask all text.
 
 1. https://eu.posthog.com/signup (EU region; the URL matters). Create an org `syrup` and project `syrup`.
 2. When asked for a framework, pick **Next.js**; skip the wizard's code (Phase 1 adds it).
