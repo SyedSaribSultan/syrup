@@ -1,82 +1,109 @@
-import { execFile } from "node:child_process"
-import { promisify } from "node:util"
-
-const run = promisify(execFile)
+import { spawn, type ChildProcess } from "node:child_process"
+import { slog } from "./log"
 
 /**
  * Opens the operating system's native folder dialog on the machine syrup runs
  * on and returns the chosen path. Works because syrup is self-hosted: the
  * browser and the server share a desktop. Resolves to null when cancelled,
  * throws when no dialog is available (headless / remote).
+ *
+ * Only one dialog at a time. A new request while one is open abandons the old
+ * one, so a dialog that got lost behind other windows never blocks the user.
  */
 
-let busy: Promise<string | null> | null = null
+const TIMEOUT_MS = 3 * 60_000
 
-// Windows Shell folder dialog via COM. Works from a plain console PowerShell
-// without a WinForms message loop, on Windows PowerShell 5.1 and PowerShell 7.
-// BIF flags: 0x40 NEWDIALOGSTYLE | 0x10 EDITBOX | 0x1 RETURNONLYFSDIRS.
+let current: { proc: ChildProcess; promise: Promise<string | null> } | null = null
+
+// Windows: WinForms FolderBrowserDialog owned by an invisible TopMost form, so
+// the dialog itself stays on top. Windows only lets the foreground process take
+// focus, so a harmless Alt keypress is sent first (the classic workaround),
+// then the owner is activated. Runs on Windows PowerShell 5.1 and PowerShell 7.
 const PS_SCRIPT = `
-$shell = New-Object -ComObject Shell.Application
-$start = 0
-if ($env:SYRUP_PICK_START -and (Test-Path -LiteralPath $env:SYRUP_PICK_START)) { $start = $env:SYRUP_PICK_START }
-$folder = $shell.BrowseForFolder(0, 'Choose a workspace folder for syrup', 0x51, $start)
-if ($folder -ne $null) { [Console]::Out.Write($folder.Self.Path) }
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Windows.Forms
+[System.Windows.Forms.Application]::EnableVisualStyles()
+$owner = New-Object System.Windows.Forms.Form
+$owner.Text = 'syrup'
+$owner.TopMost = $true
+$owner.ShowInTaskbar = $false
+$owner.StartPosition = 'CenterScreen'
+$owner.Size = New-Object System.Drawing.Size(1, 1)
+$owner.Opacity = 0.01
+$owner.Show()
+[System.Windows.Forms.SendKeys]::SendWait('%')
+$owner.Activate()
+$owner.BringToFront()
+$d = New-Object System.Windows.Forms.FolderBrowserDialog
+$d.Description = 'Choose a workspace folder for syrup'
+$d.ShowNewFolderButton = $true
+$d.RootFolder = [System.Environment+SpecialFolder]::MyComputer
+if ($d.PSObject.Properties['UseDescriptionForTitle']) { $d.UseDescriptionForTitle = $true }
+if ($env:SYRUP_PICK_START -and (Test-Path -LiteralPath $env:SYRUP_PICK_START)) { $d.SelectedPath = $env:SYRUP_PICK_START }
+[Console]::Error.Write('dialog-shown')
+$r = $d.ShowDialog($owner)
+$owner.Close()
+if ($r -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Out.Write($d.SelectedPath) }
 `
 
-let pwshChecked: string | null | undefined
-
-/** PowerShell 7 gives the modern folder dialog; fall back to Windows PowerShell. */
-async function powershell(): Promise<string> {
-  if (pwshChecked === undefined) {
-    try {
-      await run("pwsh.exe", ["-NoProfile", "-Command", "exit 0"], { timeout: 15_000 })
-      pwshChecked = "pwsh.exe"
-    } catch {
-      pwshChecked = null
-    }
-  }
-  return pwshChecked ?? "powershell.exe"
-}
-
-async function open(startIn?: string): Promise<string | null> {
-  const timeout = 10 * 60_000
+function runDialog(startIn?: string): { proc: ChildProcess; promise: Promise<string | null> } {
+  let cmd: string
+  let args: string[]
   if (process.platform === "win32") {
-    const exe = await powershell()
-    // No windowsHide: it can keep the dialog from ever being shown.
-    const { stdout } = await run(exe, ["-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-Command", PS_SCRIPT], {
-      timeout,
-      env: { ...process.env, SYRUP_PICK_START: startIn ?? "" },
+    cmd = "powershell.exe"
+    args = ["-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-Command", PS_SCRIPT]
+  } else if (process.platform === "darwin") {
+    cmd = "osascript"
+    args = ["-e", `POSIX path of (choose folder with prompt "Choose a workspace folder for syrup"${startIn ? ` default location POSIX file "${startIn.replace(/"/g, '\\"')}"` : ""})`]
+  } else {
+    cmd = "zenity"
+    args = ["--file-selection", "--directory", "--title=Choose a workspace folder for syrup", ...(startIn ? [`--filename=${startIn}/`] : [])]
+  }
+
+  const proc = spawn(cmd, args, { env: { ...process.env, SYRUP_PICK_START: startIn ?? "" }, stdio: ["ignore", "pipe", "pipe"] })
+  slog("workspace", "pick.spawned", { cmd, pid: proc.pid, startIn })
+
+  const promise = new Promise<string | null>((resolve, reject) => {
+    let out = ""
+    let err = ""
+    proc.stdout?.on("data", (c) => (out += c))
+    proc.stderr?.on("data", (c) => {
+      err += c
+      if (String(c).includes("dialog-shown")) slog("workspace", "pick.dialog_shown", { pid: proc.pid })
     })
-    return stdout.trim() || null
-  }
-  if (process.platform === "darwin") {
-    try {
-      const args = ["-e", `POSIX path of (choose folder with prompt "Choose a workspace folder for syrup"${startIn ? ` default location POSIX file "${startIn.replace(/"/g, '\\"')}"` : ""})`]
-      const { stdout } = await run("osascript", args, { timeout })
-      return stdout.trim().replace(/\/$/, "") || null
-    } catch (err) {
-      // osascript exits non-zero on cancel (-128).
-      if (err && typeof err === "object" && "stderr" in err && String((err as { stderr: string }).stderr).includes("-128")) return null
-      throw err
-    }
-  }
-  // Linux: zenity is common; kdialog as a second try.
-  try {
-    const { stdout } = await run("zenity", ["--file-selection", "--directory", "--title=Choose a workspace folder for syrup", ...(startIn ? [`--filename=${startIn}/`] : [])], { timeout })
-    return stdout.trim() || null
-  } catch (err) {
-    const code = (err as { code?: number | string })?.code
-    if (code === 1) return null // cancelled
-    const { stdout } = await run("kdialog", ["--getexistingdirectory", startIn ?? process.env.HOME ?? "/"], { timeout })
-    return stdout.trim() || null
-  }
+    const timer = setTimeout(() => {
+      slog("workspace", "pick.timeout", { pid: proc.pid, ms: TIMEOUT_MS }, { level: "warn" })
+      proc.kill()
+    }, TIMEOUT_MS)
+    proc.on("error", (e) => {
+      clearTimeout(timer)
+      slog("workspace", "pick.spawn_error", e, { level: "error" })
+      reject(e)
+    })
+    proc.on("exit", (code, signal) => {
+      clearTimeout(timer)
+      const stderr = err.replace("dialog-shown", "").trim()
+      slog("workspace", "pick.exited", { pid: proc.pid, code, signal, stdout: out.trim(), stderr }, { level: code === 0 || code === null ? "info" : "warn" })
+      if (signal) return resolve(null) // killed: timed out or superseded
+      // macOS cancel and zenity cancel exit non-zero without output.
+      if (code !== 0 && out.trim() === "" && (process.platform !== "win32" || !stderr)) return resolve(null)
+      if (code !== 0 && stderr) return reject(new Error(stderr.slice(0, 500)))
+      resolve(out.trim().replace(/\/$/, "") || null)
+    })
+  })
+  return { proc, promise }
 }
 
 export function pickFolder(startIn?: string): Promise<string | null> {
-  if (!busy) {
-    busy = open(startIn).finally(() => {
-      busy = null
-    })
+  if (current) {
+    // The previous dialog was never answered (probably hidden). Drop it and open a fresh one.
+    slog("workspace", "pick.superseded", { pid: current.proc.pid }, { level: "warn" })
+    current.proc.kill()
+    current = null
   }
-  return busy
+  const run = runDialog(startIn)
+  current = run
+  return run.promise.finally(() => {
+    if (current === run) current = null
+  })
 }
