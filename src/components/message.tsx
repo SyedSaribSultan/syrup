@@ -8,8 +8,9 @@ export function MessageView({ entry, streaming }: { entry: MessageEntry; streami
   const { info, parts } = entry
 
   if (info.role === "user") {
+    // The engine adds synthetic text parts carrying attachment contents; show only what the user typed.
     const text = parts
-      .filter((p) => p.type === "text")
+      .filter((p) => p.type === "text" && !p.synthetic)
       .map((p) => (p.type === "text" ? p.text : ""))
       .join("\n")
     const files = parts.filter((p) => p.type === "file")
@@ -17,7 +18,20 @@ export function MessageView({ entry, streaming }: { entry: MessageEntry; streami
       <div className="flex justify-end">
         <div className="max-w-[85%] rounded-2xl rounded-br-md bg-surface-2 px-4 py-2.5 text-[15px] leading-6 text-ink whitespace-pre-wrap">
           {text}
-          {files.length > 0 && <div className="mt-1 text-xs text-muted">{files.length} attachment(s)</div>}
+          {files.length > 0 && (
+            <div className={`flex flex-wrap gap-1.5 ${text ? "mt-2" : ""}`}>
+              {files.map((f) =>
+                f.type === "file" && f.mime.startsWith("image/") ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img key={f.id} src={f.url} alt={f.filename ?? "image"} className="max-h-48 rounded-lg border border-line" />
+                ) : (
+                  <span key={f.id} className="rounded-md border border-line bg-bg px-2 py-0.5 text-xs text-ink-2">
+                    📎 {f.type === "file" ? f.filename ?? f.mime : "file"}
+                  </span>
+                ),
+              )}
+            </div>
+          )}
         </div>
       </div>
     )

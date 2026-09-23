@@ -2,17 +2,17 @@
 
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { Composer } from "@/components/composer"
+import { Composer, type Attachment } from "@/components/composer"
 import { useEngine } from "@/lib/engine-store"
 
 export default function Home() {
   const router = useRouter()
   const { createSession, send, models, directory, hasKeys, providers } = useEngine()
 
-  async function onSend(text: string) {
+  async function onSend(text: string, files: Attachment[]) {
     const s = await createSession()
     router.push(`/s/${s.id}`)
-    await send(s.id, text)
+    await send(s.id, text, files)
   }
 
   const freeCount = models.filter((m) => m.free && m.providerID !== "syrup").length

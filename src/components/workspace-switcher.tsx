@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation"
 import { useEffect, useRef, useState } from "react"
-import { useEngine } from "@/lib/engine-store"
+import { readRecent, useEngine } from "@/lib/engine-store"
 
 type Browse = { path: string; exists: boolean; git?: boolean; parent: string | null; dirs: { name: string; path: string; git: boolean }[]; home?: string }
 
@@ -12,8 +12,18 @@ function base(p: string) {
 }
 
 export function WorkspaceSwitcher() {
-  const { directory, projects, setDirectory } = useEngine()
+  const { directory, projects, defaultDirectory, setDirectory } = useEngine()
   const [open, setOpen] = useState(false)
+  const [recent, setRecent] = useState<string[]>([])
+
+  // Recent = folders chosen here, plus git projects the engine knows. Computed when the menu opens.
+  function toggle() {
+    if (!open) {
+      const fromEngine = projects.map((p) => p.worktree).filter((w) => w && w !== "/" && w !== "\\")
+      setRecent([...new Set([...readRecent(), defaultDirectory, ...fromEngine].filter(Boolean))])
+    }
+    setOpen((v) => !v)
+  }
   const ref = useRef<HTMLDivElement>(null)
   const router = useRouter()
 
@@ -36,7 +46,7 @@ export function WorkspaceSwitcher() {
     <div ref={ref} className="relative px-3 pb-2">
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={toggle}
         title={directory}
         className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] text-ink-2 transition hover:bg-surface/70 hover:text-ink"
       >
@@ -51,7 +61,7 @@ export function WorkspaceSwitcher() {
 
       {open && (
         <div className="absolute left-3 right-3 top-full z-30 mt-1 overflow-hidden rounded-xl border border-line bg-surface shadow-card">
-          <Picker current={directory} projects={projects.map((p) => p.worktree)} onChoose={choose} />
+          <Picker current={directory} projects={recent} onChoose={choose} />
         </div>
       )}
     </div>

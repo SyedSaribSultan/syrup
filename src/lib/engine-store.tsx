@@ -187,7 +187,7 @@ type Ctx = State & {
   refreshProjects(): Promise<void>
   loadMessages(sessionID: string): Promise<void>
   createSession(): Promise<Session>
-  send(sessionID: string, text: string): Promise<void>
+  send(sessionID: string, text: string, files?: { name: string; mime: string; url: string }[]): Promise<void>
   abort(sessionID: string): Promise<void>
   renameSession(sessionID: string, title: string): Promise<void>
   deleteSession(sessionID: string): Promise<void>
@@ -205,6 +205,17 @@ const EngineContext = createContext<Ctx | null>(null)
 
 const MODEL_KEY = "syrup.model"
 const DIR_KEY = "syrup.directory"
+const RECENT_KEY = "syrup.recentDirs"
+
+export function readRecent(): string[] {
+  try {
+    const raw = localStorage.getItem(RECENT_KEY)
+    const list = raw ? JSON.parse(raw) : []
+    return Array.isArray(list) ? list.filter((x) => typeof x === "string") : []
+  } catch {
+    return []
+  }
+}
 
 // Raw event payloads we care about. Typed loosely: the v1 SDK types lag the server.
 type RawEvent = { type: string; properties: Record<string, unknown> }
@@ -371,6 +382,9 @@ export function EngineProvider({ children }: { children: ReactNode }) {
     if (!d) return
     try {
       localStorage.setItem(DIR_KEY, d)
+      // Recent workspaces are tracked here: the engine groups non-git folders into one project.
+      const recent = readRecent().filter((x) => x !== d)
+      localStorage.setItem(RECENT_KEY, JSON.stringify([d, ...recent].slice(0, 10)))
     } catch {}
     dispatch({ type: "directory", directory: d })
   }, [])
@@ -403,11 +417,14 @@ export function EngineProvider({ children }: { children: ReactNode }) {
   }, [dir, refreshProjects])
 
   const send = useCallback(
-    async (sessionID: string, text: string) => {
+    async (sessionID: string, text: string, files: { name: string; mime: string; url: string }[] = []) => {
       dispatch({ type: "error", sessionID, error: undefined })
+      const parts: ({ type: "text"; text: string } | { type: "file"; mime: string; filename: string; url: string })[] = []
+      if (text) parts.push({ type: "text", text })
+      for (const f of files) parts.push({ type: "file", mime: f.mime, filename: f.name, url: f.url })
       await oc(dir).session.promptAsync({
         path: { id: sessionID },
-        body: { model: state.model ?? undefined, parts: [{ type: "text", text }] },
+        body: { model: state.model ?? undefined, parts },
       })
     },
     [dir, state.model],
