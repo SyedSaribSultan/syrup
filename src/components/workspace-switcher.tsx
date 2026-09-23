@@ -72,6 +72,29 @@ function Picker({ current, projects, onChoose }: { current: string; projects: st
   const [browsing, setBrowsing] = useState(false)
   const [data, setData] = useState<Browse | null>(null)
   const [typed, setTyped] = useState("")
+  const [picking, setPicking] = useState(false)
+  const [pickErr, setPickErr] = useState<string | null>(null)
+
+  // Native OS dialog on the machine syrup runs on. Falls back to the in-app browser.
+  async function pickNative() {
+    setPicking(true)
+    setPickErr(null)
+    try {
+      const r = await fetch("/api/workspace/pick", { method: "POST" })
+      const j = await r.json()
+      if (j.path) onChoose(j.path)
+      else if (j.cancelled) return
+      else {
+        setPickErr(j.error ?? "Could not open a folder dialog")
+        setBrowsing(true)
+      }
+    } catch {
+      setPickErr("Could not open a folder dialog")
+      setBrowsing(true)
+    } finally {
+      setPicking(false)
+    }
+  }
 
   useEffect(() => {
     if (!browsing) return
@@ -105,9 +128,16 @@ function Picker({ current, projects, onChoose }: { current: string; projects: st
           </>
         )}
         <div className="border-t border-line p-1.5">
-          <button type="button" onClick={() => setBrowsing(true)} className="w-full rounded-lg px-2 py-1.5 text-left text-[13px] text-accent transition hover:bg-surface-2">
-            Open another folder…
+          <button type="button" onClick={() => void pickNative()} disabled={picking} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] text-accent transition hover:bg-surface-2 disabled:opacity-60">
+            <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" className="shrink-0">
+              <path d="M1.5 4.5A1.5 1.5 0 0 1 3 3h2.5l1.5 1.5H11A1.5 1.5 0 0 1 12.5 6v4.5A1.5 1.5 0 0 1 11 12H3a1.5 1.5 0 0 1-1.5-1.5v-6Z" />
+            </svg>
+            {picking ? "Waiting for the folder dialog…" : "Open another folder…"}
           </button>
+          <button type="button" onClick={() => setBrowsing(true)} className="w-full rounded-lg px-2 py-1 text-left text-[11px] text-muted transition hover:bg-surface-2 hover:text-ink">
+            or type / browse a path
+          </button>
+          {pickErr && <div className="px-2 pt-1 text-[11px] text-warn">{pickErr}</div>}
         </div>
       </div>
     )
