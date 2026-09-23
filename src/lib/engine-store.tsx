@@ -159,6 +159,7 @@ type Ctx = State & {
   send(sessionID: string, text: string): Promise<void>
   abort(sessionID: string): Promise<void>
   setModel(m: ModelRef): void
+  refreshProviders(): Promise<void>
   replyPermission(req: PermissionReq, response: "once" | "always" | "reject"): Promise<void>
   replyQuestion(req: QuestionReq, answers: string[][]): Promise<void>
   rejectQuestion(req: QuestionReq): Promise<void>
@@ -341,6 +342,11 @@ export function EngineProvider({ children }: { children: ReactNode }) {
     await oc().session.abort({ path: { id: sessionID } })
   }, [])
 
+  const refreshProviders = useCallback(async () => {
+    const prov = await oc().config.providers()
+    if (prov.data) dispatch({ type: "providers", providers: prov.data.providers, defaults: prov.data.default })
+  }, [])
+
   const setModel = useCallback((m: ModelRef) => {
     dispatch({ type: "model", model: m })
     try {
@@ -385,6 +391,7 @@ export function EngineProvider({ children }: { children: ReactNode }) {
     send,
     abort,
     setModel,
+    refreshProviders,
     replyPermission,
     replyQuestion,
     rejectQuestion,

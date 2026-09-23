@@ -31,8 +31,12 @@ export const providerKeys = sqliteTable("provider_keys", {
   label: text("label").notNull(),
   /** AES-256-GCM ciphertext, base64. */
   secret: text("secret").notNull(),
+  /** Last few characters, for display. */
+  hint: text("hint").notNull().default(""),
   tier: text("tier", { enum: ["free", "paid"] }).notNull().default("free"),
   enabled: integer("enabled").notNull().default(1),
+  /** 1 for the key currently written into the engine. One per provider. */
+  active: integer("active").notNull().default(0),
   createdAt: integer("created_at").notNull(),
 })
 

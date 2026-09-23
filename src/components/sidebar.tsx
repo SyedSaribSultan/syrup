@@ -70,17 +70,39 @@ export function Sidebar() {
         </ul>
       </nav>
 
-      <div className="border-t border-line p-2">
-        <Link
-          href="/usage"
-          className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition ${
-            pathname === "/usage" ? "bg-surface text-ink shadow-card" : "text-ink-2 hover:bg-surface/70 hover:text-ink"
-          }`}
-        >
-          <span className="inline-block h-3.5 w-3.5 rounded-sm border border-current opacity-70" />
+      <div className="space-y-0.5 border-t border-line p-2">
+        <NavLink href="/settings/providers" active={pathname === "/settings/providers"} icon="key">
+          Providers
+        </NavLink>
+        <NavLink href="/usage" active={pathname === "/usage"} icon="chart">
           Usage & cost
-        </Link>
+        </NavLink>
       </div>
     </aside>
+  )
+}
+
+function NavLink({ href, active, icon, children }: { href: string; active: boolean; icon: "key" | "chart"; children: React.ReactNode }) {
+  return (
+    <Link
+      href={href}
+      className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition ${
+        active ? "bg-surface text-ink shadow-card" : "text-ink-2 hover:bg-surface/70 hover:text-ink"
+      }`}
+    >
+      <svg width="14" height="14" viewBox="0 0 14 14" className="shrink-0 opacity-70" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+        {icon === "key" ? (
+          <>
+            <circle cx="5" cy="9" r="3" />
+            <path d="M7.2 6.8 12 2M10 4l2 2" />
+          </>
+        ) : (
+          <>
+            <path d="M2 12h10M3.5 10V6M7 10V3M10.5 10V7.5" />
+          </>
+        )}
+      </svg>
+      {children}
+    </Link>
   )
 }
