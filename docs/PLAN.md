@@ -222,6 +222,30 @@ Each phase ends with something deployed and usable. Estimates are working days f
 6. **Decide beta size and invite policy** (recommended: 30 invites, waitlist for the rest).
 7. **Book a lawyer review** of Terms, Privacy, Research Consent before public launch (Phase 4).
 
+## 10b. Capacity benchmarks on the $0 stack
+
+Hard caps (verified): 10 concurrent sandboxes · 5 sandbox CPU-hours/mo · 420 GB-hours sandbox memory/mo · 45-min sessions · 15 GB snapshots · 5,000 creations · 20 GB egress · Vercel functions 1M invocations, 360 GB-h, 300 s · Neon 0.5 GB + 100 CU-h (≈400 awake-hours at 0.25 CU) · PostHog 1M events, 5k replays · Hobby cron once/day (±59 min).
+
+Derived (assumes 1 vCPU / 2 GB, 30 min active + 10 min idle per session, 5–10 % CPU utilization):
+
+| Metric | Estimate | Limiting resource |
+|---|---|---|
+| Agent sessions / month | ~75–150 | Sandbox active CPU (5 h) |
+| Agent sessions / day | ~3–5 | same |
+| Daily active agent users | 3–5 daily, or 10–15 people 2–3×/week | same |
+| Peak concurrent users | 10 | Concurrency cap |
+| Saved (persistent) workspaces | ~10–50 | 15 GB snapshots at 0.3–1.5 GB each |
+| Registered accounts | effectively unlimited | — |
+| Stored messages before DB upgrade | ~100k (≈5 KB avg, tool output capped 16 KB) | Neon 0.5 GB |
+| Analytics sessions / month | ~3,000 at 300 events each | PostHog 1M |
+| App-side daily users | hundreds | Vercel functions (chat stream bypasses them) |
+
+Planning headline: **a private beta of 20–30 invited people using it a few times a week is the realistic $0 ceiling.** Sign-up can be open; agent access needs quota or a queue.
+
+Stretch, by impact: disable LSP in cloud mode (biggest idle CPU burner); idle-stop at 5 min via sandbox `timeout` + browser heartbeat (no cron needed); 1 vCPU only; per-user daily sandbox-minutes quota with a visible meter; `keepLastSnapshots: 1`, 7-day expiry, drop `node_modules` before stop for large repos; block watchers/dev servers in cloud mode; local connector for heavy users (Phase 5).
+
+Pro ($20/mo incl. $20 credit): 10,000 concurrent, 24 h sessions, 800 s functions, per-minute cron. A 1 vCPU / 2 GB sandbox at 10 % CPU ≈ $0.055/h → the credit ≈ 360 sandbox-hours ≈ 18 sessions/day ≈ 15–20 daily active users; $100/mo ≈ 90 daily active users; beyond that ≈ $1.60 per user per month at one 40-min session a day.
+
 ## 11. Sources checked on 2026-09-23
 
 - Vercel Hobby plan limits and non-commercial rule: https://vercel.com/docs/plans/hobby · https://vercel.com/docs/limits/fair-use-guidelines
