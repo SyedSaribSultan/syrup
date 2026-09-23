@@ -3,7 +3,8 @@ import { slog } from "@/server/log"
 import { pickFolder } from "@/server/pick-folder"
 
 export const dynamic = "force-dynamic"
-export const maxDuration = 600
+// Vercel Hobby caps function duration at 300 s; the dialog itself times out at 180 s.
+export const maxDuration = 300
 
 /** Opens the native folder dialog on the host and returns the chosen path. */
 export async function POST(req: Request) {
