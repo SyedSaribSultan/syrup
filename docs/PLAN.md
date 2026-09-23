@@ -15,6 +15,7 @@
 | Data | **Store everything** needed to run the service, protected to best practice, with terms users accept. Research use of content is a **separate consent**. |
 | Budget | **$0/month** for hosting until the product earns money. Every service below has a free tier that fits a private beta. |
 | Analytics | PostHog Cloud (free tier), product analytics + session replay + feature flags. |
+| Access control | **Invite-only, managed by Sarib by hand** in the admin page. No automatic per-user caps or quotas; usage is shown, not enforced. |
 
 ## 1. The one-paragraph architecture
 
@@ -83,7 +84,7 @@ Findings from the current code and the fix for each. Items marked *(local too)* 
 | S8 | `logs` grow forever. | Retention job (§8). |
 | S9 | Free OpenCode Zen models may train on prompts (Big Pickle, Nemotron). | Label them in the model picker; off by default in cloud. |
 | S10 | No CSRF protection on mutating routes. | Auth.js CSRF token on its own routes; same-origin check + `SameSite=Lax` cookies on ours. |
-| S11 | No rate limiting or abuse controls. | Cloudflare rate-limiting rule on `/api/auth/*` and `/api/workspaces` (sandbox creation); per-user quotas in DB (sandbox-hours/day, creations/day) enforced in the app. |
+| S11 | No rate limiting or abuse controls. | Cloudflare rate-limiting rule on `/api/auth/*` and `/api/workspaces` (sandbox creation) against bots. No per-user quotas: access is by invite, controlled manually. |
 | S12 | Secrets in Vercel env, sandbox images, snapshots. | Only Vercel env holds `SYRUP_MASTER_KEY`, `AUTH_SECRET`, `AUTH_GOOGLE_*`, `DATABASE_URL`, `POSTHOG_KEY`, `VERCEL_OIDC` for Sandbox. Images contain no secrets. Snapshots contain no secrets (§3.5). |
 
 Repository hygiene for open source: `SECURITY.md` + GitHub private vulnerability reporting; branch protection on `main` (PR + CI required); Dependabot for npm and Actions; Actions pinned to SHAs; secret scanning + push protection; `CODEOWNERS` on `src/server/**` and `src/app/api/**`; CI never gets secrets on fork PRs (`pull_request` only, never `pull_request_target`).
@@ -123,7 +124,7 @@ Conventions: ULID text primary keys (`id`), `timestamptz` columns named `created
 
 **Operations**
 - `logs` — as today plus user_id, workspace_id; 14-day retention.
-- `quotas` — user_id, `sandbox_seconds_today`, `creations_today`, `messages_today`, `reset_at`. Enforces per-user fair share of the free sandbox pool.
+- `invites` — id, email, `invited_by`, `note`, `created_at`, `accepted_at`, `revoked_at`. Sign-in succeeds only for an email with an open invite (or an existing user). Usage per user is read from `sandboxes.total_session_seconds` and `usage_daily`; shown in the admin page, never enforced.
 
 Migration path from SQLite: local mode keeps SQLite with the same Drizzle schema where possible (Drizzle supports both dialects from one codebase via two schema files sharing column definitions). Cloud mode uses Postgres. `router_events`, `usage_events`, `memories`, `logs` map 1:1; new tables are cloud-only.
 
@@ -168,7 +169,7 @@ Each phase ends with something deployed and usable. Estimates are working days f
 - Session lifecycle: resume on open; heartbeat from the browser; `extendTimeout` while a turn is running; stop after 10 idle minutes (saves the 420 GB-hour budget); auto-resume on the next message with a "waking up your workspace…" state; graceful handling of the 45-minute cap (persistent snapshot, resume, replay from the engine's session).
 - Workspaces UI: "New workspace" = paste a public git URL, connect GitHub (OAuth, read-only) for private repos, or empty. Native folder picker hidden in cloud mode.
 - Egress allow-list defaults per provider; per-workspace override.
-- Quotas from `quotas` table; friendly limits UI.
+- Invite check at sign-in (`invites` table); usage meter in Settings and admin page (informational only).
 - **Result:** the full product works on the domain for one user, then for invited users.
 
 ### Phase 3 — Data, analytics, rights (4–5 days)
@@ -181,7 +182,7 @@ Each phase ends with something deployed and usable. Estimates are working days f
 
 ### Phase 4 — Hardening and private beta (3–4 days)
 - Cloudflare WAF rules and rate limits; Turnstile on the sign-in page if bot sign-ups appear.
-- Invite gate (`invites` table or allow-listed domains) because Hobby gives **10 concurrent sandboxes**: beta of 20–40 people with a waitlist.
+- Invites managed by Sarib in the admin page (add email, revoke). No automatic caps; the Vercel usage dashboard and the admin usage view are how load is watched.
 - Threat-model doc, pen-test checklist run with Claude's security review, dependency audit, headers (CSP, HSTS, frame-ancestors).
 - Status page (free: Upptime on GitHub Pages) and uptime alerts.
 - Lawyer review of the legal documents. Publish. Open the beta.
@@ -203,7 +204,7 @@ Each phase ends with something deployed and usable. Estimates are working days f
 ## 9. Risks and honest limits
 
 - **Vercel Hobby is non-commercial.** The product must earn nothing, show no ads, and take no payments while on Hobby. Donations are allowed. Moving to Pro is a $20/month decision the day that changes.
-- **10 concurrent sandboxes and ~200 sandbox-hours a month.** Enough for a private beta, not a public launch. The invite gate is not optional at $0.
+- **10 concurrent sandboxes and ~50–100 usable sandbox-hours a month (CPU-bound).** Enough for a small invited group, not a public launch. Sarib controls invites by hand and watches usage; nothing is enforced automatically.
 - **45-minute sessions.** Long agent runs are interrupted and resumed. The UX must make this ordinary, not an error.
 - **Neon Free autosuspends after 5 minutes.** First request after idle is ~0.5–1 s slower. Acceptable; a keep-warm cron is against the spirit of the free tier.
 - **Google OAuth app publishing.** External apps in "Testing" cap at 100 users; set the consent screen to "Production". With only email/profile scopes there is no verification review, but the consent screen shows your app name and domain, which must match the site.
@@ -219,7 +220,7 @@ Each phase ends with something deployed and usable. Estimates are working days f
 3. **Cloudflare DNS**: `CNAME syrup → cname.vercel-dns.com`, proxy **off** (grey cloud).
 4. **Neon**: create a project in an EU region, copy the pooled connection string into Vercel env.
 5. **PostHog**: create an EU project, copy the project key into Vercel env.
-6. **Decide beta size and invite policy** (recommended: 30 invites, waitlist for the rest).
+6. **Decide who gets the first invites** (the admin page is where they are added).
 7. **Book a lawyer review** of Terms, Privacy, Research Consent before public launch (Phase 4).
 
 ## 10b. Capacity benchmarks on the $0 stack
@@ -240,7 +241,7 @@ Derived (assumes 1 vCPU / 2 GB, 30 min active + 10 min idle per session, 5–10 
 | Analytics sessions / month | ~3,000 at 300 events each | PostHog 1M |
 | App-side daily users | hundreds | Vercel functions (chat stream bypasses them) |
 
-Planning headline: **a private beta of 20–30 invited people using it a few times a week is the realistic $0 ceiling.** Sign-up can be open; agent access needs quota or a queue.
+Planning headline: **20–30 invited people using it a few times a week is the realistic $0 ceiling.** Invites are controlled by Sarib manually; these numbers say how many to send, nothing enforces them.
 
 Stretch, by impact: disable LSP in cloud mode (biggest idle CPU burner); idle-stop at 5 min via sandbox `timeout` + browser heartbeat (no cron needed); 1 vCPU only; per-user daily sandbox-minutes quota with a visible meter; `keepLastSnapshots: 1`, 7-day expiry, drop `node_modules` before stop for large repos; block watchers/dev servers in cloud mode; local connector for heavy users (Phase 5).
 
