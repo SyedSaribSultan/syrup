@@ -72,9 +72,18 @@ The engine sits behind one interface (`src/server/engine`). If OpenCode ever bec
 
 **Phase 2 — key vault + router.** ✅ Vault: many encrypted keys per provider with a free/paid tier; the active one is written into OpenCode auth. Router: an in-process OpenAI-compatible server (port 4210) registered in OpenCode as the `syrup` provider with `syrup/auto` and `syrup/fast`. It resolves an alias to ranked backends from the user's connected keys (free tiers first), injects the key, fails over on 429/5xx with per-key cooldowns, and logs every attempt with real cost to `router_events`. OpenCode Zen free models cannot be routed (they only accept requests from OpenCode itself); they remain selectable directly.
 
-**Phase 3 — memory + skills UI.** Memory MCP server backed by SQLite with embeddings. Skills browser and installer.
+**Phase 3 — memory + skills.** ✅ Memory: `memories` table with an FTS5 index (no embedding model needed), a Streamable HTTP MCP server on the router port exposing `memory_search/list/get/save/update/forget`, and a generated `data/memory/MEMORY.md` loaded as engine instructions so the agent always sees its index. Skills: list from the engine, create from pasted `SKILL.md`, install from GitHub (packs supported) into `~/.config/opencode/skills`, remove.
 
-**Phase 4 — polish.** Diffs, terminal, file browser, budgets and alerts, export.
+**Phase 4 — product completeness.** ✅ Workspaces (per-folder sessions, folder browser, recents), session rename/delete, attachments (images/files as data URLs), Changes panel (engine snapshot diff, falling back to files touched by write/edit tools), first-run banner, production build verified.
+
+**Later.** Terminal (PTY endpoints exist), budgets and alerts, theme toggle, mobile layout, OAuth provider logins (ChatGPT / Copilot), multi-user.
+
+## Known issues
+
+- The router's streaming path has only been exercised against real provider endpoints with invalid keys (auth errors returned correctly). A successful streamed tool-calling run through `syrup/auto` still needs a real key.
+- `GET /session/{id}/diff` returned empty for sessions that did write files; the Changes panel falls back to listing touched files.
+- After an engine instance reload, one skill (`firecrawl-build`) stopped being listed even though its `SKILL.md` is on disk. Engine-side discovery quirk.
+- OpenCode Zen free models cannot be routed by syrup (they only accept requests from OpenCode itself). They remain selectable directly.
 
 ## Data (SQLite via Drizzle)
 

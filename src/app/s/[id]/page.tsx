@@ -2,6 +2,7 @@
 
 import { useParams } from "next/navigation"
 import { useEffect, useMemo, useRef } from "react"
+import { Changes } from "@/components/changes"
 import { Composer } from "@/components/composer"
 import { MessageView } from "@/components/message"
 import { Prompts } from "@/components/prompts"
@@ -51,13 +52,16 @@ export default function SessionPage() {
 
   return (
     <>
-      <header className="flex h-12 shrink-0 items-center justify-between border-b border-line px-5">
+      <header className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-line px-5">
         <h1 className="min-w-0 truncate text-sm font-medium text-ink">{session?.title || "New chat"}</h1>
-        {(totals.tokens > 0 || totals.cost > 0) && (
-          <div className="shrink-0 text-xs text-muted">
-            {fmtTokens(totals.tokens)} tokens · {fmtCost(totals.cost)}
-          </div>
-        )}
+        <div className="flex shrink-0 items-center gap-3">
+          {(totals.tokens > 0 || totals.cost > 0) && (
+            <div className="text-xs text-muted">
+              {fmtTokens(totals.tokens)} tokens · {fmtCost(totals.cost)}
+            </div>
+          )}
+          <Changes sessionID={id} />
+        </div>
       </header>
 
       <div ref={scroller} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto">
@@ -73,7 +77,7 @@ export default function SessionPage() {
 
       <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-bg via-bg/90 to-transparent pt-10 pb-5">
         <div className="pointer-events-auto mx-auto w-full max-w-[720px] px-6">
-          <Composer onSend={(t) => send(id, t)} onStop={() => void abort(id)} busy={busy} autoFocus />
+          <Composer onSend={(t, files) => send(id, t, files)} onStop={() => void abort(id)} busy={busy} autoFocus />
         </div>
       </div>
     </>
