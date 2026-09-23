@@ -1,6 +1,7 @@
 import { createOpencodeClient, type Config, type OpencodeClient } from "@opencode-ai/sdk/client"
 import { createOpencodeServer } from "@opencode-ai/sdk/server"
 import { env } from "../env"
+import { slog } from "../log"
 import { ALIASES } from "../router/backends"
 
 export type Engine = {
@@ -51,6 +52,7 @@ async function start(): Promise<Engine> {
 
   if (env.opencodeUrl) {
     const url = env.opencodeUrl.replace(/\/$/, "")
+    slog("engine", "attached", { url, workspace: env.workspace })
     return {
       url,
       client: createOpencodeClient({ baseUrl: url, directory: env.workspace }),
@@ -58,13 +60,17 @@ async function start(): Promise<Engine> {
     }
   }
 
-  const server = await createOpencodeServer({
-    hostname: env.opencodeHostname,
-    port: env.opencodePort,
-    timeout: 20_000,
-    config: engineConfig(routerURL, memoryIndex),
-  })
+  const config = engineConfig(routerURL, memoryIndex)
+  const t0 = Date.now()
+  let server: Awaited<ReturnType<typeof createOpencodeServer>>
+  try {
+    server = await createOpencodeServer({ hostname: env.opencodeHostname, port: env.opencodePort, timeout: 20_000, config })
+  } catch (err) {
+    slog("engine", "spawn.failed", { err, port: env.opencodePort }, { level: "error" })
+    throw err
+  }
   console.log(`[syrup] opencode server at ${server.url} (workspace ${env.workspace})`)
+  slog("engine", "spawned", { url: server.url, workspace: env.workspace, ms: Date.now() - t0, config })
   return {
     url: server.url,
     client: createOpencodeClient({ baseUrl: server.url, directory: env.workspace }),

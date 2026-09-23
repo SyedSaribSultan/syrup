@@ -85,6 +85,21 @@ export const memories = sqliteTable("memories", {
   updatedAt: integer("updated_at").notNull(),
 })
 
+/** Structured application log. Every layer writes here; the Logs modal reads it. */
+export const logs = sqliteTable("logs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  ts: integer("ts").notNull(),
+  /** "debug" | "info" | "warn" | "error" */
+  level: text("level").notNull().default("info"),
+  /** "boot" | "engine" | "router" | "mcp" | "memory" | "skills" | "providers" | "workspace" | "ledger" | "api" | "ui" */
+  source: text("source").notNull(),
+  event: text("event").notNull(),
+  sessionId: text("session_id"),
+  directory: text("directory"),
+  /** JSON, secrets already redacted. */
+  data: text("data"),
+})
+
 export const settings = sqliteTable("settings", {
   key: text("key").primaryKey(),
   value: text("value").notNull(),

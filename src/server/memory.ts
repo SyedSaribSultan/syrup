@@ -4,6 +4,7 @@ import path from "node:path"
 import { desc, eq, sql } from "drizzle-orm"
 import { db, dbReady, schema } from "./db"
 import { env } from "./env"
+import { slog } from "./log"
 
 /**
  * Long-term memory for the agent. Stored in SQLite, searched with FTS5, and
@@ -96,6 +97,7 @@ export async function saveMemory(input: {
   }
   await db().insert(schema.memories).values(row)
   await writeIndex()
+  slog("memory", "saved", { id: row.id, kind: row.kind, title: row.title, tags: row.tags, source: row.source, chars: row.content.length }, { sessionId: row.sessionId })
   return row
 }
 
@@ -108,6 +110,7 @@ export async function updateMemory(id: string, patch: Partial<Pick<Memory, "titl
   if (patch.tags !== undefined) set.tags = normTags(patch.tags)
   await db().update(schema.memories).set(set).where(eq(schema.memories.id, id))
   await writeIndex()
+  slog("memory", "updated", { id, fields: Object.keys(set) })
   return getMemory(id)
 }
 
@@ -115,6 +118,7 @@ export async function deleteMemory(id: string): Promise<void> {
   await dbReady()
   await db().delete(schema.memories).where(eq(schema.memories.id, id))
   await writeIndex()
+  slog("memory", "deleted", { id })
 }
 
 /** Regenerates MEMORY.md. Cheap; called after every change and at boot. */
