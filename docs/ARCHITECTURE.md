@@ -82,7 +82,11 @@ The engine sits behind one interface (`src/server/engine`). If OpenCode ever bec
 
 **`.sarib` (optional).** `src/server/sarib.ts`. The `sarib` MCP server is added per workspace, and only to folders with a `.sarib` file within three levels (dependency and build folders skipped; rescanned at most once a minute). The OpenCode proxy triggers the check on any request with a `directory`, and waits for it (up to 5 s) before a prompt so that turn already has the tools. OpenCode keeps MCP state per directory and runs local servers there, so the server sees only that workspace. Other workspaces never pay for its tool definitions. Needs Python 3.10+ and `sarib[mcp]`; the Skills page has an **Enable** button that runs `pip install --user "sarib[mcp]"` in the background (`/api/sarib`).
 
-**Later.** Terminal (PTY endpoints exist), budgets and alerts, theme toggle, mobile layout, Google OAuth provider login (the only OAuth provider planned), multi-user.
+**Two modes (2026-09-24).** `SYRUP_MODE=local|cloud` (auto: cloud on Vercel) in `src/server/env.ts`. Everything above is local mode. Cloud mode is the hosted product at syrup.syedsarib.com, designed in [PLAN.md](PLAN.md): Google sign-in (Auth.js v5, JWT sessions, invite-only), Neon Postgres with forced row-level security (`src/server/db/pg`, every tenant query inside `withUser()`), per-user envelope-encrypted provider keys (`src/server/cloud`), legal documents with recorded consent, PostHog analytics with opt-out, admin page. The agent itself (a Vercel Sandbox per workspace) is Phase 2; until then cloud mode blocks the local-engine routes with 501 in `src/proxy.ts`.
+
+**Local hardening (Phase 0, 2026-09-24).** Server binds 127.0.0.1; `src/proxy.ts` rejects non-loopback Host and cross-origin mutations; the OpenCode server runs with a per-process password that only the `/api/oc` proxy and server modules know; router and memory MCP require the same secret as bearer; the vault key lives in the user config dir, outside any workspace.
+
+**Later.** Terminal (PTY endpoints exist), budgets and alerts, theme toggle, mobile layout, teams/organizations.
 
 ## Known issues
 

@@ -1,6 +1,6 @@
 # syrup
 
-A self-hosted coding agent you run in your browser, powered by whatever API keys you already have.
+A coding agent in your browser, powered by whatever API keys you already have. Run it on your own machine (this README), or use the hosted early-access version at **https://syrup.syedsarib.com** (invite-only; see [docs/PLAN.md](docs/PLAN.md)).
 
 No subscription. No single vendor. Bring keys from Google AI Studio, Groq, Mistral, OpenRouter, Cerebras, NVIDIA, or any of 200+ providers. syrup routes work across them, fails over when a free tier hits its limit, tracks every token, and shows you exactly what each session cost.
 
@@ -21,6 +21,7 @@ No subscription. No single vendor. Bring keys from Google AI Studio, Groq, Mistr
 ## Requirements
 
 - Node 22+ (24 recommended) and pnpm 10+
+- The local server listens on `127.0.0.1` only. Provider keys are encrypted with a key kept in `%APPDATA%syrup` (Windows) or `~/.config/syrup`. See [SECURITY.md](SECURITY.md).
 - Git (used to install skills from GitHub)
 - OpenCode installed globally:
 
