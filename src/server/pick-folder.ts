@@ -111,7 +111,7 @@ function runDialog(startIn?: string, linux: "zenity" | "kdialog" = "zenity"): { 
     args = ["-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-Command", PS_SCRIPT]
   } else if (process.platform === "darwin") {
     cmd = "osascript"
-    args = ["-e", `POSIX path of (choose folder with prompt "Choose a workspace folder for syrup"${startIn ? ` default location POSIX file "${startIn.replace(/"/g, '\\"')}"` : ""})`]
+    args = ["-e", `POSIX path of (choose folder with prompt "Choose a workspace folder for syrup"${startIn ? ` default location POSIX file "${startIn.replace(/[\\"]/g, (c) => `\\${c}`)}"` : ""})`]
   } else if (linux === "kdialog") {
     cmd = "kdialog"
     args = ["--getexistingdirectory", startIn ?? process.env.HOME ?? "/", "--title", "Choose a workspace folder for syrup"]

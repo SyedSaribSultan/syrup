@@ -13,6 +13,11 @@ export type Engine = {
 
 const g = globalThis as unknown as { __syrupEngine?: Promise<Engine> }
 
+/** Basic-auth header the OpenCode server expects once OPENCODE_SERVER_PASSWORD is set. */
+export function engineAuthHeader(): string {
+  return `Basic ${Buffer.from(`opencode:${env.internalSecret}`).toString("base64")}`
+}
+
 /** OpenCode config injected at boot: syrup router as a provider, syrup MCP for memory, memory index as instructions. */
 function engineConfig(routerURL: string, memoryIndex: string): Config {
   const models: NonNullable<NonNullable<Config["provider"]>[string]["models"]> = {}
@@ -32,13 +37,14 @@ function engineConfig(routerURL: string, memoryIndex: string): Config {
     small_model: "syrup/fast",
     instructions: [memoryIndex],
     mcp: {
-      syrup: { type: "remote", url: routerURL.replace(/\/v1$/, "/mcp"), enabled: true, timeout: 10_000 },
+      syrup: { type: "remote", url: routerURL.replace(/\/v1$/, "/mcp"), enabled: true, timeout: 10_000, headers: { authorization: `Bearer ${env.internalSecret}` } },
     },
     provider: {
       syrup: {
         npm: "@ai-sdk/openai-compatible",
         name: "syrup",
-        options: { baseURL: routerURL, apiKey: "syrup", timeout: 600_000 },
+        // The router only answers requests carrying this per-process secret.
+        options: { baseURL: routerURL, apiKey: env.internalSecret, timeout: 600_000 },
         models,
       },
     },
@@ -55,12 +61,14 @@ async function start(): Promise<Engine> {
     slog("engine", "attached", { url, workspace: env.workspace })
     return {
       url,
-      client: createOpencodeClient({ baseUrl: url, directory: env.workspace }),
+      client: createOpencodeClient({ baseUrl: url, directory: env.workspace, headers: process.env.OPENCODE_SERVER_PASSWORD ? { authorization: engineAuthHeader() } : undefined }),
       close() {},
     }
   }
 
   const config = engineConfig(routerURL, memoryIndex)
+  // Every request to the engine must carry this password; the SDK passes process.env to the child.
+  process.env.OPENCODE_SERVER_PASSWORD = env.internalSecret
   const t0 = Date.now()
   let server: Awaited<ReturnType<typeof createOpencodeServer>>
   try {
@@ -73,7 +81,7 @@ async function start(): Promise<Engine> {
   slog("engine", "spawned", { url: server.url, workspace: env.workspace, ms: Date.now() - t0, config })
   return {
     url: server.url,
-    client: createOpencodeClient({ baseUrl: server.url, directory: env.workspace }),
+    client: createOpencodeClient({ baseUrl: server.url, directory: env.workspace, headers: { authorization: engineAuthHeader() } }),
     close: () => server.close(),
   }
 }

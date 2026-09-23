@@ -552,6 +552,11 @@ export function EngineProvider({ children }: { children: ReactNode }) {
   return <EngineContext.Provider value={value}>{children}</EngineContext.Provider>
 }
 
+/** Null when no EngineProvider is mounted (cloud mode). */
+export function useOptionalEngine(): Ctx | null {
+  return useContext(EngineContext)
+}
+
 export function useEngine(): Ctx {
   const ctx = useContext(EngineContext)
   if (!ctx) throw new Error("useEngine outside EngineProvider")
