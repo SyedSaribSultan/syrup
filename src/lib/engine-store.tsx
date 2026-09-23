@@ -4,8 +4,9 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useReducer,
 import { oc, type Message, type Model, type Part, type Provider, type Session, type SessionStatus } from "./oc"
 
 /**
- * Client-side mirror of the engine. Loads sessions and messages over the
- * proxy, then keeps them current from the OpenCode event stream.
+ * Client-side mirror of the engine for the current workspace directory.
+ * Loads sessions and messages over the proxy, then keeps them current from
+ * the OpenCode event stream.
  */
 
 export type MessageEntry = { info: Message; parts: Part[] }
@@ -29,10 +30,16 @@ export type QuestionInfo = {
 export type QuestionReq = { id: string; sessionID: string; questions: QuestionInfo[] }
 
 export type ModelRef = { providerID: string; modelID: string }
+export type Project = { id: string; worktree: string; name?: string; time: { created: number; updated?: number } }
 
 type State = {
   connected: boolean
+  /** Absolute path the agent works in. Empty until known. */
+  directory: string
+  defaultDirectory: string
+  projects: Project[]
   sessions: Record<string, Session>
+  sessionsLoaded: boolean
   messages: Record<string, SessionMessages>
   status: Record<string, SessionStatus>
   errors: Record<string, string | undefined>
@@ -45,6 +52,8 @@ type State = {
 
 type Action =
   | { type: "connected"; value: boolean }
+  | { type: "directory"; directory: string; defaultDirectory?: string }
+  | { type: "projects"; projects: Project[] }
   | { type: "sessions"; sessions: Session[] }
   | { type: "session"; session: Session }
   | { type: "session.deleted"; id: string }
@@ -68,10 +77,26 @@ function reducer(s: State, a: Action): State {
   switch (a.type) {
     case "connected":
       return { ...s, connected: a.value }
+    case "directory":
+      // Switching workspace drops per-workspace state; providers and model stay.
+      return {
+        ...s,
+        directory: a.directory,
+        defaultDirectory: a.defaultDirectory ?? s.defaultDirectory,
+        sessions: {},
+        sessionsLoaded: false,
+        messages: {},
+        status: {},
+        errors: {},
+        permissions: [],
+        questions: [],
+      }
+    case "projects":
+      return { ...s, projects: a.projects }
     case "sessions": {
-      const sessions = { ...s.sessions }
+      const sessions: Record<string, Session> = {}
       for (const x of a.sessions) sessions[x.id] = x
-      return { ...s, sessions }
+      return { ...s, sessions, sessionsLoaded: true }
     }
     case "session":
       return { ...s, sessions: { ...s.sessions, [a.session.id]: a.session } }
@@ -142,7 +167,11 @@ function reducer(s: State, a: Action): State {
 
 const initial: State = {
   connected: false,
+  directory: "",
+  defaultDirectory: "",
+  projects: [],
   sessions: {},
+  sessionsLoaded: false,
   messages: {},
   status: {},
   errors: {},
@@ -154,21 +183,28 @@ const initial: State = {
 }
 
 type Ctx = State & {
+  setDirectory(dir: string): void
+  refreshProjects(): Promise<void>
   loadMessages(sessionID: string): Promise<void>
   createSession(): Promise<Session>
   send(sessionID: string, text: string): Promise<void>
   abort(sessionID: string): Promise<void>
+  renameSession(sessionID: string, title: string): Promise<void>
+  deleteSession(sessionID: string): Promise<void>
   setModel(m: ModelRef): void
   refreshProviders(): Promise<void>
   replyPermission(req: PermissionReq, response: "once" | "always" | "reject"): Promise<void>
   replyQuestion(req: QuestionReq, answers: string[][]): Promise<void>
   rejectQuestion(req: QuestionReq): Promise<void>
   models: (Model & { free: boolean })[]
+  /** True when at least one key-based provider is connected (not just the built-in free ones). */
+  hasKeys: boolean
 }
 
 const EngineContext = createContext<Ctx | null>(null)
 
 const MODEL_KEY = "syrup.model"
+const DIR_KEY = "syrup.directory"
 
 // Raw event payloads we care about. Typed loosely: the v1 SDK types lag the server.
 type RawEvent = { type: string; properties: Record<string, unknown> }
@@ -176,34 +212,54 @@ type RawEvent = { type: string; properties: Record<string, unknown> }
 export function EngineProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initial)
   const loading = useRef(new Set<string>())
+  const dir = state.directory
 
-  // Initial load: sessions, providers, saved model.
+  // Boot: engine default directory, saved workspace, providers, saved model.
   useEffect(() => {
     void (async () => {
-      const [sess, prov] = await Promise.all([oc().session.list(), oc().config.providers()])
-      if (sess.data) dispatch({ type: "sessions", sessions: sess.data })
+      const [pathRes, prov, projRes] = await Promise.all([oc().path.get(), oc().config.providers(), oc().project.list()])
+      const defaultDirectory = pathRes.data?.directory ?? ""
+      let saved = ""
+      try {
+        saved = localStorage.getItem(DIR_KEY) ?? ""
+      } catch {}
+      dispatch({ type: "directory", directory: saved || defaultDirectory, defaultDirectory })
+      if (projRes.data) dispatch({ type: "projects", projects: projRes.data as Project[] })
       if (prov.data) dispatch({ type: "providers", providers: prov.data.providers, defaults: prov.data.default })
-      let saved: ModelRef | null = null
+      let model: ModelRef | null = null
       try {
         const raw = localStorage.getItem(MODEL_KEY)
-        if (raw) saved = JSON.parse(raw)
+        if (raw) model = JSON.parse(raw)
       } catch {}
-      if (saved) dispatch({ type: "model", model: saved })
+      if (model) dispatch({ type: "model", model })
       else if (prov.data) {
-        const [providerID, modelID] = Object.entries(prov.data.default)[0] ?? []
-        if (providerID && modelID) dispatch({ type: "model", model: { providerID, modelID } })
+        // Prefer the router; otherwise the first provider default.
+        const d = prov.data.default
+        const providerID = "syrup" in d ? "syrup" : Object.keys(d)[0]
+        if (providerID) dispatch({ type: "model", model: { providerID, modelID: providerID === "syrup" ? "auto" : d[providerID] } })
       }
     })()
   }, [])
 
-  // Event stream. Reconnects on drop.
+  // Sessions for the current workspace.
   useEffect(() => {
+    if (!dir) return
+    void oc(dir)
+      .session.list()
+      .then((res) => res.data && dispatch({ type: "sessions", sessions: res.data }))
+  }, [dir])
+
+  // Event stream for the current workspace. Reconnects on drop.
+  useEffect(() => {
+    if (!dir) return
     const ctrl = new AbortController()
     void (async () => {
+      let failures = 0
       while (!ctrl.signal.aborted) {
         try {
-          const res = await fetch("/api/oc/event", { signal: ctrl.signal, cache: "no-store" })
+          const res = await fetch(`/api/oc/event?directory=${encodeURIComponent(dir)}`, { signal: ctrl.signal, cache: "no-store" })
           if (!res.ok || !res.body) throw new Error(`event stream ${res.status}`)
+          failures = 0
           dispatch({ type: "connected", value: true })
           const reader = res.body.getReader()
           const dec = new TextDecoder()
@@ -229,10 +285,11 @@ export function EngineProvider({ children }: { children: ReactNode }) {
           }
         } catch (err) {
           if (ctrl.signal.aborted) return
-          console.warn("[syrup] event stream dropped", err)
+          // The engine restarts when keys or skills change; stay quiet for the first few misses.
+          if (++failures > 3) console.warn("[syrup] event stream dropped", err)
         }
         dispatch({ type: "connected", value: false })
-        await new Promise((r) => setTimeout(r, 1500))
+        await new Promise((r) => setTimeout(r, Math.min(1500 * Math.max(1, failures), 8000)))
       }
     })()
 
@@ -307,40 +364,72 @@ export function EngineProvider({ children }: { children: ReactNode }) {
     }
 
     return () => ctrl.abort()
+  }, [dir])
+
+  const setDirectory = useCallback((next: string) => {
+    const d = next.trim()
+    if (!d) return
+    try {
+      localStorage.setItem(DIR_KEY, d)
+    } catch {}
+    dispatch({ type: "directory", directory: d })
   }, [])
 
-  const loadMessages = useCallback(async (sessionID: string) => {
-    if (loading.current.has(sessionID)) return
-    loading.current.add(sessionID)
-    try {
-      const res = await oc().session.messages({ path: { id: sessionID } })
-      if (res.data) dispatch({ type: "messages", sessionID, entries: res.data })
-    } finally {
-      loading.current.delete(sessionID)
-    }
+  const refreshProjects = useCallback(async () => {
+    const res = await oc().project.list()
+    if (res.data) dispatch({ type: "projects", projects: res.data as Project[] })
   }, [])
+
+  const loadMessages = useCallback(
+    async (sessionID: string) => {
+      if (loading.current.has(sessionID)) return
+      loading.current.add(sessionID)
+      try {
+        const res = await oc(dir).session.messages({ path: { id: sessionID } })
+        if (res.data) dispatch({ type: "messages", sessionID, entries: res.data })
+      } finally {
+        loading.current.delete(sessionID)
+      }
+    },
+    [dir],
+  )
 
   const createSession = useCallback(async () => {
-    const res = await oc().session.create({ body: {} })
+    const res = await oc(dir).session.create({ body: {} })
     if (!res.data) throw new Error("could not create session")
     dispatch({ type: "session", session: res.data })
+    void refreshProjects()
     return res.data
-  }, [])
+  }, [dir, refreshProjects])
 
   const send = useCallback(
     async (sessionID: string, text: string) => {
       dispatch({ type: "error", sessionID, error: undefined })
-      await oc().session.promptAsync({
+      await oc(dir).session.promptAsync({
         path: { id: sessionID },
         body: { model: state.model ?? undefined, parts: [{ type: "text", text }] },
       })
     },
-    [state.model],
+    [dir, state.model],
   )
 
-  const abort = useCallback(async (sessionID: string) => {
-    await oc().session.abort({ path: { id: sessionID } })
-  }, [])
+  const abort = useCallback(async (sessionID: string) => void (await oc(dir).session.abort({ path: { id: sessionID } })), [dir])
+
+  const renameSession = useCallback(
+    async (sessionID: string, title: string) => {
+      const res = await oc(dir).session.update({ path: { id: sessionID }, body: { title } })
+      if (res.data) dispatch({ type: "session", session: res.data })
+    },
+    [dir],
+  )
+
+  const deleteSession = useCallback(
+    async (sessionID: string) => {
+      await oc(dir).session.delete({ path: { id: sessionID } })
+      dispatch({ type: "session.deleted", id: sessionID })
+    },
+    [dir],
+  )
 
   const refreshProviders = useCallback(async () => {
     const prov = await oc().config.providers()
@@ -354,24 +443,33 @@ export function EngineProvider({ children }: { children: ReactNode }) {
     } catch {}
   }, [])
 
-  const replyPermission = useCallback(async (req: PermissionReq, response: "once" | "always" | "reject") => {
-    dispatch({ type: "permission.done", id: req.id })
-    await oc().postSessionIdPermissionsPermissionId({ path: { id: req.sessionID, permissionID: req.id }, body: { response } })
-  }, [])
+  const replyPermission = useCallback(
+    async (req: PermissionReq, response: "once" | "always" | "reject") => {
+      dispatch({ type: "permission.done", id: req.id })
+      await oc(dir).postSessionIdPermissionsPermissionId({ path: { id: req.sessionID, permissionID: req.id }, body: { response } })
+    },
+    [dir],
+  )
 
-  const replyQuestion = useCallback(async (req: QuestionReq, answers: string[][]) => {
-    dispatch({ type: "question.done", id: req.id })
-    await fetch(`/api/oc/question/${req.id}/reply`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ answers }),
-    })
-  }, [])
+  const replyQuestion = useCallback(
+    async (req: QuestionReq, answers: string[][]) => {
+      dispatch({ type: "question.done", id: req.id })
+      await fetch(`/api/oc/question/${req.id}/reply?directory=${encodeURIComponent(dir)}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ answers }),
+      })
+    },
+    [dir],
+  )
 
-  const rejectQuestion = useCallback(async (req: QuestionReq) => {
-    dispatch({ type: "question.done", id: req.id })
-    await fetch(`/api/oc/question/${req.id}/reject`, { method: "POST" })
-  }, [])
+  const rejectQuestion = useCallback(
+    async (req: QuestionReq) => {
+      dispatch({ type: "question.done", id: req.id })
+      await fetch(`/api/oc/question/${req.id}/reject?directory=${encodeURIComponent(dir)}`, { method: "POST" })
+    },
+    [dir],
+  )
 
   const models = useMemo(() => {
     const out: (Model & { free: boolean })[] = []
@@ -381,21 +479,35 @@ export function EngineProvider({ children }: { children: ReactNode }) {
         out.push({ ...m, free: !c || (c.input === 0 && c.output === 0) })
       }
     }
-    return out.sort((a, b) => Number(b.free) - Number(a.free) || a.providerID.localeCompare(b.providerID) || a.name.localeCompare(b.name))
+    // Router first, then free models, then by provider and name.
+    return out.sort(
+      (a, b) =>
+        Number(b.providerID === "syrup") - Number(a.providerID === "syrup") ||
+        Number(b.free) - Number(a.free) ||
+        a.providerID.localeCompare(b.providerID) ||
+        a.name.localeCompare(b.name),
+    )
   }, [state.providers])
+
+  const hasKeys = useMemo(() => state.providers.some((p) => p.id !== "opencode" && p.id !== "syrup"), [state.providers])
 
   const value: Ctx = {
     ...state,
+    setDirectory,
+    refreshProjects,
     loadMessages,
     createSession,
     send,
     abort,
+    renameSession,
+    deleteSession,
     setModel,
     refreshProviders,
     replyPermission,
     replyQuestion,
     rejectQuestion,
     models,
+    hasKeys,
   }
   return <EngineContext.Provider value={value}>{children}</EngineContext.Provider>
 }
