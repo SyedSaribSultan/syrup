@@ -1,0 +1,97 @@
+# Architecture
+
+## Goals
+
+- Strongest practical coding agent without a single subscription.
+- Users bring their own API keys. Free tiers first, paid when the task deserves it.
+- Every token accounted for. Spend is visible, never a surprise.
+- Self-hosted, single user in v1. Data model leaves room for multi-user later.
+- No local models.
+
+## Components
+
+```
+┌────────────────────────────────────────────────────────────┐
+│  Browser                                                   │
+│  Next.js app: sessions, chat, diffs, permissions,          │
+│  terminal, files, key vault, cost dashboard                │
+└──────────────────────────┬─────────────────────────────────┘
+                           │ HTTP + SSE
+┌──────────────────────────▼─────────────────────────────────┐
+│  syrup server (Next.js route handlers, Node)               │
+│                                                            │
+│  ┌──────────────┐  ┌───────────────┐  ┌─────────────────┐  │
+│  │ engine       │  │ ledger        │  │ vault           │  │
+│  │ OpenCode SDK │  │ usage + cost  │  │ provider keys   │  │
+│  │ + SSE relay  │  │ per message   │  │ (encrypted)     │  │
+│  └──────┬───────┘  └───────────────┘  └─────────────────┘  │
+│         │           ┌───────────────┐  ┌─────────────────┐  │
+│         │           │ router        │  │ memory          │  │
+│         │           │ /v1/chat/...  │  │ MCP server      │  │
+│         │           │ failover, RL  │  │ long-term store │  │
+│         │           └───────────────┘  └─────────────────┘  │
+│                       SQLite (libsql) via Drizzle          │
+└─────────┼──────────────────────────────────────────────────┘
+          │ spawns + drives
+┌─────────▼──────────────────────────────────────────────────┐
+│  OpenCode server (`opencode serve`)                        │
+│  agent loop, tools, LSP, MCP, skills, compaction,          │
+│  sessions, permissions, questions, PTY, VCS diff           │
+└─────────┬──────────────────────────────────────────────────┘
+          │ provider SDKs (Vercel AI SDK)
+┌─────────▼──────────────────────────────────────────────────┐
+│  Providers: Google AI Studio, Groq, Mistral, OpenRouter,   │
+│  Cerebras, NVIDIA, OpenCode Zen (free), any OpenAI-compat  │
+└────────────────────────────────────────────────────────────┘
+```
+
+## Why OpenCode as the engine
+
+- Most-starred open-source coding agent (~200k), MIT, active.
+- Built as client/server. `opencode serve` exposes an OpenAPI 3.1 spec, a TS SDK (`@opencode-ai/sdk`) and SSE events. Custom front ends are a supported use.
+- Provider-agnostic through the Vercel AI SDK. Model catalog from models.dev with per-token prices, context limits and modality flags.
+- Already tracks `cost` and `tokens` (input, output, reasoning, cache read/write) on every assistant message and rolled up per session. The ledger reads this, it does not estimate.
+- Native Agent Skills (`SKILL.md`), MCP, Plan/Build agents, subagents, LSP diagnostics, auto-compaction.
+
+The engine sits behind one interface (`src/server/engine`). If OpenCode ever becomes a blocker, OpenHands SDK is the fallback.
+
+## What syrup adds on top
+
+| Concern | OpenCode has | syrup adds |
+|---|---|---|
+| UI | TUI, basic web | Full web app |
+| Keys | One key per provider in `auth.json` | Vault with many keys per provider, labels, free/paid flag |
+| Routing | Pick one model | Router: rate-limit aware, fails over across keys and providers, prefers free tiers |
+| Cost | Per message/session numbers | Ledger, dashboard, budgets, free-vs-paid split, per provider/day |
+| Memory | `AGENTS.md`, session history | Long-term memory store exposed as MCP tools |
+| Skills | Loads `SKILL.md` | Browse, install, enable from the UI |
+
+## Phasing
+
+**Phase 1 — drive OpenCode from the browser.** Spawn `opencode serve`, relay SSE, render sessions and streaming messages, handle permissions and questions. Providers configured directly in OpenCode. Ledger reads cost/tokens from OpenCode messages. Result: a working agent with a cost dashboard.
+
+**Phase 2 — key vault + router.** OpenAI-compatible router at `/api/router/v1`. OpenCode is pointed at it as a custom provider. Router selects key/provider, tracks rate limits, fails over on 429, logs usage. Multiple keys per provider.
+
+**Phase 3 — memory + skills UI.** Memory MCP server backed by SQLite with embeddings. Skills browser and installer.
+
+**Phase 4 — polish.** Diffs, terminal, file browser, budgets and alerts, export.
+
+## Data (SQLite via Drizzle)
+
+- `providers_keys` — provider id, label, encrypted key, tier (free/paid), rate-limit hints, enabled.
+- `usage_events` — one row per assistant message: session, message, provider, model, tokens, cost, timestamp, key used.
+- `memories` — id, kind, content, embedding, tags, source session, timestamps.
+- `settings` — key/value.
+
+OpenCode keeps its own session and message storage. syrup does not duplicate it; the ledger keys off OpenCode message ids.
+
+## Free tier notes (as of Sept 2026, verify before trusting)
+
+- Google AI Studio: best free frontier model (Gemini Flash, 1M context, tools). Pro often quota-zero.
+- Mistral Experiment: ~1B tokens/month incl. Devstral/Codestral. Data-training opt-in required.
+- Groq: free, fast, but 6k–12k TPM. Only for small/fast tasks.
+- OpenRouter: free models at 50 req/day, 1,000/day after one-time $10 top-up.
+- Cerebras: no-card free tier ended mid-2026. $5 trial with card.
+- NVIDIA NIM: ~1,000 req/day.
+- OpenCode Zen: free models with no key (e.g. Nemotron 3 Ultra Free, 1M context).
+- Free usually means prompts may train the model. The UI must say so per provider.
