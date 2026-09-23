@@ -1,26 +1,183 @@
 @import "tailwindcss";
 
+/* Warm, paper-like palette. Light is the default; dark follows the OS. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --bg: #f3f1ea;
+  --surface: #fbfaf6;
+  --surface-2: #eceae1;
+  --ink: #23211d;
+  --ink-2: #4f4c45;
+  --muted: #8a867c;
+  --line: #e3e0d6;
+  --line-2: #d3cfc3;
+  --accent: #c8623f;
+  --accent-ink: #ffffff;
+  --accent-soft: #f6e3da;
+  --ok: #3f8f5c;
+  --warn: #c99a2e;
+  --err: #c2453b;
+  --code-bg: #f0eee6;
+  --shadow: 0 1px 2px rgba(35, 33, 29, 0.05), 0 8px 24px -12px rgba(35, 33, 29, 0.18);
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  :root:not([data-theme="light"]) {
+    --bg: #1b1a17;
+    --surface: #23221e;
+    --surface-2: #2b2a25;
+    --ink: #ece9e1;
+    --ink-2: #c9c5ba;
+    --muted: #8f8b80;
+    --line: #34322c;
+    --line-2: #44413a;
+    --accent: #d8785a;
+    --accent-ink: #1b1a17;
+    --accent-soft: #3a2a23;
+    --ok: #6cbf87;
+    --warn: #d9b25a;
+    --err: #e2685f;
+    --code-bg: #1f1e1a;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px -12px rgba(0, 0, 0, 0.6);
   }
 }
 
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-line-2: var(--line-2);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-soft: var(--accent-soft);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-err: var(--err);
+  --color-code-bg: var(--code-bg);
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-lora), Georgia, serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --shadow-card: var(--shadow);
+}
+
+html,
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Thin, quiet scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-2) transparent;
+}
+
+/* Markdown body */
+.md {
+  line-height: 1.65;
+  font-size: 0.975rem;
+}
+.md > * + * {
+  margin-top: 0.75em;
+}
+.md h1,
+.md h2,
+.md h3,
+.md h4 {
+  font-family: var(--font-serif);
+  font-weight: 600;
+  line-height: 1.25;
+  margin-top: 1.4em;
+}
+.md h1 {
+  font-size: 1.5rem;
+}
+.md h2 {
+  font-size: 1.25rem;
+}
+.md h3 {
+  font-size: 1.1rem;
+}
+.md p code,
+.md li code,
+.md td code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--code-bg);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 0.1em 0.35em;
+}
+.md pre {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  line-height: 1.55;
+  background: var(--code-bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.85rem 1rem;
+  overflow-x: auto;
+}
+.md ul,
+.md ol {
+  padding-left: 1.4em;
+}
+.md ul {
+  list-style: disc;
+}
+.md ol {
+  list-style: decimal;
+}
+.md li + li {
+  margin-top: 0.25em;
+}
+.md a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.md blockquote {
+  border-left: 3px solid var(--line-2);
+  padding-left: 0.9em;
+  color: var(--ink-2);
+}
+.md table {
+  border-collapse: collapse;
+  font-size: 0.9em;
+  width: 100%;
+}
+.md th,
+.md td {
+  border: 1px solid var(--line);
+  padding: 0.4em 0.6em;
+  text-align: left;
+}
+.md th {
+  background: var(--surface-2);
+}
+.md hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.pulse {
+  animation: pulse-dot 1.2s ease-in-out infinite;
 }
