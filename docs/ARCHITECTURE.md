@@ -80,7 +80,9 @@ The engine sits behind one interface (`src/server/engine`). If OpenCode ever bec
 
 ## Known issues
 
-- The router's streaming path has only been exercised against real provider endpoints with invalid keys (auth errors returned correctly). A successful streamed tool-calling run through `syrup/auto` still needs a real key.
+- ✅ Router verified with a real Google key (2026-09-23): a tool-calling turn hit a 503 on `gemini-3.8-flash`, failed over to `gemini-3.5-flash-lite`, and the follow-up turn (which needs the Gemini thought signature restored) succeeded on `gemini-3.8-flash`.
+- Gemini 3.8 Flash on the free tier returns 503 "high demand" and 429 often. The router fails over, but each failover adds several seconds; the UI shows the engine's retry status while this happens.
+- Creating a session in a folder under `%LOCALAPPDATA%\Temp` made the engine return "Unexpected server error" before any model call. Normal folders (git and non-git) work. Not yet diagnosed.
 - `GET /session/{id}/diff` returned empty for sessions that did write files; the Changes panel falls back to listing touched files.
 - After an engine instance reload, one skill (`firecrawl-build`) stopped being listed even though its `SKILL.md` is on disk. Engine-side discovery quirk.
 - OpenCode Zen free models cannot be routed by syrup (they only accept requests from OpenCode itself). They remain selectable directly.
