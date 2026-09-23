@@ -59,7 +59,47 @@ function readBody(req: http.IncomingMessage): Promise<string> {
   })
 }
 
-/** Pull `usage` out of an SSE stream as it passes through. */
+/**
+ * Gemini 3 requires each tool call's "thought signature" to be echoed back on
+ * later turns. Google's OpenAI-compatible API carries it in
+ * `tool_calls[].extra_content.google.thought_signature`, which generic OpenAI
+ * clients drop. The router remembers signatures by tool-call id and restores
+ * them; for calls it never saw it uses Google's documented skip value.
+ */
+const SIG_SKIP = "skip_thought_signature_validator"
+const sigCache = new Map<string, string>()
+
+function rememberSignature(id: string | undefined, sig: string | undefined) {
+  if (!id || !sig) return
+  if (sigCache.size > 5000) sigCache.delete(sigCache.keys().next().value as string)
+  sigCache.set(id, sig)
+}
+
+type ToolCall = { id?: string; extra_content?: { google?: { thought_signature?: string } } } & Record<string, unknown>
+
+function harvestSignatures(j: { choices?: { delta?: { tool_calls?: ToolCall[] }; message?: { tool_calls?: ToolCall[] } }[] }) {
+  for (const ch of j.choices ?? []) {
+    for (const tc of ch.delta?.tool_calls ?? ch.message?.tool_calls ?? []) rememberSignature(tc.id, tc.extra_content?.google?.thought_signature)
+  }
+}
+
+/** Returns a copy of `messages` with signatures restored on assistant tool calls. */
+function restoreSignatures(messages: unknown): unknown {
+  if (!Array.isArray(messages)) return messages
+  return messages.map((m: { role?: string; tool_calls?: ToolCall[] }) => {
+    if (m?.role !== "assistant" || !Array.isArray(m.tool_calls)) return m
+    return {
+      ...m,
+      tool_calls: m.tool_calls.map((tc) =>
+        tc.extra_content?.google?.thought_signature
+          ? tc
+          : { ...tc, extra_content: { ...tc.extra_content, google: { ...tc.extra_content?.google, thought_signature: sigCache.get(tc.id ?? "") ?? SIG_SKIP } } },
+      ),
+    }
+  })
+}
+
+/** Pull `usage` (and Gemini thought signatures) out of an SSE stream as it passes through. */
 function usageTap(onUsage: (u: Usage) => void): TransformStream<Uint8Array, Uint8Array> {
   const dec = new TextDecoder()
   let buf = ""
@@ -77,6 +117,7 @@ function usageTap(onUsage: (u: Usage) => void): TransformStream<Uint8Array, Uint
         try {
           const j = JSON.parse(data)
           if (j.usage && (j.usage.prompt_tokens || j.usage.completion_tokens)) onUsage(j.usage)
+          harvestSignatures(j)
         } catch {}
       }
     },
@@ -123,7 +164,7 @@ async function chatCompletions(req: http.IncomingMessage, res: http.ServerRespon
           authorization: `Bearer ${c.apiKey}`,
           ...(c.providerID === "openrouter" ? { "http-referer": "https://github.com/SyedSaribSultan/syrup", "x-title": "syrup" } : {}),
         },
-        body: JSON.stringify({ ...body, model: c.modelID }),
+        body: JSON.stringify({ ...body, model: c.modelID, ...(c.providerID === "google" ? { messages: restoreSignatures(body.messages) } : {}) }),
         signal: abort.signal,
       })
     } catch (err) {
@@ -193,7 +234,9 @@ async function chatCompletions(req: http.IncomingMessage, res: http.ServerRespon
     if (!stream || !upstream.ok) {
       const text = await upstream.text()
       try {
-        usage = JSON.parse(text).usage ?? {}
+        const j = JSON.parse(text)
+        usage = j.usage ?? {}
+        harvestSignatures(j)
       } catch {}
       res.end(text)
       finish(upstream.ok ? "ok" : "error")
