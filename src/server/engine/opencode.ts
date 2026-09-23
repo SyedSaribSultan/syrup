@@ -1,6 +1,7 @@
-import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk/client"
+import { createOpencodeClient, type Config, type OpencodeClient } from "@opencode-ai/sdk/client"
 import { createOpencodeServer } from "@opencode-ai/sdk/server"
 import { env } from "../env"
+import { ALIASES } from "../router/backends"
 
 export type Engine = {
   /** Base URL of the OpenCode server, e.g. http://127.0.0.1:4096 */
@@ -11,7 +12,38 @@ export type Engine = {
 
 const g = globalThis as unknown as { __syrupEngine?: Promise<Engine> }
 
+/** OpenCode config injected at boot: registers the syrup router as a provider. */
+function engineConfig(routerURL: string): Config {
+  const models: NonNullable<NonNullable<Config["provider"]>[string]["models"]> = {}
+  for (const [id, a] of Object.entries(ALIASES)) {
+    models[id] = {
+      name: a.name,
+      tool_call: true,
+      reasoning: false,
+      attachment: false,
+      // The router reports real spend in its own ledger; the engine sees $0.
+      cost: { input: 0, output: 0 },
+      limit: { context: 1_000_000, output: 65_536 },
+    }
+  }
+  return {
+    model: "syrup/auto",
+    small_model: "syrup/fast",
+    provider: {
+      syrup: {
+        npm: "@ai-sdk/openai-compatible",
+        name: "syrup",
+        options: { baseURL: routerURL, apiKey: "syrup", timeout: 600_000 },
+        models,
+      },
+    },
+  }
+}
+
 async function start(): Promise<Engine> {
+  const { startRouter } = await import("../router/server")
+  const routerURL = await startRouter()
+
   if (env.opencodeUrl) {
     const url = env.opencodeUrl.replace(/\/$/, "")
     return {
@@ -25,6 +57,7 @@ async function start(): Promise<Engine> {
     hostname: env.opencodeHostname,
     port: env.opencodePort,
     timeout: 20_000,
+    config: engineConfig(routerURL),
   })
   console.log(`[syrup] opencode server at ${server.url} (workspace ${env.workspace})`)
   return {
