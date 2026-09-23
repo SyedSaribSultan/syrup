@@ -2,6 +2,7 @@ import crypto from "node:crypto"
 import http from "node:http"
 import { db, dbReady, schema } from "../db"
 import { env } from "../env"
+import { handleMcp } from "../mcp"
 import { ALIASES, candidates, type Alias, type Candidate } from "./backends"
 
 /**
@@ -242,6 +243,11 @@ export function startRouter(): Promise<string> {
         const url = new URL(req.url ?? "/", "http://localhost")
         if (req.method === "POST" && url.pathname === "/v1/chat/completions") return void chatCompletions(req, res)
         if (req.method === "GET" && url.pathname === "/v1/models") return models(res)
+        if (url.pathname === "/mcp") return void handleMcp(req, res).catch((err) => {
+          console.warn("[syrup] mcp error", err)
+          if (!res.headersSent) json(res, 500, { error: { message: String(err) } })
+          else res.end()
+        })
         if (req.method === "GET" && url.pathname === "/health") return json(res, 200, { ok: true })
         json(res, 404, { error: { message: `syrup router: no route ${req.method} ${url.pathname}` } })
       })
