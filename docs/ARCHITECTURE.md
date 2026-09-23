@@ -80,7 +80,7 @@ The engine sits behind one interface (`src/server/engine`). If OpenCode ever bec
 
 **Folder dialog.** The server opens the OS dialog on its own desktop (self-hosted, so browser and server share one). Windows: the modern Explorer picker (`IFileOpenDialog`, folder mode) called over COM from Windows PowerShell 5.1, owned by an invisible TopMost window so it opens in front. macOS: `osascript choose folder`. Linux: `zenity`, then `kdialog`. One dialog at a time; a new request replaces a stuck one; 3-minute timeout.
 
-**`.sarib` (optional).** If `sarib-mcp` is on PATH at boot, it is registered as a local MCP server. OpenCode runs local MCP servers in the session's directory, so it serves that workspace's `.sarib` files. Absent means no change.
+**`.sarib` (optional).** `src/server/sarib.ts`. The `sarib` MCP server is added per workspace, and only to folders with a `.sarib` file within three levels (dependency and build folders skipped; rescanned at most once a minute). The OpenCode proxy triggers the check on any request with a `directory`, and waits for it (up to 5 s) before a prompt so that turn already has the tools. OpenCode keeps MCP state per directory and runs local servers there, so the server sees only that workspace. Other workspaces never pay for its tool definitions. Needs Python 3.10+ and `sarib[mcp]`; the Skills page has an **Enable** button that runs `pip install --user "sarib[mcp]"` in the background (`/api/sarib`).
 
 **Later.** Terminal (PTY endpoints exist), budgets and alerts, theme toggle, mobile layout, Google OAuth provider login (the only OAuth provider planned), multi-user.
 

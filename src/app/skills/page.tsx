@@ -104,6 +104,8 @@ export default function SkillsPage() {
           {error && <div className="mt-2 text-xs text-err">{error}</div>}
         </div>
 
+        <SaribCard />
+
         <h2 className="mt-8 mb-3 text-sm font-medium text-ink">
           Installed <span className="font-normal text-muted">· {skills?.length ?? "…"}</span>
         </h2>
@@ -114,6 +116,80 @@ export default function SkillsPage() {
           ))}
         </ul>
       </div>
+    </div>
+  )
+}
+
+type SaribStatus = { python: string[] | null; command: string[] | null; installing: boolean; log: string; error: string | null }
+
+/** Optional .sarib tools: status and a one-click install. */
+function SaribCard() {
+  const [st, setSt] = useState<SaribStatus | null>(null)
+  const [showLog, setShowLog] = useState(false)
+
+  const load = useCallback(async () => {
+    const r = await fetch("/api/sarib", { cache: "no-store" })
+    if (r.ok) setSt(await r.json())
+  }, [])
+
+  useEffect(() => {
+    const t = setTimeout(() => void load(), 0)
+    return () => clearTimeout(t)
+  }, [load])
+
+  // Poll while pip runs.
+  useEffect(() => {
+    if (!st?.installing) return
+    const t = setInterval(() => void load(), 1500)
+    return () => clearInterval(t)
+  }, [st?.installing, load])
+
+  async function install() {
+    const r = await fetch("/api/sarib", { method: "POST" })
+    if (r.ok) setSt(await r.json())
+  }
+
+  const installed = !!st?.command
+  return (
+    <div className="mt-6 rounded-xl border border-line bg-surface p-4 shadow-card">
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-[13px] font-medium text-ink">.sarib tools</span>
+            {st && <span className={`rounded px-1 text-[10px] ${installed ? "bg-surface-2 text-ok" : "bg-surface-2 text-ink-2"}`}>{installed ? "installed" : st.installing ? "installing…" : "not installed"}</span>}
+          </div>
+          <div className="mt-0.5 text-[13px] text-ink-2">
+            Lets the agent query and edit{" "}
+            <a href="https://github.com/SyedSaribSultan/sarib-lang" target="_blank" rel="noreferrer" className="underline decoration-line-2 underline-offset-2 hover:text-ink">
+              .sarib
+            </a>{" "}
+            files by id instead of rewriting them. Turns on only in workspaces that contain .sarib files, so other chats pay nothing for it.
+          </div>
+        </div>
+        {st && !installed && (
+          <button type="button" onClick={() => void install()} disabled={st.installing || !st.python} className="shrink-0 rounded-lg bg-accent px-3 py-2 text-xs font-medium text-accent-ink disabled:opacity-40">
+            {st.installing ? "Installing…" : "Enable"}
+          </button>
+        )}
+      </div>
+      {st && !installed && !st.python && (
+        <div className="mt-2 text-[11px] text-muted">
+          Needs Python 3.10+.{" "}
+          <a href="https://www.python.org/downloads/" target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-ink">
+            Install Python
+          </a>
+          , then reload this page.
+        </div>
+      )}
+      {st?.error && <div className="mt-2 text-xs text-err">{st.error}</div>}
+      {st?.log && (
+        <div className="mt-2">
+          <button type="button" onClick={() => setShowLog((v) => !v)} className="text-[11px] text-muted hover:text-ink">
+            {showLog ? "Hide" : "Show"} install log
+          </button>
+          {showLog && <pre className="mt-1 max-h-[240px] overflow-auto rounded-lg bg-code-bg p-3 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap text-ink-2">{st.log}</pre>}
+        </div>
+      )}
     </div>
   )
 }

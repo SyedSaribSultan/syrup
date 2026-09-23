@@ -15,7 +15,7 @@ No subscription. No single vendor. Bring keys from Google AI Studio, Groq, Mistr
 - **Skills.** Install `SKILL.md` skills from GitHub or paste your own. Works with skills you already have in `~/.claude/skills`.
 - **Attachments.** Drop or paste images and files into the composer.
 - **Logs.** A structured application log (secrets redacted), one click away in the sidebar, with a copy-for-debugging button.
-- **Optional `.sarib` tools.** If [`sarib-mcp`](https://github.com/SyedSaribSultan/sarib-lang) is installed, the agent can query and edit `.sarib` files in the workspace by id instead of rewriting them.
+- **Optional `.sarib` tools.** In workspaces that contain [`.sarib`](https://github.com/SyedSaribSultan/sarib-lang) files, the agent can query and edit them by id instead of rewriting them. Other workspaces pay nothing for it. One click on the Skills page installs it.
 - **Free out of the box.** OpenCode's free models work with no key at all, so you can try it before adding anything.
 
 ## Requirements
@@ -29,7 +29,7 @@ npm i -g opencode-ai
 ```
 
 - Linux only: `zenity` or `kdialog` for the folder dialog (you can always type a path instead)
-- Optional: `pip install "sarib[mcp]"` (Python 3.10+) to give the agent the `.sarib` tools. syrup picks it up on the next start.
+- Optional: Python 3.10+ for the `.sarib` tools (the Skills page installs the rest)
 
 ## Run it
 
