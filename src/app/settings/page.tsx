@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation"
+import { Connections } from "@/components/connections"
 import { PrivacySettings } from "@/components/privacy-settings"
 import { env } from "@/server/env"
 
@@ -17,6 +18,7 @@ export default async function SettingsPage() {
         <h1 className="font-serif text-[1.75rem] font-medium tracking-tight text-ink">Account & privacy</h1>
         <p className="mt-1 max-w-[600px] text-sm text-muted">Every promise in the Privacy Policy has a control here. Changes take effect immediately and are recorded in your account&apos;s audit log.</p>
         <PrivacySettings />
+        <Connections />
         <section className="mt-6 rounded-xl border border-line bg-surface p-4 shadow-card">
           <h2 className="text-sm font-medium text-ink">Session</h2>
           <p className="mt-1 text-[13px] text-ink-2">Signs you out on this device. Your data stays.</p>

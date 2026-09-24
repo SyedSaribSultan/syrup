@@ -43,6 +43,13 @@
       "when": 1790255341624,
       "tag": "0005_rls_history",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790271596900,
+      "tag": "0006_github_token",
+      "breakpoints": true
     }
   ]
 }

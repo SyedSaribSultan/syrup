@@ -6,6 +6,7 @@ import { eq } from "drizzle-orm"
 import { track } from "../analytics"
 import { openWith, sealWith, userDek } from "../cloud/crypto"
 import { mintIngestToken } from "../cloud/ingest"
+import { githubToken } from "../cloud/github"
 import { activeKeyDetails } from "../cloud/keys"
 import { syrupEngineConfig } from "./opencode"
 import { getWorkspace, touchWorkspace, type SandboxRow, type Workspace } from "../cloud/workspaces"
@@ -121,14 +122,25 @@ async function waitHealthy(baseUrl: string, password: string, totalMs: number): 
   throw new Error(`OpenCode did not become healthy within ${Math.round(totalMs / 1000)} s (${String(last)})`)
 }
 
-async function installEngine(sb: Sandbox, ws: Workspace) {
+async function installEngine(sb: Sandbox, ws: Workspace, userId: string) {
   const t0 = Date.now()
   const steps: string[] = [`curl -fsSL https://opencode.ai/install | bash -s -- --version ${OPENCODE_VERSION}`]
-  if (ws.source === "git" && ws.repoUrl) steps.push(`git clone --depth 1 ${JSON.stringify(ws.repoUrl)} ${JSON.stringify(workDir(ws))}`)
-  else steps.push(`mkdir -p ${JSON.stringify(workDir(ws))}`)
-  const r = await sb.runCommand({ cmd: "bash", args: ["-lc", steps.join(" && ")], cwd: HOME })
+  const env: Record<string, string> = { HOME }
+  if (ws.source === "git" && ws.repoUrl) {
+    // A GitHub token (if any) reaches git through a one-shot credential helper that reads process env:
+    // it is never written to .git/config, the shell history, or the snapshot.
+    const token = ws.repoUrl.includes("github.com") ? await githubToken(userId) : null
+    if (token) env.SYRUP_GIT_TOKEN = token
+    const helper = token ? "-c credential.helper='!f() { echo username=x-access-token; echo \"password=$SYRUP_GIT_TOKEN\"; }; f'" : ""
+    const branch = ws.defaultBranch ? `--branch ${JSON.stringify(ws.defaultBranch)}` : ""
+    steps.push(`git ${helper} clone --depth 1 ${branch} ${JSON.stringify(ws.repoUrl)} ${JSON.stringify(workDir(ws))}`)
+  } else steps.push(`mkdir -p ${JSON.stringify(workDir(ws))}`)
+  const r = await sb.runCommand({ cmd: "bash", args: ["-lc", steps.join(" && ")], cwd: HOME, env })
   if (r.exitCode !== 0) {
     const err = (await r.stderr()).slice(-1500)
+    if (/Authentication failed|could not read Username|Repository not found/i.test(err)) {
+      throw new Error(`Could not clone the repository. If it is private, add a GitHub token under Account & privacy → Connections. (${err.trim().split("\n").pop()})`)
+    }
     throw new Error(`sandbox setup failed (exit ${r.exitCode}): ${err}`)
   }
   slog("engine", "sandbox.installed", { workspaceId: ws.id, ms: Date.now() - t0, version: OPENCODE_VERSION }, { directory: ws.id })
@@ -177,6 +189,11 @@ export async function openWorkspace(userId: string, workspaceId: string): Promis
   if (!ws || !ws.sandbox) throw new Error("workspace not found")
   const row = ws.sandbox
   slog("engine", "sandbox.open", { workspaceId, name: row.vercelName, status: row.status }, { directory: workspaceId })
+  // Another request (a second tab) is already starting this sandbox: wait for it instead of racing it.
+  if (row.status === "starting" && Date.now() - row.updatedAt.getTime() < 90_000) {
+    const other = await waitForOther(userId, workspaceId, 90_000)
+    if (other) return other
+  }
   await saveSandbox(userId, workspaceId, { status: "starting", lastError: null })
 
   try {
@@ -194,7 +211,7 @@ export async function openWorkspace(userId: string, workspaceId: string): Promis
       resume: true,
       onCreate: async (fresh) => {
         created = true
-        await installEngine(fresh, ws)
+        await installEngine(fresh, ws, userId)
       },
     })
 
@@ -225,12 +242,40 @@ export async function openWorkspace(userId: string, workspaceId: string): Promis
     await track(userId, "sandbox_started", { start, ms, created })
     return { workspaceId, baseUrl, authorization: basic(password), directory: workDir(ws), expiresAt: sb.expiresAt?.toISOString() ?? null, engineVersion: version ?? OPENCODE_VERSION, start, ms }
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
+    const message = friendly(err instanceof Error ? err.message : String(err))
     await saveSandbox(userId, workspaceId, { status: "error", lastError: message.slice(0, 1000) })
     slog("engine", "sandbox.open_failed", { workspaceId, err }, { level: "error", directory: workspaceId })
     await track(userId, "sandbox_error", { stage: "open" })
-    throw err
+    throw new Error(message)
   }
+}
+
+/** Polls until a concurrent open finishes, then reuses its engine if it is healthy. */
+async function waitForOther(userId: string, workspaceId: string, totalMs: number): Promise<Connection | null> {
+  const until = Date.now() + totalMs
+  while (Date.now() < until) {
+    await new Promise((r) => setTimeout(r, 2000))
+    const ws = await getWorkspace(userId, workspaceId)
+    const row = ws?.sandbox
+    if (!ws || !row || row.status === "error") return null
+    if (row.status === "running") {
+      const password = await storedPassword(userId, row)
+      if (!password) return null
+      const sb = await Sandbox.get({ name: row.vercelName, resume: false })
+      const baseUrl = sb.domain(PORT)
+      const h = await healthy(baseUrl, password)
+      if (!h) return null
+      return { workspaceId, baseUrl, authorization: basic(password), directory: workDir(ws), expiresAt: sb.expiresAt?.toISOString() ?? null, engineVersion: h.version ?? OPENCODE_VERSION, start: "hot", ms: 0 }
+    }
+  }
+  return null
+}
+
+/** Turns platform errors into something a person can act on. */
+function friendly(message: string): string {
+  if (/402|payment|quota|limit exceeded|too many sandboxes|concurrent/i.test(message)) return "The free sandbox pool is busy right now. Try again in a minute."
+  if (/\b429\b/.test(message)) return "Too many starts in a short time. Wait a moment and try again."
+  return message
 }
 
 /** Extends the running session so the sandbox does not idle-stop while a tab is open. */
