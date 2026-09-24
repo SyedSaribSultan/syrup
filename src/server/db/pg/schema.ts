@@ -171,3 +171,48 @@ export const logs = pgTable("logs", {
   workspaceId: text("workspace_id"),
   data: jsonb("data"),
 }, (t) => [index("logs_ts_idx").on(t.ts), index("logs_user_idx").on(t.userId, t.ts)])
+
+// ---------------------------------------------------------------- workspaces and compute (Phase 2)
+
+export const workspaces = pgTable("workspaces", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  /** "git" | "empty" */
+  source: text("source").notNull().default("empty"),
+  repoUrl: text("repo_url"),
+  defaultBranch: text("default_branch"),
+  /** Extra egress hosts the user allowed for this workspace. */
+  egressAllow: text("egress_allow").array().notNull().default([]),
+  createdAt: ts("created_at").notNull().defaultNow(),
+  lastOpenedAt: ts("last_opened_at"),
+  deletedAt: ts("deleted_at"),
+}, (t) => [index("workspaces_user_idx").on(t.userId, t.lastOpenedAt)])
+
+/** One Vercel Sandbox per workspace. The row is the durable record; the VM is disposable. */
+export const sandboxes = pgTable("sandboxes", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id")
+    .notNull()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  vercelName: text("vercel_name").notNull(),
+  region: text("region").notNull().default("fra1"),
+  /** "stopped" | "starting" | "running" | "error" */
+  status: text("status").notNull().default("stopped"),
+  /** OpenCode server password, AES-GCM under the user's DEK. Rotated whenever the engine is (re)started. */
+  passwordEnc: text("password_enc"),
+  vcpus: integer("vcpus").notNull().default(1),
+  engineVersion: text("engine_version"),
+  lastSessionStartedAt: ts("last_session_started_at"),
+  lastSessionEndedAt: ts("last_session_ended_at"),
+  totalSessionSeconds: integer("total_session_seconds").notNull().default(0),
+  totalCpuMs: integer("total_cpu_ms").notNull().default(0),
+  lastError: text("last_error"),
+  createdAt: ts("created_at").notNull().defaultNow(),
+  updatedAt: ts("updated_at").notNull().defaultNow(),
+}, (t) => [uniqueIndex("sandboxes_workspace_idx").on(t.workspaceId), index("sandboxes_user_idx").on(t.userId)])

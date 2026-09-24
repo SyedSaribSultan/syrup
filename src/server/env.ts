@@ -65,5 +65,7 @@ export const env = {
   invites: list(process.env.SYRUP_INVITES),
   appUrl: process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000"),
   posthogKey: process.env.NEXT_PUBLIC_POSTHOG_KEY || undefined,
+  /** Bearer that lets CLI smoke tests act as the first admin (see cloud/session.ts). */
+  opsToken: process.env.SYRUP_OPS_TOKEN || undefined,
   posthogHost: process.env.NEXT_PUBLIC_POSTHOG_HOST || "https://eu.i.posthog.com",
 }
