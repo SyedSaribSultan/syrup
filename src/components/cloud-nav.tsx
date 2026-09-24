@@ -6,6 +6,7 @@ import type { ReactNode } from "react"
 
 const ICONS: Record<string, ReactNode> = {
   home: <path d="M2 7 7 2.5 12 7v5H8.5V9h-3v3H2V7Z" />,
+  folder: <path d="M2 4.5A1.5 1.5 0 0 1 3.5 3H6l1.2 1.5h3.3A1.5 1.5 0 0 1 12 6v4.5A1.5 1.5 0 0 1 10.5 12h-7A1.5 1.5 0 0 1 2 10.5v-6Z" />,
   key: (
     <>
       <circle cx="5" cy="9" r="3" />
@@ -40,6 +41,9 @@ export function CloudNav({ admin }: { admin: boolean }) {
       <div className="space-y-0.5">
         <Item href="/" icon="home" active={p === "/"}>
           Home
+        </Item>
+        <Item href="/workspaces" icon="folder" active={p.startsWith("/workspaces") || p.startsWith("/w/")}>
+          Workspaces
         </Item>
         <Item href="/settings/providers" icon="key" active={p.startsWith("/settings/providers")}>
           Providers
