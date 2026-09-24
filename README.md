@@ -101,6 +101,10 @@ Free tiers change often. As of September 2026:
 
 syrup shows this next to each provider and lets you tag keys so the router knows what is free.
 
+## Hosted version
+
+The same codebase runs as a hosted product at https://syrup.syedsarib.com (invite-only early access): Google sign-in, per-user encrypted keys, and each workspace's agent in its own isolated sandbox. Design and status: [docs/PLAN.md](docs/PLAN.md), [docs/PHASE2.md](docs/PHASE2.md).
+
 ## Status
 
 Working end to end, early. Things still rough: no theme toggle, no mobile layout, the router has been tested against real provider endpoints but not yet under sustained rate limiting. Issues and PRs welcome.

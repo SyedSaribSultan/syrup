@@ -86,7 +86,9 @@ The engine sits behind one interface (`src/server/engine`). If OpenCode ever bec
 
 **Local hardening (Phase 0, 2026-09-24).** Server binds 127.0.0.1; `src/proxy.ts` rejects non-loopback Host and cross-origin mutations; the OpenCode server runs with a per-process password that only the `/api/oc` proxy and server modules know; router and memory MCP require the same secret as bearer; the vault key lives in the user config dir, outside any workspace.
 
-**Later.** Terminal (PTY endpoints exist), budgets and alerts, theme toggle, mobile layout, teams/organizations.
+**Cloud runtime (Phase 2, 2026-09-24).** One Vercel Sandbox per workspace (`src/server/engine/sandbox.ts`): universal image, fra1, 1 vCPU, 10-minute idle timeout extended by a heartbeat while the tab is visible, last snapshot kept 7 days. On create: OpenCode 1.18.32 pinned + repo clone (private GitHub via a one-shot credential helper reading process env). On every start: the esbuild-bundled **sidecar** (`sidecar/`, the same router core and memory tools as local mode) is uploaded and started with the user's keys, an ingest token and a per-start secret in process env; OpenCode is started with a per-start password and a config pointing its `syrup` provider and memory MCP at the sidecar on loopback. Only OpenCode's port is public; the browser connects to it directly with Basic auth held in memory (`src/lib/oc.ts`, `EngineProvider` connection). The sidecar taps OpenCode's event bus and posts sessions, messages, router attempts, memory ops and logs to `/api/ingest/*` with a 2-hour HMAC token bound to user + workspace; Postgres is the history, the sandbox is disposable. Egress: private networks and the metadata service always denied; a workspace with listed hosts runs a strict allow-list. Kill switch `SYRUP_AGENT_ENABLED=0`. Measured: cold 9–15 s, warm resume 7 s, hot 0.3 s, ~7–25 CPU-seconds per boot-and-prompt.
+
+**Later.** Terminal (PTY endpoints exist), budgets and alerts, theme toggle, mobile layout, teams/organizations, exports to R2 with email.
 
 ## Known issues
 
