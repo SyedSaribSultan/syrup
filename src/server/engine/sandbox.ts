@@ -1,8 +1,13 @@
 import crypto from "node:crypto"
+import fs from "node:fs"
+import path from "node:path"
 import { Sandbox } from "@vercel/sandbox"
 import { eq } from "drizzle-orm"
 import { track } from "../analytics"
 import { openWith, sealWith, userDek } from "../cloud/crypto"
+import { mintIngestToken } from "../cloud/ingest"
+import { activeKeyDetails } from "../cloud/keys"
+import { syrupEngineConfig } from "./opencode"
 import { getWorkspace, touchWorkspace, type SandboxRow, type Workspace } from "../cloud/workspaces"
 import { pgSchema, withUser } from "../db/pg"
 import { env } from "../env"
@@ -50,9 +55,48 @@ function workDir(ws: Workspace) {
   return `${HOME}/${ws.source === "git" ? "repo" : "workspace"}`
 }
 
-/** OpenCode config for the sandbox. LSP off (biggest idle CPU burner), no auto-update, no sharing. */
-function engineConfig(): string {
-  return JSON.stringify({ lsp: false, autoupdate: false, share: "disabled" })
+const SIDECAR_PORT = 4210
+const SIDECAR_DIR = `${HOME}/.syrup`
+
+/** OpenCode config for the sandbox: syrup router + memory MCP via the sidecar, LSP off (biggest idle CPU burner), no auto-update, no sharing. */
+function engineConfig(secret: string): string {
+  return JSON.stringify({ ...syrupEngineConfig(`http://127.0.0.1:${SIDECAR_PORT}/v1`, secret), lsp: false, autoupdate: false, share: "disabled" })
+}
+
+/** The bundled sidecar (built by sidecar/build.mjs before `next build`). */
+function sidecarBundle(): { js: Buffer; hash: string } {
+  const dir = path.join(process.cwd(), ".sidecar")
+  const js = fs.readFileSync(path.join(dir, "sidecar.js"))
+  const meta = JSON.parse(fs.readFileSync(path.join(dir, "sidecar.json"), "utf8")) as { hash: string }
+  return { js, hash: meta.hash }
+}
+
+/** Uploads the sidecar and starts it with the user's keys in process env, then waits for it to answer on loopback. */
+async function startSidecar(sb: Sandbox, userId: string, workspaceId: string, password: string, secret: string) {
+  const t0 = Date.now()
+  const { js, hash } = sidecarBundle()
+  await sb.runCommand({ cmd: "mkdir", args: ["-p", SIDECAR_DIR] })
+  await sb.writeFiles([{ path: `${SIDECAR_DIR}/sidecar.js`, content: js }])
+  const keys = await activeKeyDetails(userId)
+  await sb.runCommand({
+    cmd: "node",
+    args: [`${SIDECAR_DIR}/sidecar.js`],
+    cwd: SIDECAR_DIR,
+    detached: true,
+    env: {
+      HOME,
+      SYRUP_KEYS: JSON.stringify(keys),
+      SYRUP_INTERNAL_SECRET: secret,
+      SYRUP_INGEST_URL: env.appUrl,
+      SYRUP_INGEST_TOKEN: mintIngestToken(userId, workspaceId),
+      SYRUP_ROUTER_PORT: String(SIDECAR_PORT),
+      OPENCODE_SERVER_PASSWORD: password,
+      OPENCODE_URL: `http://127.0.0.1:${PORT}`,
+    },
+  })
+  const wait = await sb.runCommand({ cmd: "bash", args: ["-lc", `for i in $(seq 1 75); do curl -sf http://127.0.0.1:${SIDECAR_PORT}/health >/dev/null && exit 0; sleep 0.2; done; exit 1`] })
+  if (wait.exitCode !== 0) throw new Error("sidecar did not start within 15 s")
+  slog("engine", "sidecar.started", { workspaceId, hash, ms: Date.now() - t0, providers: Object.keys(keys) }, { directory: workspaceId })
 }
 
 async function healthy(baseUrl: string, password: string, timeoutMs = 4000): Promise<{ version?: string } | null> {
@@ -90,14 +134,17 @@ async function installEngine(sb: Sandbox, ws: Workspace) {
   slog("engine", "sandbox.installed", { workspaceId: ws.id, ms: Date.now() - t0, version: OPENCODE_VERSION }, { directory: ws.id })
 }
 
-async function startEngine(sb: Sandbox, ws: Workspace, password: string) {
+/** Starts the sidecar, then OpenCode pointed at it. Both get a fresh per-start secret and password. */
+async function startEngine(sb: Sandbox, ws: Workspace, userId: string, password: string) {
+  const secret = crypto.randomBytes(24).toString("base64url")
+  await startSidecar(sb, userId, ws.id, password, secret)
   const cors = [env.appUrl, process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : ""].filter(Boolean)
   await sb.runCommand({
     cmd: "bash",
     args: ["-lc", `exec "$HOME/.opencode/bin/opencode" serve --hostname 0.0.0.0 --port ${PORT} ${cors.map((c) => `--cors ${JSON.stringify(c)}`).join(" ")}`],
     cwd: workDir(ws),
     detached: true,
-    env: { OPENCODE_SERVER_PASSWORD: password, OPENCODE_CONFIG_CONTENT: engineConfig(), HOME },
+    env: { OPENCODE_SERVER_PASSWORD: password, OPENCODE_CONFIG_CONTENT: engineConfig(secret), HOME },
   })
 }
 
@@ -165,7 +212,7 @@ export async function openWorkspace(userId: string, workspaceId: string): Promis
     }
     if (!password) {
       password = crypto.randomBytes(24).toString("base64url")
-      await startEngine(sb, ws, password)
+      await startEngine(sb, ws, userId, password)
       version = (await waitHealthy(baseUrl, password, 60_000)).version
       await storePassword(userId, workspaceId, password)
       await saveSandbox(userId, workspaceId, { lastSessionStartedAt: new Date() })
