@@ -1,6 +1,6 @@
 import { desc, sql } from "drizzle-orm"
 import { handler, requireAdmin } from "@/server/cloud/session"
-import { pg, pgReady, pgSchema } from "@/server/db/pg"
+import { pgAdmin, pgReady, pgSchema } from "@/server/db/pg"
 
 export const dynamic = "force-dynamic"
 
@@ -8,7 +8,8 @@ export const dynamic = "force-dynamic"
 export const GET = handler(async () => {
   await requireAdmin()
   await pgReady()
-  const db = pg()
+  // Cross-tenant aggregates: the owner connection bypasses RLS on purpose (admin only).
+  const db = pgAdmin()
   const users = await db.select({ id: pgSchema.users.id, email: pgSchema.users.email, name: pgSchema.users.name, createdAt: pgSchema.users.createdAt, lastSeenAt: pgSchema.users.lastSeenAt, analyticsOptOut: pgSchema.users.analyticsOptOut, deletedAt: pgSchema.users.deletedAt }).from(pgSchema.users).orderBy(desc(pgSchema.users.createdAt)).limit(500)
   // Aggregates bypass RLS on purpose: set the scope to a sentinel and count with plain SQL as owner.
   const keyCounts = await db.execute<{ user_id: string; n: number }>(sql`select user_id, count(*)::int as n from provider_keys group by user_id`)

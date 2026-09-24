@@ -61,7 +61,7 @@ Rejected on purpose: **Cloudflare Access** for login (free plan is capped at 50 
 ## 3. What "fully separate per user" means in code
 
 1. **Every table has `user_id`.** No exceptions except `legal_documents` and `settings_global`.
-2. **Postgres row-level security on every table.** The app sets `SET LOCAL app.user_id = '<id>'` at the start of each transaction; policies filter on it. Even a bug in a query cannot leak another user's rows.
+2. **Postgres row-level security on every tenant table**, FORCED, and the app connects as a dedicated `syrup_app` role with `NOBYPASSRLS` (Neon's default owner role inherits BYPASSRLS from `neon_superuser`, which silently disables RLS; found and fixed 2026-09-24). The app sets `app.user_id` at the start of each transaction (`withUser()`); policies filter on it. The owner role is used only for migrations and explicit admin aggregates (`pgAdmin()`).
 3. **One sandbox per workspace, named `u_<userId>_<workspaceId>`.** Nothing shared. Vercel's microVM boundary is the isolation.
 4. **Envelope encryption for provider keys.** Each user has a data-encryption key (DEK) wrapped by the master key (Vercel env `SYRUP_MASTER_KEY`). Provider keys are AES-256-GCM under the user's DEK. Rotating the master key rewraps DEKs, not every secret.
 5. **Keys never touch sandbox disk.** Decrypted at resume, passed as env to the sidecar process, gone when the session stops. The sidecar is the only thing that ever holds them.
