@@ -61,7 +61,7 @@ src/app/w/[id]/…             # workspace pages (chat lives here in cloud)
 - Admin-only debug route `/api/admin/sandbox/probe` that boots one and hits `/global/health` with the password. Measures cold boot and resume times; decides `universal` vs `node:24`.
 - **Gate:** probe returns OpenCode's version; sandbox appears in the Vercel dashboard; stop() snapshots; second probe resumes in under ~10 s.
 
-### S2 — Sidecar (1.5 days)
+### S2 — Sidecar (1.5 days) ✅ 2026-09-24 — router core + memory tools shared with local mode; prompt via syrup/auto answered through the user's key; MCP connected; sidecar 1.4 MB single file
 - Extract `router/core.ts` and `memory/core.ts` behind `Store`/`MemoryStore`. Local mode keeps working through `store-sqlite.ts` (regression check: local chat, router failover, memory tools).
 - `sidecar/index.ts` + esbuild build wired into `prebuild`. Uploaded on create and re-uploaded on resume if the hash changed.
 - Started detached with env: `SYRUP_KEYS` (JSON of active keys), `SYRUP_INGEST_URL`, `SYRUP_INGEST_TOKEN`, `SYRUP_INTERNAL_SECRET`. OpenCode config points provider + MCP at `127.0.0.1:4210` with that secret. `lsp` disabled in cloud config (verify key name in SDK types).
