@@ -73,7 +73,7 @@ src/app/w/[id]/…             # workspace pages (chat lives here in cloud)
 - Chats list and usage dashboard read from Postgres (no sandbox boot to browse history).
 - **Gate:** after a probe prompt, rows exist for the user and none are visible under another user id.
 
-### S4 — Browser talks to the sandbox (1 day)
+### S4 — Browser talks to the sandbox (1 day) ✅ built 2026-09-24 — CORS verified against a live sandbox; awaiting the first browser session
 - `/api/workspaces/:id/open` → ensures the sandbox, returns `{ baseUrl, authHeader, directory, expiresAt }`. Password lives only in the browser's memory (engine-store state), never in localStorage.
 - `oc()` gains a connection parameter; `EngineProvider` takes `{ baseUrl, headers, directory }` from the workspace page instead of `/api/oc`. Event stream fetch sends the header. CORS preflight verified against `--cors`.
 - **Gate:** the existing chat UI streams a reply from the sandbox on syrup.syedsarib.com; permissions and questions round-trip.
