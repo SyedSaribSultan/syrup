@@ -40,7 +40,7 @@ async function* sse<T>(res: Response): AsyncGenerator<T> {
 }
 
 export function startEventTap(cfg: SidecarConfig, log: Log): { flush(): Promise<void> } {
-  let queue: EngineEvent[] = []
+  const queue: EngineEvent[] = []
   let timer: NodeJS.Timeout | undefined
 
   async function flush() {
