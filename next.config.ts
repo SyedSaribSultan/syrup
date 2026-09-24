@@ -5,7 +5,7 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ["@opencode-ai/sdk", "@libsql/client", "cross-spawn", "@modelcontextprotocol/sdk", "@neondatabase/serverless", "ws", "posthog-node"],
   // Files read at runtime that the bundler cannot see: Postgres migrations and the legal texts.
   outputFileTracingIncludes: {
-    "/**": ["./drizzle-pg/**/*", "./src/content/legal/*.md"],
+    "/**": ["./drizzle-pg/**/*", "./src/content/legal/*.md", "./.sidecar/*"],
   },
   // PostHog reverse proxy so analytics requests are first-party (see src/instrumentation-client.ts).
   async rewrites() {

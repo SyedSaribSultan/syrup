@@ -95,3 +95,16 @@ export async function activeKeys(userId: string): Promise<Record<string, string>
     return out
   })
 }
+
+export type KeyForSidecar = { id: string; secret: string; tier: Tier }
+
+/** Active keys with id and tier, keyed by provider. Handed to the sandbox sidecar in process env. */
+export async function activeKeyDetails(userId: string): Promise<Record<string, KeyForSidecar>> {
+  return withUser(userId, async (tx) => {
+    const dek = await userDek(tx, userId)
+    const rows = await tx.select().from(pgSchema.providerKeys).where(and(eq(pgSchema.providerKeys.userId, userId), eq(pgSchema.providerKeys.active, true), eq(pgSchema.providerKeys.enabled, true)))
+    const out: Record<string, KeyForSidecar> = {}
+    for (const r of rows) out[r.providerId] = { id: r.id, secret: openWith(dek, r.secretEnc), tier: r.tier }
+    return out
+  })
+}

@@ -18,8 +18,8 @@ export function engineAuthHeader(): string {
   return `Basic ${Buffer.from(`opencode:${env.internalSecret}`).toString("base64")}`
 }
 
-/** OpenCode config injected at boot: syrup router as a provider, syrup MCP for memory, memory index as instructions. */
-function engineConfig(routerURL: string, memoryIndex: string): Config {
+/** The "syrup" provider (router) and memory MCP entries, shared by local mode and the sandbox sidecar config. */
+export function syrupEngineConfig(routerURL: string, secret: string): Pick<Config, "model" | "small_model" | "mcp" | "provider"> {
   const models: NonNullable<NonNullable<Config["provider"]>[string]["models"]> = {}
   for (const [id, a] of Object.entries(ALIASES)) {
     models[id] = {
@@ -35,20 +35,23 @@ function engineConfig(routerURL: string, memoryIndex: string): Config {
   return {
     model: "syrup/auto",
     small_model: "syrup/fast",
-    instructions: [memoryIndex],
     mcp: {
-      syrup: { type: "remote", url: routerURL.replace(/\/v1$/, "/mcp"), enabled: true, timeout: 10_000, headers: { authorization: `Bearer ${env.internalSecret}` } },
+      syrup: { type: "remote", url: routerURL.replace(/\/v1$/, "/mcp"), enabled: true, timeout: 10_000, headers: { authorization: `Bearer ${secret}` } },
     },
     provider: {
       syrup: {
         npm: "@ai-sdk/openai-compatible",
         name: "syrup",
-        // The router only answers requests carrying this per-process secret.
-        options: { baseURL: routerURL, apiKey: env.internalSecret, timeout: 600_000 },
+        options: { baseURL: routerURL, apiKey: secret, timeout: 600_000 },
         models,
       },
     },
   }
+}
+
+/** OpenCode config injected at boot (local mode): router provider, memory MCP, memory index as instructions. */
+function engineConfig(routerURL: string, memoryIndex: string): Config {
+  return { ...syrupEngineConfig(routerURL, env.internalSecret), instructions: [memoryIndex] }
 }
 
 async function start(): Promise<Engine> {

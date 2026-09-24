@@ -8,7 +8,7 @@ import { db, dbReady, schema } from "./db"
  */
 
 export type Level = "debug" | "info" | "warn" | "error"
-export type Source = "boot" | "engine" | "router" | "mcp" | "memory" | "skills" | "providers" | "workspace" | "ledger" | "api" | "ui"
+export type Source = "boot" | "engine" | "router" | "mcp" | "memory" | "skills" | "providers" | "workspace" | "ledger" | "api" | "ui" | "sidecar"
 
 export type LogRow = typeof schema.logs.$inferSelect
 

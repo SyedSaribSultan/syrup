@@ -1,11 +1,9 @@
-import { eq } from "drizzle-orm"
-import { db, dbReady, schema } from "../db"
-import { engine } from "../engine/opencode"
-import { open } from "../vault"
+import type { ActiveKey, Catalog, CatalogModel, Tier } from "./store"
 
 /**
  * Which concrete models the router may send an alias to, in order of
  * preference, and how to reach each provider's OpenAI-compatible endpoint.
+ * Pure: given a catalog and the user's keys, returns ordered candidates.
  */
 
 export type Alias = "auto" | "fast"
@@ -29,6 +27,22 @@ export const BASE_URL: Record<string, string> = {
   openai: "https://api.openai.com/v1",
   togetherai: "https://api.together.xyz/v1",
   "fireworks-ai": "https://api.fireworks.ai/inference/v1",
+}
+
+/** Environment variables OpenCode itself would read for each provider (local-mode fallback). */
+export const ENV_NAMES: Record<string, string[]> = {
+  google: ["GOOGLE_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY", "GEMINI_API_KEY"],
+  groq: ["GROQ_API_KEY"],
+  mistral: ["MISTRAL_API_KEY"],
+  openrouter: ["OPENROUTER_API_KEY"],
+  cerebras: ["CEREBRAS_API_KEY"],
+  nvidia: ["NVIDIA_API_KEY"],
+  deepseek: ["DEEPSEEK_API_KEY"],
+  cohere: ["COHERE_API_KEY"],
+  huggingface: ["HF_TOKEN"],
+  openai: ["OPENAI_API_KEY"],
+  togetherai: ["TOGETHER_API_KEY"],
+  "fireworks-ai": ["FIREWORKS_API_KEY"],
 }
 
 /**
@@ -74,78 +88,14 @@ export type Candidate = {
   baseURL: string
   apiKey: string
   keyID: string | null
-  tier: "free" | "paid"
-  /** List price per 1M tokens, from the catalog. */
+  tier: Tier
+  /** USD per million tokens. */
   price: { input: number; output: number }
   context: number
 }
 
-type CatalogModel = {
-  id: string
-  cost?: { input: number; output: number }
-  limit?: { context: number; output: number }
-  tool_call?: boolean
-  status?: string
-}
-
-let catalogCache: { at: number; byProvider: Map<string, Map<string, CatalogModel>> } | undefined
-
-async function catalog() {
-  if (catalogCache && Date.now() - catalogCache.at < 5 * 60_000) return catalogCache.byProvider
-  const { client } = await engine()
-  const res = await client.provider.list()
-  const byProvider = new Map<string, Map<string, CatalogModel>>()
-  for (const p of res.data?.all ?? []) {
-    const models = new Map<string, CatalogModel>()
-    for (const m of Object.values(p.models) as CatalogModel[]) models.set(m.id, m)
-    byProvider.set(p.id, models)
-  }
-  catalogCache = { at: Date.now(), byProvider }
-  return byProvider
-}
-
-type ActiveKey = { id: string | null; secret: string; tier: "free" | "paid" }
-
-/** Active key per routable provider: the vault first, then the environment. */
-async function activeKeys(): Promise<Map<string, ActiveKey>> {
-  await dbReady()
-  const out = new Map<string, ActiveKey>()
-  const rows = await db().select().from(schema.providerKeys).where(eq(schema.providerKeys.active, 1))
-  for (const r of rows) {
-    if (BASE_URL[r.providerId]) out.set(r.providerId, { id: r.id, secret: open(r.secret), tier: r.tier })
-  }
-  // Fall back to the environment variables OpenCode itself would read.
-  for (const providerID of Object.keys(BASE_URL)) {
-    if (out.has(providerID)) continue
-    for (const name of ENV_NAMES[providerID] ?? []) {
-      const v = process.env[name]
-      if (v) {
-        out.set(providerID, { id: null, secret: v, tier: "free" })
-        break
-      }
-    }
-  }
-  return out
-}
-
-const ENV_NAMES: Record<string, string[]> = {
-  google: ["GOOGLE_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY", "GEMINI_API_KEY"],
-  groq: ["GROQ_API_KEY"],
-  mistral: ["MISTRAL_API_KEY"],
-  openrouter: ["OPENROUTER_API_KEY"],
-  cerebras: ["CEREBRAS_API_KEY"],
-  nvidia: ["NVIDIA_API_KEY"],
-  deepseek: ["DEEPSEEK_API_KEY"],
-  cohere: ["COHERE_API_KEY"],
-  huggingface: ["HF_TOKEN"],
-  openai: ["OPENAI_API_KEY"],
-  togetherai: ["TOGETHER_API_KEY"],
-  "fireworks-ai": ["FIREWORKS_API_KEY"],
-}
-
-/** Ordered candidates for an alias given the keys the user has connected. */
-export async function candidates(alias: Alias): Promise<Candidate[]> {
-  const [cat, keys] = await Promise.all([catalog(), activeKeys()])
+/** Ordered candidates for an alias given the catalog and the keys the user has connected. */
+export function candidates(alias: Alias, cat: Catalog, keys: Map<string, ActiveKey>): Candidate[] {
   const out: Candidate[] = []
   const seen = new Set<string>()
 
@@ -168,7 +118,7 @@ export async function candidates(alias: Alias): Promise<Candidate[]> {
   for (const [providerID, modelID] of PREFER[alias]) {
     const key = keys.get(providerID)
     const models = cat.get(providerID)
-    if (!key || !models) continue
+    if (!key || !models || !BASE_URL[providerID]) continue
     if (modelID === "*free*") {
       // Any zero-price, tool-capable model with a decent context, newest first.
       const free = [...models.values()]
