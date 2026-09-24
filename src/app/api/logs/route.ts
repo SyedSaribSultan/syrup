@@ -2,6 +2,9 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { z } from "zod"
+import { insertCloudLogs, queryCloudLogs } from "@/server/cloud/logs"
+import { requireUser } from "@/server/cloud/session"
+import { env } from "@/server/env"
 import { formatLogs, queryLogs, slogMany, type Level, type Source } from "@/server/log"
 
 export const dynamic = "force-dynamic"
@@ -44,6 +47,17 @@ export async function GET(req: Request) {
   const limit = Number(u.searchParams.get("limit")) || 2000
   const format = u.searchParams.get("format")
 
+  if (env.isCloud) {
+    let me
+    try {
+      me = await requireUser()
+    } catch (res) {
+      return res as Response
+    }
+    const rows = await queryCloudLogs(me.id, { since, until, levels, sources, sessionId, q, limit, workspaceId: u.searchParams.get("workspace") || undefined })
+    if (format === "text") return new Response(formatLogs(rows as unknown as Parameters<typeof formatLogs>[0]), { headers: { "content-type": "text/plain; charset=utf-8" } })
+    return Response.json({ rows, engineTail: undefined })
+  }
   const rows = await queryLogs({ since, until, levels, sources, sessionId, q, limit })
   const engineTail = u.searchParams.get("engine") === "1" ? engineLogTail(since ?? Date.now() - 3_600_000) : undefined
 
@@ -76,6 +90,16 @@ const Row = z.object({
 export async function POST(req: Request) {
   const parsed = z.array(Row).max(500).safeParse(await req.json().catch(() => null))
   if (!parsed.success) return Response.json({ error: "bad batch" }, { status: 400 })
+  if (env.isCloud) {
+    let me
+    try {
+      me = await requireUser()
+    } catch (res) {
+      return res as Response
+    }
+    await insertCloudLogs(me.id, parsed.data.map((r) => ({ ...r, source: "ui" })))
+    return Response.json({ ok: true })
+  }
   slogMany(parsed.data.map((r) => ({ ...r, source: "ui" as const })))
   return Response.json({ ok: true })
 }
