@@ -25,7 +25,8 @@ const REGION = "fra1"
 /** Sandbox auto-stops this long after the last heartbeat/extend. */
 export const IDLE_MS = 10 * 60_000
 const SNAPSHOT_TTL_MS = 7 * 24 * 60 * 60_000
-const HOME = "/vercel/sandbox"
+/** Universal image: HOME and cwd are /vercel, user ubuntu (probed 2026-09-24). */
+const HOME = "/vercel"
 
 export type Connection = {
   workspaceId: string
