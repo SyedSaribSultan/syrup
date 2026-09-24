@@ -276,9 +276,21 @@ export function EngineProvider({ children, connection }: { children: ReactNode; 
   }, [dir, conn])
 
   // Event stream for the current workspace. Reconnects on drop.
+  const reconnects = useRef(0)
+  const loadedSessions = useRef(new Set<string>())
   useEffect(() => {
     if (!dir) return
     const ctrl = new AbortController()
+    reconnects.current = 0
+    /** Missed events cannot be replayed; reload what the UI is showing. */
+    async function resync() {
+      const list = await oc(dir, conn).session.list()
+      if (list.data) dispatch({ type: "sessions", sessions: list.data })
+      for (const id of loadedSessions.current) {
+        const res = await oc(dir, conn).session.messages({ path: { id } })
+        if (res.data) dispatch({ type: "messages", sessionID: id, entries: res.data })
+      }
+    }
     void (async () => {
       let failures = 0
       while (!ctrl.signal.aborted) {
@@ -286,8 +298,11 @@ export function EngineProvider({ children, connection }: { children: ReactNode; 
           const raw = ocRaw(conn)
           const res = await fetch(`${raw.base}/event?directory=${encodeURIComponent(dir)}`, { signal: ctrl.signal, cache: "no-store", headers: raw.headers })
           if (!res.ok || !res.body) throw new Error(`event stream ${res.status}`)
+          const wasDown = failures > 0 || reconnects.current > 0
+          reconnects.current++
           failures = 0
           dispatch({ type: "connected", value: true })
+          if (wasDown) void resync()
           clog("sse.connected", { directory: dir }, { directory: dir })
           const reader = res.body.getReader()
           const dec = new TextDecoder()
@@ -421,6 +436,7 @@ export function EngineProvider({ children, connection }: { children: ReactNode; 
       try {
         const res = await oc(dir, conn).session.messages({ path: { id: sessionID } })
         if (res.data) dispatch({ type: "messages", sessionID, entries: res.data })
+        loadedSessions.current.add(sessionID)
       } finally {
         loading.current.delete(sessionID)
       }
