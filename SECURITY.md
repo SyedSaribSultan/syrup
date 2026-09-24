@@ -22,7 +22,10 @@ syrup runs a coding agent that reads, writes and executes code. Two modes exist:
 - Google sign-in, invite-only. Every request is authenticated.
 - Each user's data is separated by `user_id` and Postgres row-level security.
 - Provider keys are envelope-encrypted per user. They never touch a sandbox disk.
-- The agent (from Phase 2) runs in an isolated microVM per workspace with an egress allow-list.
+- The agent runs in an isolated Firecracker microVM per workspace (Vercel Sandbox). Only OpenCode's port is exposed, behind a per-start password that lives in the browser's memory and, encrypted, in the database; it is discarded when the sandbox stops.
+- Provider keys and tokens reach the VM only as process environment of the sidecar; nothing secret is written to its filesystem, so snapshots contain none.
+- Private networks and the cloud metadata service are unreachable from every sandbox. Workspaces can opt into a strict host allow-list.
+- Database access uses a role without `BYPASSRLS`; row-level security is forced on every tenant table.
 - See `docs/PLAN.md` §3, §4 and §6 for the full design and data handling.
 
 Out of scope: vulnerabilities in the model providers you connect, in OpenCode itself (report those to https://github.com/sst/opencode), or attacks that require an already-compromised machine.

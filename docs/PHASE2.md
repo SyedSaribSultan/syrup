@@ -78,19 +78,19 @@ src/app/w/[id]/…             # workspace pages (chat lives here in cloud)
 - `oc()` gains a connection parameter; `EngineProvider` takes `{ baseUrl, headers, directory }` from the workspace page instead of `/api/oc`. Event stream fetch sends the header. CORS preflight verified against `--cors`.
 - **Gate:** the existing chat UI streams a reply from the sandbox on syrup.syedsarib.com; permissions and questions round-trip.
 
-### S5 — Workspaces, complete (1 day)
+### S5 — Workspaces, complete (1 day) ✅ 2026-09-24
 - **Private repos:** `users.github_token_enc` (under the user's DEK); Settings → Connections card for a fine-grained PAT. Clone authenticates through `GIT_ASKPASS` in process env so the token never touches `.git/config` or the snapshot. Creation validates the repo via the GitHub API when a token exists.
 - **Details:** rename, default branch, last opened, minutes used, per-workspace egress allow-list editor (consumed in S7).
 - **Robust open:** concurrent opens collapse (status=starting + updated_at guard); readable errors for bad URL, private-without-token, installer failure, sandbox pool busy.
 - **Gate:** private repo with PAT opens and lists files; delete removes the sandbox from the Vercel dashboard.
 
-### S6 — Lifecycle polish (1 day)
+### S6 — Lifecycle polish (1 day) ✅ 2026-09-24 — note: Vercel ignores shortening a running session's timeout, so rollover is exercised via stop → warm resume (verified)
 - Heartbeat only while the tab is visible; sidebar shows running/waking/stopped and the idle countdown; wake reloads sessions and re-attaches the open chat without refresh.
 - 45-minute cap: soft warning at 40 min; on stream drop auto re-open and resume the same OpenCode session. Probe route accepts a short `timeout` to force rollover in test.
 - Stream reconnect with backoff and a "reconnecting" pill; refetch messages on reconnect; `beforeunload` aborts a running prompt.
 - **Gate:** idle 12 min → stopped; type → wakes; forced 90-s session → chat continues; closing the tab aborts the run.
 
-### S7 — Hardening and observability (1 day)
+### S7 — Hardening and observability (1 day) ✅ 2026-09-24 — exports still queued for admin until R2 + Resend; second-account end-to-end pending
 - Egress allow-list from providers + git/package hosts + workspace extras; blocked-host tool errors offer one-click allow via `sandbox.update`.
 - Ingest token rotation every 45 min via heartbeat; password rotated on stop as well as start.
 - PostHog: workspace_created, sandbox_started/stopped (with CPU ms), message_sent (tokens bucket), sandbox_error, egress_blocked. Admin: sandbox pool view against the 5 CPU-hour budget. Kill switch `SYRUP_AGENT_ENABLED` + PostHog flag.
