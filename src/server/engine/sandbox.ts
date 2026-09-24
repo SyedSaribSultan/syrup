@@ -60,7 +60,7 @@ const SIDECAR_DIR = `${HOME}/.syrup`
 
 /** OpenCode config for the sandbox: syrup router + memory MCP via the sidecar, LSP off (biggest idle CPU burner), no auto-update, no sharing. */
 function engineConfig(secret: string): string {
-  return JSON.stringify({ ...syrupEngineConfig(`http://127.0.0.1:${SIDECAR_PORT}/v1`, secret), lsp: false, autoupdate: false, share: "disabled" })
+  return JSON.stringify({ ...syrupEngineConfig(`http://127.0.0.1:${SIDECAR_PORT}/v1`, secret), instructions: [`${SIDECAR_DIR}/MEMORY.md`], lsp: false, autoupdate: false, share: "disabled" })
 }
 
 /** The bundled sidecar (built by sidecar/build.mjs before `next build`). */

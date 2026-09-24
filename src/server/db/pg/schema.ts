@@ -1,4 +1,4 @@
-import { boolean, index, integer, jsonb, pgTable, primaryKey, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core"
+import { boolean, index, integer, jsonb, pgTable, primaryKey, real, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core"
 import type { AdapterAccountType } from "next-auth/adapters"
 
 /**
@@ -216,3 +216,89 @@ export const sandboxes = pgTable("sandboxes", {
   createdAt: ts("created_at").notNull().defaultNow(),
   updatedAt: ts("updated_at").notNull().defaultNow(),
 }, (t) => [uniqueIndex("sandboxes_workspace_idx").on(t.workspaceId), index("sandboxes_user_idx").on(t.userId)])
+
+// ---------------------------------------------------------------- history (Phase 2, S3)
+
+/** One row per OpenCode session; `id` is the engine's session id. */
+export const chatSessions = pgTable("chat_sessions", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  workspaceId: text("workspace_id")
+    .notNull()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  parentId: text("parent_id"),
+  title: text("title"),
+  createdAt: ts("created_at").notNull().defaultNow(),
+  updatedAt: ts("updated_at").notNull().defaultNow(),
+  archivedAt: ts("archived_at"),
+  deletedAt: ts("deleted_at"),
+}, (t) => [index("chat_sessions_user_idx").on(t.userId, t.workspaceId, t.updatedAt)])
+
+/** One row per engine message; `parts` holds the final parts keyed by part id (the full record, PLAN §5). */
+export const messages = pgTable("messages", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  workspaceId: text("workspace_id").notNull(),
+  sessionId: text("session_id").notNull(),
+  role: text("role").notNull(),
+  providerId: text("provider_id"),
+  modelId: text("model_id"),
+  agent: text("agent"),
+  info: jsonb("info"),
+  parts: jsonb("parts").notNull().default({}),
+  inputTokens: integer("input_tokens").notNull().default(0),
+  outputTokens: integer("output_tokens").notNull().default(0),
+  reasoningTokens: integer("reasoning_tokens").notNull().default(0),
+  cacheReadTokens: integer("cache_read_tokens").notNull().default(0),
+  cacheWriteTokens: integer("cache_write_tokens").notNull().default(0),
+  cost: real("cost").notNull().default(0),
+  free: boolean("free").notNull().default(true),
+  createdAt: ts("created_at").notNull().defaultNow(),
+  completedAt: ts("completed_at"),
+}, (t) => [index("messages_session_idx").on(t.sessionId, t.createdAt), index("messages_user_idx").on(t.userId, t.createdAt)])
+
+/** Router attempts from sandbox sidecars: the real spend (PLAN §5). */
+export const routerEvents = pgTable("router_events", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  workspaceId: text("workspace_id").notNull(),
+  ts: ts("ts").notNull(),
+  alias: text("alias").notNull(),
+  providerId: text("provider_id").notNull(),
+  modelId: text("model_id").notNull(),
+  keyId: text("key_id"),
+  tier: text("tier", { enum: ["free", "paid"] }).notNull().default("free"),
+  status: text("status").notNull(),
+  httpStatus: integer("http_status"),
+  attempts: integer("attempts").notNull().default(1),
+  latencyMs: integer("latency_ms").notNull().default(0),
+  inputTokens: integer("input_tokens").notNull().default(0),
+  outputTokens: integer("output_tokens").notNull().default(0),
+  cost: real("cost").notNull().default(0),
+  error: text("error"),
+}, (t) => [index("router_events_user_idx").on(t.userId, t.ts)])
+
+/** Long-term memory (cloud). Full-text search over title, content and tags via the `search` column (added in the RLS migration). */
+export const memories = pgTable("memories", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  /** Null = shared across the user's workspaces. */
+  workspaceId: text("workspace_id"),
+  kind: text("kind").notNull().default("note"),
+  title: text("title").notNull(),
+  content: text("content").notNull(),
+  tags: text("tags").array().notNull().default([]),
+  /** "agent" | "user" */
+  source: text("source").notNull().default("agent"),
+  createdAt: ts("created_at").notNull().defaultNow(),
+  updatedAt: ts("updated_at").notNull().defaultNow(),
+  deletedAt: ts("deleted_at"),
+}, (t) => [index("memories_user_idx").on(t.userId, t.updatedAt)])
