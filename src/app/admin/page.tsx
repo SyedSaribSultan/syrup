@@ -5,6 +5,8 @@ import { useCallback, useEffect, useState } from "react"
 type Invite = { id: string; email: string; note: string | null; invitedBy: string | null; createdAt: string; acceptedAt: string | null; revokedAt: string | null }
 type User = { id: string; email: string; name: string | null; createdAt: string; lastSeenAt: string | null; analyticsOptOut: boolean; keys: number; research: boolean }
 type Req = { id: string; user_id: string; type: string; status: string; requested_at: string }
+type Box = { workspaceId: string; workspace: string; email: string; status: string; region: string; engineVersion: string | null; lastSessionStartedAt: string | null; totalSessionSeconds: number; totalCpuMs: number; lastError: string | null }
+type Pool = { sandboxes: Box[]; running: number; totalCpuMs: number; totalSessionSeconds: number; cpuBudgetMs: number }
 
 const fmt = (s: string | null) => (s ? new Date(s).toLocaleString() : "—")
 
@@ -14,13 +16,15 @@ export default function AdminPage() {
   const [admins, setAdmins] = useState<string[]>([])
   const [users, setUsers] = useState<User[]>([])
   const [requests, setRequests] = useState<Req[]>([])
+  const [pool, setPool] = useState<Pool | null>(null)
   const [email, setEmail] = useState("")
   const [note, setNote] = useState("")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    const [a, b] = await Promise.all([fetch("/api/admin/invites", { cache: "no-store" }), fetch("/api/admin/users", { cache: "no-store" })])
+    const [a, b, c] = await Promise.all([fetch("/api/admin/invites", { cache: "no-store" }), fetch("/api/admin/users", { cache: "no-store" }), fetch("/api/admin/sandboxes", { cache: "no-store" })])
+    if (c.ok) setPool(await c.json())
     if (a.ok) {
       const j = await a.json()
       setInvites(j.invites)
@@ -121,6 +125,37 @@ export default function AdminPage() {
                   <td className="py-2 text-ink-2">{u.keys}</td>
                   <td className="py-2 text-ink-2">{u.analyticsOptOut ? "opted out" : "on"}</td>
                   <td className="py-2 text-ink-2">{u.research ? "consented" : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+
+        <section className="mt-6 rounded-xl border border-line bg-surface p-4 shadow-card">
+          <h2 className="text-sm font-medium text-ink">
+            Sandboxes <span className="font-normal text-muted">· {pool ? `${pool.running} running · ${(pool.totalCpuMs / 60_000).toFixed(1)} CPU-min used of ${pool.cpuBudgetMs / 60_000} this plan · ${Math.round(pool.totalSessionSeconds / 60)} session-min` : "…"}</span>
+          </h2>
+          <p className="mt-1 text-xs text-muted">Free plan: 5 active-CPU hours per month, 10 concurrent. Informational; nothing is enforced. Vercel&apos;s own dashboard has the authoritative monthly numbers.</p>
+          <table className="mt-3 w-full text-[13px]">
+            <thead className="text-left text-[11px] uppercase tracking-wider text-muted">
+              <tr>
+                <th className="py-1 font-medium">Workspace</th>
+                <th className="py-1 font-medium">User</th>
+                <th className="py-1 font-medium">Status</th>
+                <th className="py-1 font-medium">CPU</th>
+                <th className="py-1 font-medium">Sessions</th>
+                <th className="py-1 font-medium">Last start</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-line">
+              {pool?.sandboxes.map((b) => (
+                <tr key={b.workspaceId}>
+                  <td className="py-2 text-ink">{b.workspace}</td>
+                  <td className="py-2 font-mono text-ink-2">{b.email}</td>
+                  <td className={`py-2 ${b.status === "running" ? "text-ok" : b.status === "error" ? "text-err" : "text-ink-2"}`} title={b.lastError ?? ""}>{b.status}</td>
+                  <td className="py-2 text-ink-2">{(b.totalCpuMs / 1000).toFixed(0)} s</td>
+                  <td className="py-2 text-ink-2">{Math.round(b.totalSessionSeconds / 60)} min</td>
+                  <td className="py-2 text-ink-2">{fmt(b.lastSessionStartedAt)}</td>
                 </tr>
               ))}
             </tbody>

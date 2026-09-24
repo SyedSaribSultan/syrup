@@ -8,5 +8,5 @@ export default async function WorkspaceSessionPage({ params }: PageProps<"/w/[id
   const me = await requireUser()
   const ws = await getWorkspace(me.id, id)
   if (!ws) notFound()
-  return <WorkspaceView workspaceId={ws.id} name={ws.name} sessionId={sid} />
+  return <WorkspaceView workspaceId={ws.id} name={ws.name} sessionId={sid} egressAllow={ws.egressAllow} />
 }

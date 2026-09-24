@@ -2,7 +2,7 @@ import { createOpencodeClient } from "@opencode-ai/sdk/client"
 import { z } from "zod"
 import { handler, requireAdmin } from "@/server/cloud/session"
 import { createWorkspace, deleteWorkspace, getWorkspace } from "@/server/cloud/workspaces"
-import { destroyWorkspaceSandbox, openWorkspace, shortenTimeout, stopWorkspace } from "@/server/engine/sandbox"
+import { destroyWorkspaceSandbox, openWorkspace, runInWorkspace, stopWorkspace } from "@/server/engine/sandbox"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 300
@@ -17,8 +17,8 @@ const Body = z.object({
   cleanup: z.boolean().optional(),
   /** If set, send this prompt to the agent through the syrup router and return its reply. */
   prompt: z.string().max(2000).optional(),
-  /** Test hook: shrink the sandbox timeout (ms) after opening, to force a stop and exercise re-open. */
-  shortTimeoutMs: z.number().min(30_000).max(600_000).optional(),
+  /** Ops hook: run one shell command inside the sandbox and return its output (admin only). */
+  shell: z.string().max(2000).optional(),
 })
 
 /** One round trip through OpenCode inside the sandbox, using the syrup/auto alias (i.e. the sidecar router). */
@@ -65,8 +65,8 @@ export const POST = handler(async (req: Request) => {
       chat = { error: err instanceof Error ? err.message : String(err) }
     }
   }
-  if (parsed.data.shortTimeoutMs) await shortenTimeout(me.id, workspaceId, parsed.data.shortTimeoutMs)
-  const stopped = parsed.data.keep && !parsed.data.shortTimeoutMs ? null : parsed.data.shortTimeoutMs ? null : await stopWorkspace(me.id, workspaceId)
+  const shell = parsed.data.shell ? await runInWorkspace(me.id, workspaceId, parsed.data.shell) : null
+  const stopped = parsed.data.keep ? null : await stopWorkspace(me.id, workspaceId)
   const row = await getWorkspace(me.id, workspaceId)
   if (temporary && parsed.data.cleanup !== false) {
     await destroyWorkspaceSandbox(me.id, workspaceId)
@@ -79,6 +79,7 @@ export const POST = handler(async (req: Request) => {
     health,
     second: { start: second.start, ms: second.ms },
     chat,
+    shell,
     stopped,
     sandbox: row?.sandbox ? { status: row.sandbox.status, region: row.sandbox.region, totalCpuMs: row.sandbox.totalCpuMs } : null,
     totalMs: Date.now() - t0,

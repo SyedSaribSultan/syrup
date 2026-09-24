@@ -9,6 +9,8 @@ export const maxDuration = 180
 export const POST = handler(async (_req: Request, ctx: { params: Promise<{ id: string }> }) => {
   const me = await requireUser()
   const { id } = await ctx.params
+  // Kill switch: pause every agent start without a deploy.
+  if (process.env.SYRUP_AGENT_ENABLED === "0") return Response.json({ error: "syrup's agent is paused for maintenance. Back shortly." }, { status: 503 })
   const conn = await openWorkspace(me.id, id)
   return Response.json({ connection: conn })
 })
