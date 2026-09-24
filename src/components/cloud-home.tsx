@@ -7,7 +7,7 @@ export function CloudHome({ name, connected }: { name: string | null; connected:
       <div className="mx-auto w-full max-w-[760px] px-6 py-12">
         <h1 className="font-serif text-[2rem] font-medium tracking-tight text-ink">{first ? `Hi ${first}.` : "Welcome."}</h1>
         <p className="mt-2 max-w-[560px] text-[15px] leading-relaxed text-ink-2">
-          You are in syrup&apos;s early access. Sign-in, accounts and provider keys are live. The agent itself, running in an isolated workspace per repository, arrives in the next release.
+          You are in syrup&apos;s early access. Create a workspace from a Git repository and the agent runs inside an isolated sandbox made for it, using the provider keys you add here.
         </p>
 
         <div className="mt-8 grid gap-3 sm:grid-cols-2">
@@ -20,8 +20,8 @@ export function CloudHome({ name, connected }: { name: string | null; connected:
               <>No keys yet. Google AI Studio is free and takes a minute. Keys are encrypted with a key unique to your account.</>
             )}
           </Card>
-          <Card title="Workspaces" cta="Coming next" disabled>
-            Point syrup at a Git repository and chat with an agent that reads, edits and runs code inside a sandbox made for that workspace. Sessions resume where you left off.
+          <Card title="Workspaces" href="/workspaces" cta="Open workspaces">
+            Point syrup at a Git repository and chat with an agent that reads, edits and runs code inside a sandbox made for that workspace. It sleeps when you leave and wakes when you return.
           </Card>
           <Card title="Privacy controls" href="/settings" cta="Open settings">
             Analytics opt-out, research consent, data export and account deletion. Everything in the Privacy Policy has a button behind it.

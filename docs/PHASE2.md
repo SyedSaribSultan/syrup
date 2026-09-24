@@ -67,7 +67,7 @@ src/app/w/[id]/…             # workspace pages (chat lives here in cloud)
 - Started detached with env: `SYRUP_KEYS` (JSON of active keys), `SYRUP_INGEST_URL`, `SYRUP_INGEST_TOKEN`, `SYRUP_INTERNAL_SECRET`. OpenCode config points provider + MCP at `127.0.0.1:4210` with that secret. `lsp` disabled in cloud config (verify key name in SDK types).
 - **Gate:** inside the sandbox, `curl 127.0.0.1:4210/v1/models` lists `syrup/auto`; OpenCode `/mcp` shows `syrup: connected`; a prompt through the probe route gets a model answer routed via the user's Google key.
 
-### S3 — Ingest and history (1 day)
+### S3 — Ingest and history (1 day) ✅ 2026-09-24 — sessions, messages, router_events, memories land per user; RLS enforced via dedicated syrup_app role (owner had BYPASSRLS); gap: user-message parts not emitted by the engine bus, fetched in S4
 - Tables: `chat_sessions`, `messages`, `router_events`, `usage_events` (cloud) — migration 0003, RLS forced.
 - `/api/ingest`: verifies the HMAC token (user, workspace, sandbox, exp ≤ 1 h), batches rows, writes under `withUser()`. Sidecar event tap subscribes to OpenCode's `/global/event` and forwards session/message/part updates; router posts its events.
 - Chats list and usage dashboard read from Postgres (no sandbox boot to browse history).

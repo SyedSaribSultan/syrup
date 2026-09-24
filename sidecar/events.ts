@@ -55,8 +55,25 @@ export function startEventTap(cfg: SidecarConfig, log: Log): { flush(): Promise<
     }
   }
 
+  /** User-typed text arrives as a message without part events; fetch the parts once so history has the prompt. */
+  async function hydrateUserParts(sessionID: string, messageID: string) {
+    try {
+      const res = await fetch(`${cfg.engineUrl}/session/${sessionID}/message/${messageID}`, { headers: { authorization: cfg.engineAuth }, signal: AbortSignal.timeout(10_000) })
+      if (!res.ok) return
+      const j = (await res.json()) as { parts?: Record<string, unknown>[] }
+      for (const part of j.parts ?? []) queue.push({ type: "message.part.updated", properties: { part } })
+      if (!timer) timer = setTimeout(() => void flush(), 500)
+    } catch (err) {
+      log("sidecar", "events.hydrate_failed", { messageID, err }, { level: "warn" })
+    }
+  }
+
   function enqueue(ev: EngineEvent) {
     if (!FORWARD.has(ev.type)) return
+    if (ev.type === "message.updated") {
+      const info = ev.properties.info as { role?: string; id?: string; sessionID?: string } | undefined
+      if (info?.role === "user" && info.id && info.sessionID) void hydrateUserParts(info.sessionID, info.id)
+    }
     // Streamed text arrives as many part updates carrying `delta`; only the final one (no delta) is history.
     if (ev.type === "message.part.updated" && ev.properties.delta !== undefined) return
     queue.push(ev)

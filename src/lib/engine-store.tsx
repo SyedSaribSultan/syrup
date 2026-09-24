@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, type ReactNode } from "react"
 import { clog, installClientLogging } from "./clientlog"
-import { oc, type Message, type Model, type Part, type Provider, type Session, type SessionStatus } from "./oc"
+import { oc, ocRaw, type Connection, type Message, type Model, type Part, type Provider, type Session, type SessionStatus } from "./oc"
 
 /**
  * Client-side mirror of the engine for the current workspace directory.
@@ -184,6 +184,8 @@ const initial: State = {
 }
 
 type Ctx = State & {
+  /** Cloud: the sandbox this provider talks to. Null in local mode (proxy). */
+  connection: Connection | null
   setDirectory(dir: string): void
   refreshProjects(): Promise<void>
   loadMessages(sessionID: string): Promise<void>
@@ -221,24 +223,33 @@ export function readRecent(): string[] {
 // Raw event payloads we care about. Typed loosely: the v1 SDK types lag the server.
 type RawEvent = { type: string; properties: Record<string, unknown> }
 
-export function EngineProvider({ children }: { children: ReactNode }) {
+export type EngineConnection = Connection & { directory: string }
+
+export function EngineProvider({ children, connection }: { children: ReactNode; connection?: EngineConnection | null }) {
   const [state, dispatch] = useReducer(reducer, initial)
   const loading = useRef(new Set<string>())
   const dir = state.directory
+  // A new sandbox session (different URL or rotated password) must rebuild clients and reconnect the stream.
+  const connKey = connection ? `${connection.baseUrl}|${connection.headers.authorization ?? ""}` : ""
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const conn = useMemo<Connection | null>(() => (connection ? { baseUrl: connection.baseUrl, headers: connection.headers } : null), [connKey])
+  const fixedDirectory = connection?.directory ?? null
 
   // Boot: engine default directory, saved workspace, providers, saved model.
   useEffect(() => {
     installClientLogging()
     void (async () => {
       const t0 = Date.now()
-      const [pathRes, prov, projRes] = await Promise.all([oc().path.get(), oc().config.providers(), oc().project.list()])
+      const [pathRes, prov, projRes] = await Promise.all([oc(undefined, conn).path.get(), oc(undefined, conn).config.providers(), oc(undefined, conn).project.list()])
       clog("boot.loaded", { ms: Date.now() - t0, providers: prov.data?.providers.map((p) => `${p.id}(${Object.keys(p.models).length})`), defaultDirectory: pathRes.data?.directory, projects: projRes.data?.length })
       const defaultDirectory = pathRes.data?.directory ?? ""
       let saved = ""
-      try {
-        saved = localStorage.getItem(DIR_KEY) ?? ""
-      } catch {}
-      dispatch({ type: "directory", directory: saved || defaultDirectory, defaultDirectory })
+      if (!fixedDirectory) {
+        try {
+          saved = localStorage.getItem(DIR_KEY) ?? ""
+        } catch {}
+      }
+      dispatch({ type: "directory", directory: fixedDirectory ?? (saved || defaultDirectory), defaultDirectory })
       if (projRes.data) dispatch({ type: "projects", projects: projRes.data as Project[] })
       if (prov.data) dispatch({ type: "providers", providers: prov.data.providers, defaults: prov.data.default })
       let model: ModelRef | null = null
@@ -254,15 +265,15 @@ export function EngineProvider({ children }: { children: ReactNode }) {
         if (providerID) dispatch({ type: "model", model: { providerID, modelID: providerID === "syrup" ? "auto" : d[providerID] } })
       }
     })()
-  }, [])
+  }, [conn, fixedDirectory])
 
   // Sessions for the current workspace.
   useEffect(() => {
     if (!dir) return
-    void oc(dir)
+    void oc(dir, conn)
       .session.list()
       .then((res) => res.data && dispatch({ type: "sessions", sessions: res.data }))
-  }, [dir])
+  }, [dir, conn])
 
   // Event stream for the current workspace. Reconnects on drop.
   useEffect(() => {
@@ -272,7 +283,8 @@ export function EngineProvider({ children }: { children: ReactNode }) {
       let failures = 0
       while (!ctrl.signal.aborted) {
         try {
-          const res = await fetch(`/api/oc/event?directory=${encodeURIComponent(dir)}`, { signal: ctrl.signal, cache: "no-store" })
+          const raw = ocRaw(conn)
+          const res = await fetch(`${raw.base}/event?directory=${encodeURIComponent(dir)}`, { signal: ctrl.signal, cache: "no-store", headers: raw.headers })
           if (!res.ok || !res.body) throw new Error(`event stream ${res.status}`)
           failures = 0
           dispatch({ type: "connected", value: true })
@@ -382,11 +394,11 @@ export function EngineProvider({ children }: { children: ReactNode }) {
     }
 
     return () => ctrl.abort()
-  }, [dir])
+  }, [dir, conn])
 
   const setDirectory = useCallback((next: string) => {
     const d = next.trim()
-    if (!d) return
+    if (!d || fixedDirectory) return
     try {
       localStorage.setItem(DIR_KEY, d)
       // Recent workspaces are tracked here: the engine groups non-git folders into one project.
@@ -395,29 +407,29 @@ export function EngineProvider({ children }: { children: ReactNode }) {
     } catch {}
     clog("workspace.changed", { directory: d }, { directory: d })
     dispatch({ type: "directory", directory: d })
-  }, [])
+  }, [fixedDirectory])
 
   const refreshProjects = useCallback(async () => {
-    const res = await oc().project.list()
+    const res = await oc(undefined, conn).project.list()
     if (res.data) dispatch({ type: "projects", projects: res.data as Project[] })
-  }, [])
+  }, [conn])
 
   const loadMessages = useCallback(
     async (sessionID: string) => {
       if (loading.current.has(sessionID)) return
       loading.current.add(sessionID)
       try {
-        const res = await oc(dir).session.messages({ path: { id: sessionID } })
+        const res = await oc(dir, conn).session.messages({ path: { id: sessionID } })
         if (res.data) dispatch({ type: "messages", sessionID, entries: res.data })
       } finally {
         loading.current.delete(sessionID)
       }
     },
-    [dir],
+    [dir, conn],
   )
 
   const createSession = useCallback(async () => {
-    const res = await oc(dir).session.create({ body: {} })
+    const res = await oc(dir, conn).session.create({ body: {} })
     if (!res.data) {
       clog("session.create.failed", { error: res.error }, { level: "error", directory: dir })
       throw new Error("could not create session")
@@ -426,7 +438,7 @@ export function EngineProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "session", session: res.data })
     void refreshProjects()
     return res.data
-  }, [dir, refreshProjects])
+  }, [dir, conn, refreshProjects])
 
   const send = useCallback(
     async (sessionID: string, text: string, files: { name: string; mime: string; url: string }[] = []) => {
@@ -435,43 +447,43 @@ export function EngineProvider({ children }: { children: ReactNode }) {
       if (text) parts.push({ type: "text", text })
       for (const f of files) parts.push({ type: "file", mime: f.mime, filename: f.name, url: f.url })
       clog("prompt.sent", { model: state.model, chars: text.length, files: files.map((f) => ({ name: f.name, mime: f.mime, bytes: f.url.length })) }, { sessionId: sessionID, directory: dir })
-      const res = await oc(dir).session.promptAsync({
+      const res = await oc(dir, conn).session.promptAsync({
         path: { id: sessionID },
         body: { model: state.model ?? undefined, parts },
       })
       if (res.error) clog("prompt.failed", { error: res.error }, { level: "error", sessionId: sessionID, directory: dir })
     },
-    [dir, state.model],
+    [dir, conn, state.model],
   )
 
   const abort = useCallback(
     async (sessionID: string) => {
       clog("prompt.aborted", {}, { sessionId: sessionID, directory: dir })
-      await oc(dir).session.abort({ path: { id: sessionID } })
+      await oc(dir, conn).session.abort({ path: { id: sessionID } })
     },
-    [dir],
+    [dir, conn],
   )
 
   const renameSession = useCallback(
     async (sessionID: string, title: string) => {
-      const res = await oc(dir).session.update({ path: { id: sessionID }, body: { title } })
+      const res = await oc(dir, conn).session.update({ path: { id: sessionID }, body: { title } })
       if (res.data) dispatch({ type: "session", session: res.data })
     },
-    [dir],
+    [dir, conn],
   )
 
   const deleteSession = useCallback(
     async (sessionID: string) => {
-      await oc(dir).session.delete({ path: { id: sessionID } })
+      await oc(dir, conn).session.delete({ path: { id: sessionID } })
       dispatch({ type: "session.deleted", id: sessionID })
     },
-    [dir],
+    [dir, conn],
   )
 
   const refreshProviders = useCallback(async () => {
-    const prov = await oc().config.providers()
+    const prov = await oc(undefined, conn).config.providers()
     if (prov.data) dispatch({ type: "providers", providers: prov.data.providers, defaults: prov.data.default })
-  }, [])
+  }, [conn])
 
   const setModel = useCallback((m: ModelRef) => {
     clog("model.changed", m)
@@ -485,30 +497,32 @@ export function EngineProvider({ children }: { children: ReactNode }) {
     async (req: PermissionReq, response: "once" | "always" | "reject") => {
       clog("permission.replied", { id: req.id, title: req.title, response }, { sessionId: req.sessionID, directory: dir })
       dispatch({ type: "permission.done", id: req.id })
-      await oc(dir).postSessionIdPermissionsPermissionId({ path: { id: req.sessionID, permissionID: req.id }, body: { response } })
+      await oc(dir, conn).postSessionIdPermissionsPermissionId({ path: { id: req.sessionID, permissionID: req.id }, body: { response } })
     },
-    [dir],
+    [dir, conn],
   )
 
   const replyQuestion = useCallback(
     async (req: QuestionReq, answers: string[][]) => {
       clog("question.answered", { id: req.id, answers }, { sessionId: req.sessionID, directory: dir })
       dispatch({ type: "question.done", id: req.id })
-      await fetch(`/api/oc/question/${req.id}/reply?directory=${encodeURIComponent(dir)}`, {
+      const raw = ocRaw(conn)
+      await fetch(`${raw.base}/question/${req.id}/reply?directory=${encodeURIComponent(dir)}`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...raw.headers },
         body: JSON.stringify({ answers }),
       })
     },
-    [dir],
+    [dir, conn],
   )
 
   const rejectQuestion = useCallback(
     async (req: QuestionReq) => {
       dispatch({ type: "question.done", id: req.id })
-      await fetch(`/api/oc/question/${req.id}/reject?directory=${encodeURIComponent(dir)}`, { method: "POST" })
+      const raw = ocRaw(conn)
+      await fetch(`${raw.base}/question/${req.id}/reject?directory=${encodeURIComponent(dir)}`, { method: "POST", headers: raw.headers })
     },
-    [dir],
+    [dir, conn],
   )
 
   const models = useMemo(() => {
@@ -533,6 +547,7 @@ export function EngineProvider({ children }: { children: ReactNode }) {
 
   const value: Ctx = {
     ...state,
+    connection: conn,
     setDirectory,
     refreshProjects,
     loadMessages,

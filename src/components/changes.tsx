@@ -6,7 +6,7 @@ import { useEngine } from "@/lib/engine-store"
 
 /** Files the agent changed in this session, from the engine's snapshot diff. */
 export function Changes({ sessionID }: { sessionID: string }) {
-  const { directory, status, messages } = useEngine()
+  const { directory, connection, status, messages } = useEngine()
   const [open, setOpen] = useState(false)
   const [diffs, setDiffs] = useState<FileDiff[] | null>(null)
   const [active, setActive] = useState<string | null>(null)
@@ -16,14 +16,14 @@ export function Changes({ sessionID }: { sessionID: string }) {
   useEffect(() => {
     if (!open || busy) return
     let alive = true
-    oc(directory)
+    oc(directory, connection)
       .session.diff({ path: { id: sessionID } })
       .then((r) => alive && setDiffs(r.data ?? []))
       .catch(() => alive && setDiffs([]))
     return () => {
       alive = false
     }
-  }, [open, busy, sessionID, directory])
+  }, [open, busy, sessionID, directory, connection])
 
   const totals = diffs?.reduce((a, d) => ({ add: a.add + d.additions, del: a.del + d.deletions }), { add: 0, del: 0 })
   const current = diffs?.find((d) => d.file === active) ?? null
