@@ -55,7 +55,8 @@ export function normalizeHosts(input: string[]): string[] {
 }
 
 export function egressPolicy(providerIds: string[], extras: string[]): NetworkPolicy {
-  if (extras.length === 0) return { subnets: { deny: PRIVATE_SUBNETS } }
+  // `subnets` alone denies every domain (verified 2026-09-24); the explicit wildcard keeps the internet open.
+  if (extras.length === 0) return { allow: ["*"], subnets: { deny: PRIVATE_SUBNETS } }
   const providerHosts = providerIds.map((id) => BASE_URL[id]).filter(Boolean).map((u) => new URL(u).hostname)
   const ingest = new URL(env.appUrl).hostname
   const allow = [...new Set([...BASE_HOSTS, ...providerHosts, ingest, ...extras])]
