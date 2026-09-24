@@ -208,6 +208,7 @@ type Ctx = State & {
 const EngineContext = createContext<Ctx | null>(null)
 
 const MODEL_KEY = "syrup.model"
+const MODEL_KEY_CLOUD = "syrup.model.cloud"
 const DIR_KEY = "syrup.directory"
 const RECENT_KEY = "syrup.recentDirs"
 
@@ -255,14 +256,17 @@ export function EngineProvider({ children, connection }: { children: ReactNode; 
       if (prov.data) dispatch({ type: "providers", providers: prov.data.providers, defaults: prov.data.default })
       let model: ModelRef | null = null
       try {
-        const raw = localStorage.getItem(MODEL_KEY)
+        const raw = localStorage.getItem(fixedDirectory ? MODEL_KEY_CLOUD : MODEL_KEY)
         if (raw) model = JSON.parse(raw)
       } catch {}
+      // A remembered model only counts if the engine still offers it.
+      if (model && prov.data && !prov.data.providers.some((p) => p.id === model!.providerID && model!.modelID in p.models)) model = null
       if (model) dispatch({ type: "model", model })
       else if (prov.data) {
         // Prefer the router; otherwise the first provider default.
         const d = prov.data.default
-        const providerID = "syrup" in d ? "syrup" : Object.keys(d)[0]
+        // The router alias is always the best default when it exists: it uses the user's own keys with failover.
+        const providerID = prov.data.providers.some((p) => p.id === "syrup") || "syrup" in d ? "syrup" : Object.keys(d)[0]
         if (providerID) dispatch({ type: "model", model: { providerID, modelID: providerID === "syrup" ? "auto" : d[providerID] } })
       }
     })()
@@ -509,9 +513,9 @@ export function EngineProvider({ children, connection }: { children: ReactNode; 
     clog("model.changed", m)
     dispatch({ type: "model", model: m })
     try {
-      localStorage.setItem(MODEL_KEY, JSON.stringify(m))
+      localStorage.setItem(fixedDirectory ? MODEL_KEY_CLOUD : MODEL_KEY, JSON.stringify(m))
     } catch {}
-  }, [])
+  }, [fixedDirectory])
 
   const replyPermission = useCallback(
     async (req: PermissionReq, response: "once" | "always" | "reject") => {

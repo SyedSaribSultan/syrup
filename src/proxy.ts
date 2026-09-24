@@ -48,7 +48,7 @@ function localGuard(req: NextRequest): NextResponse {
 }
 
 /** Local-engine features that have no cloud implementation yet (Phase 2/3). */
-const LOCAL_ONLY_API = /^\/api\/(oc|memory|skills|usage|workspace|logs|sarib)(\/|$)/
+const LOCAL_ONLY_API = /^\/api\/(oc|memory|skills|usage|workspace|sarib)(\/|$)/
 const LOCAL_ONLY_PAGE = /^\/(memory|skills|usage|s)(\/|$)/
 
 const PUBLIC = [/^\/signin(\/|$)/, /^\/legal(\/|$)/, /^\/api\/auth(\/|$)/, /^\/api\/health$/, /^\/ingest(\/|$)/]
