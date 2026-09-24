@@ -14,7 +14,7 @@ function key(): Buffer {
   return crypto.createHmac("sha256", Buffer.from(env.masterKey, "base64")).update("syrup-ingest-v1").digest()
 }
 
-export function mintIngestToken(userId: string, workspaceId: string, ttlMs = 60 * 60_000): string {
+export function mintIngestToken(userId: string, workspaceId: string, ttlMs = 2 * 60 * 60_000): string {
   const claims: IngestClaims = { u: userId, w: workspaceId, exp: Date.now() + ttlMs }
   const body = Buffer.from(JSON.stringify(claims)).toString("base64url")
   const sig = crypto.createHmac("sha256", key()).update(body).digest("base64url")

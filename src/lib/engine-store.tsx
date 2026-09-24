@@ -1,6 +1,7 @@
 "use client"
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, type ReactNode } from "react"
+import posthog from "posthog-js"
 import { clog, installClientLogging } from "./clientlog"
 import { oc, ocRaw, type Connection, type Message, type Model, type Part, type Provider, type Session, type SessionStatus } from "./oc"
 
@@ -463,6 +464,9 @@ export function EngineProvider({ children, connection }: { children: ReactNode; 
       if (text) parts.push({ type: "text", text })
       for (const f of files) parts.push({ type: "file", mime: f.mime, filename: f.name, url: f.url })
       clog("prompt.sent", { model: state.model, chars: text.length, files: files.map((f) => ({ name: f.name, mime: f.mime, bytes: f.url.length })) }, { sessionId: sessionID, directory: dir })
+      try {
+        if (posthog.__loaded) posthog.capture("message_sent", { provider: state.model?.providerID, model: state.model?.modelID, chars_bucket: text.length < 200 ? "s" : text.length < 2000 ? "m" : "l", files: files.length, cloud: !!conn })
+      } catch {}
       const res = await oc(dir, conn).session.promptAsync({
         path: { id: sessionID },
         body: { model: state.model ?? undefined, parts },

@@ -6,11 +6,12 @@ import { useMemo, useState } from "react"
 import { useEngine } from "@/lib/engine-store"
 import { fmtRelative } from "@/lib/format"
 import { useNow } from "@/lib/use-now"
+import { EgressEditor } from "./egress-editor"
 import { useLogs } from "./logs-modal"
 import type { Heartbeat } from "./workspace-view"
 
 /** Cloud workspace sidebar: this workspace's chats, plus stop/back. Mirrors the local Sidebar without the folder picker. */
-export function WorkspaceSidebar({ workspaceId, name, sessionId, start, beat, reopening }: { workspaceId: string; name: string; sessionId?: string; start: "cold" | "warm" | "hot" | null; beat: Heartbeat | null; reopening: boolean }) {
+export function WorkspaceSidebar({ workspaceId, name, sessionId, start, beat, reopening, egressAllow }: { workspaceId: string; name: string; sessionId?: string; start: "cold" | "warm" | "hot" | null; beat: Heartbeat | null; reopening: boolean; egressAllow: string[] }) {
   const { sessions, sessionsLoaded, status, connected, renameSession, deleteSession } = useEngine()
   const { open: openLogs } = useLogs()
   const router = useRouter()
@@ -92,6 +93,7 @@ export function WorkspaceSidebar({ workspaceId, name, sessionId, start, beat, re
         </ul>
       </nav>
 
+      <EgressEditor workspaceId={workspaceId} initial={egressAllow} />
       <div className="space-y-0.5 border-t border-line p-2">
         <button type="button" onClick={openLogs} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-ink-2 transition hover:bg-surface/70 hover:text-ink">
           Logs

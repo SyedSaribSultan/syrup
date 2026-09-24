@@ -25,7 +25,7 @@ export type Heartbeat = { running: boolean; expiresAt: string | null; sessionSta
 
 const HEARTBEAT_MS = 60_000
 
-export function WorkspaceView({ workspaceId, name, sessionId }: { workspaceId: string; name: string; sessionId?: string }) {
+export function WorkspaceView({ workspaceId, name, sessionId, egressAllow }: { workspaceId: string; name: string; sessionId?: string; egressAllow: string[] }) {
   const [phase, setPhase] = useState<Phase>("opening")
   const [conn, setConn] = useState<EngineConnection | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -127,7 +127,7 @@ export function WorkspaceView({ workspaceId, name, sessionId }: { workspaceId: s
       <ConnectionWatch onLost={() => void open("reopen")} />
       <AbortOnUnload />
       <div className="flex h-full min-h-0 flex-1">
-        <WorkspaceSidebar workspaceId={workspaceId} name={name} sessionId={sessionId} start={start} beat={beat} reopening={reopening} />
+        <WorkspaceSidebar workspaceId={workspaceId} name={name} sessionId={sessionId} start={start} beat={beat} reopening={reopening} egressAllow={egressAllow} />
         <main className="relative flex min-w-0 flex-1 flex-col">
           <SessionCapNotice beat={beat} />
           {sessionId ? <SessionView id={sessionId} /> : <NewChat hrefFor={(id) => `/w/${workspaceId}/s/${id}`} title={`What are we building in ${name}?`} />}
@@ -156,17 +156,19 @@ function ConnectionWatch({ onLost }: { onLost(): void }) {
 /** A closed tab should not keep a model generating: abort busy sessions on unload. */
 function AbortOnUnload() {
   const { status, abort } = useEngine()
-  const busy = Object.entries(status)
+  const busyKey = Object.entries(status)
     .filter(([, s]) => s.type === "busy" || s.type === "retry")
     .map(([id]) => id)
+    .join(",")
   useEffect(() => {
-    if (busy.length === 0) return
+    if (!busyKey) return
+    const ids = busyKey.split(",")
     const onUnload = () => {
-      for (const id of busy) void abort(id)
+      for (const id of ids) void abort(id)
     }
     window.addEventListener("pagehide", onUnload)
     return () => window.removeEventListener("pagehide", onUnload)
-  }, [busy, abort])
+  }, [busyKey, abort])
   return null
 }
 

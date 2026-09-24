@@ -82,6 +82,13 @@ export async function deleteWorkspace(userId: string, id: string): Promise<void>
   })
 }
 
+export async function setEgress(userId: string, id: string, hosts: string[]): Promise<void> {
+  await withUser(userId, async (tx) => {
+    await tx.update(pgSchema.workspaces).set({ egressAllow: hosts }).where(and(eq(pgSchema.workspaces.id, id), eq(pgSchema.workspaces.userId, userId)))
+    await audit(tx, { userId, actor: "user", action: "workspace.egress", target: id, data: { hosts } })
+  })
+}
+
 export async function touchWorkspace(userId: string, id: string): Promise<void> {
   await withUser(userId, async (tx) => {
     await tx.update(pgSchema.workspaces).set({ lastOpenedAt: new Date() }).where(and(eq(pgSchema.workspaces.id, id), eq(pgSchema.workspaces.userId, userId)))

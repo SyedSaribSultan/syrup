@@ -8,6 +8,7 @@ import { openWith, sealWith, userDek } from "../cloud/crypto"
 import { mintIngestToken } from "../cloud/ingest"
 import { githubToken } from "../cloud/github"
 import { activeKeyDetails } from "../cloud/keys"
+import { egressPolicy } from "./egress"
 import { syrupEngineConfig } from "./opencode"
 import { getWorkspace, touchWorkspace, type SandboxRow, type Workspace } from "../cloud/workspaces"
 import { pgSchema, withUser } from "../db/pg"
@@ -198,6 +199,8 @@ export async function openWorkspace(userId: string, workspaceId: string): Promis
 
   try {
     let created = false
+    const keys = await activeKeyDetails(userId)
+    const networkPolicy = egressPolicy(Object.keys(keys), ws.egressAllow)
     const sb = await Sandbox.getOrCreate({
       name: row.vercelName,
       image: IMAGE,
@@ -205,6 +208,7 @@ export async function openWorkspace(userId: string, workspaceId: string): Promis
       ports: [PORT],
       resources: { vcpus: row.vcpus },
       timeout: IDLE_MS,
+      networkPolicy,
       tags: { app: "syrup", workspace: workspaceId.slice(-12) },
       snapshotExpiration: SNAPSHOT_TTL_MS,
       keepLastSnapshots: { count: 1 },
@@ -215,6 +219,8 @@ export async function openWorkspace(userId: string, workspaceId: string): Promis
       },
     })
 
+    // Existing sandboxes keep their creation-time policy; apply the current one (keys or allow-list may have changed).
+    if (!created) await sb.update({ networkPolicy })
     const baseUrl = sb.domain(PORT)
     let start: Connection["start"] = created ? "cold" : "warm"
     let password = created ? null : await storedPassword(userId, row)
@@ -306,12 +312,13 @@ export async function heartbeat(userId: string, workspaceId: string): Promise<He
   return { running: true, expiresAt: expiresAt?.toISOString() ?? null, sessionStartedAt: startedAt, sessionCapMs: SESSION_CAP_MS }
 }
 
-/** Test hook (admin probe): make the running session expire soon. */
-export async function shortenTimeout(userId: string, workspaceId: string, ms: number): Promise<void> {
+/** Ops hook (admin probe): one shell command inside the running sandbox. */
+export async function runInWorkspace(userId: string, workspaceId: string, command: string): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   const ws = await getWorkspace(userId, workspaceId)
   if (!ws?.sandbox) throw new Error("workspace not found")
-  const sb = await Sandbox.get({ name: ws.sandbox.vercelName, resume: false })
-  await sb.update({ timeout: ms })
+  const sb = await Sandbox.get({ name: ws.sandbox.vercelName })
+  const r = await sb.runCommand({ cmd: "bash", args: ["-lc", command], cwd: workDir(ws) })
+  return { exitCode: r.exitCode, stdout: (await r.stdout()).slice(-4000), stderr: (await r.stderr()).slice(-2000) }
 }
 
 /** Stops the VM (filesystem is snapshotted) and records the session's cost. */
@@ -327,8 +334,10 @@ export async function stopWorkspace(userId: string, workspaceId: string): Promis
   if (sb.status !== "running") return null
   const r = await sb.stop()
   const seconds = ws.sandbox.lastSessionStartedAt ? Math.max(0, Math.round((Date.now() - ws.sandbox.lastSessionStartedAt.getTime()) / 1000)) : 0
+  // The password dies with the session; the next start mints a new one.
   await saveSandbox(userId, workspaceId, {
     status: "stopped",
+    passwordEnc: null,
     lastSessionEndedAt: new Date(),
     totalSessionSeconds: ws.sandbox.totalSessionSeconds + seconds,
     totalCpuMs: ws.sandbox.totalCpuMs + Math.round(r.activeCpuDurationMs ?? 0),
@@ -336,6 +345,21 @@ export async function stopWorkspace(userId: string, workspaceId: string): Promis
   slog("engine", "sandbox.stopped", { workspaceId, seconds, cpuMs: r.activeCpuDurationMs, snapshot: r.snapshot?.status }, { directory: workspaceId })
   await track(userId, "sandbox_stopped", { seconds, cpuMs: Math.round(r.activeCpuDurationMs ?? 0) })
   return { cpuMs: Math.round(r.activeCpuDurationMs ?? 0) }
+}
+
+/** Applies a changed allow-list to a running sandbox immediately. */
+export async function applyEgress(userId: string, workspaceId: string): Promise<void> {
+  const ws = await getWorkspace(userId, workspaceId)
+  if (!ws?.sandbox) return
+  try {
+    const sb = await Sandbox.get({ name: ws.sandbox.vercelName, resume: false })
+    if (sb.status !== "running") return
+    const keys = await activeKeyDetails(userId)
+    await sb.update({ networkPolicy: egressPolicy(Object.keys(keys), ws.egressAllow) })
+    slog("engine", "sandbox.egress_updated", { workspaceId, hosts: ws.egressAllow.length }, { directory: workspaceId })
+  } catch (err) {
+    slog("engine", "sandbox.egress_update_failed", { workspaceId, err }, { level: "warn", directory: workspaceId })
+  }
 }
 
 /** Removes the VM and its snapshots. Used when a workspace is deleted. */
