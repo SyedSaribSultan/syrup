@@ -55,7 +55,7 @@ src/app/w/[id]/…             # workspace pages (chat lives here in cloud)
 
 ## 3. Slices
 
-### S1 — Sandbox lifecycle (1 day)
+### S1 — Sandbox lifecycle (1 day) ✅ 2026-09-24 — cold 8.6–9.5 s, warm resume 6.6 s, hot 0.4 s; universal image, HOME=/vercel, ~7–10 CPU-s per boot
 - `sandboxes` + `workspaces` tables (migration 0002, RLS forced).
 - `SandboxEngine.ensure(workspace)`: `getOrCreate({ name: ws_<id>, image: universal, ports: [4096], resources: { vcpus: 1 }, timeout: 10 min, networkPolicy })`. `onCreate`: install OpenCode (official installer), clone repo. `onResume`: rotate password, start OpenCode with `OPENCODE_CONFIG_CONTENT`, `--cors`.
 - Admin-only debug route `/api/admin/sandbox/probe` that boots one and hits `/global/health` with the password. Measures cold boot and resume times; decides `universal` vs `node:24`.
