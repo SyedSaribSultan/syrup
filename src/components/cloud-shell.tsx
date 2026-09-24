@@ -2,6 +2,7 @@ import type { Session } from "next-auth"
 import Link from "next/link"
 import type { ReactNode } from "react"
 import { Analytics } from "./analytics"
+import { CloudFrame } from "./cloud-frame"
 import { CloudNav } from "./cloud-nav"
 import { LogsProvider } from "./logs-modal"
 
@@ -15,7 +16,8 @@ export function CloudShell({ session, children }: { session: Session | null; chi
     <LogsProvider>
       <Analytics user={user ? { id: user.id, admin: user.admin } : null} />
       {user ? (
-        <div className="flex h-full">
+        <CloudFrame
+          sidebar={
           <aside className="flex w-[264px] shrink-0 flex-col border-r border-line bg-surface-2/60">
             <div className="flex items-center justify-between px-4 pt-4 pb-3">
               <Link href="/" className="font-serif text-[1.35rem] font-semibold tracking-tight text-ink">
@@ -45,8 +47,10 @@ export function CloudShell({ session, children }: { session: Session | null; chi
               </div>
             </div>
           </aside>
-          <main className="relative flex min-w-0 flex-1 flex-col">{children}</main>
-        </div>
+          }
+        >
+          {children}
+        </CloudFrame>
       ) : (
         <main className="flex h-full min-w-0 flex-col">{children}</main>
       )}
