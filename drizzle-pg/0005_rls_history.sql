@@ -11,5 +11,5 @@ ALTER TABLE "memories" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE "memories" FORCE ROW LEVEL SECURITY;--> statement-breakpoint
 CREATE POLICY "memories_tenant" ON "memories" USING ("user_id" = app_user_id()) WITH CHECK ("user_id" = app_user_id());--> statement-breakpoint
 -- Full-text search: a stored tsvector over title, content and tags, with a GIN index.
-ALTER TABLE "memories" ADD COLUMN "search" tsvector GENERATED ALWAYS AS (to_tsvector('english', coalesce("title",'') || ' ' || coalesce("content",'') || ' ' || array_to_string("tags", ' '))) STORED;--> statement-breakpoint
+ALTER TABLE "memories" ADD COLUMN "search" tsvector GENERATED ALWAYS AS (to_tsvector('english', coalesce("title",'') || ' ' || coalesce("content",'')) || array_to_tsvector("tags")) STORED;--> statement-breakpoint
 CREATE INDEX "memories_search_idx" ON "memories" USING GIN ("search");
