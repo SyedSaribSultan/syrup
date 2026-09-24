@@ -5,14 +5,18 @@ import { useRouter } from "next/navigation"
 import { useMemo, useState } from "react"
 import { useEngine } from "@/lib/engine-store"
 import { fmtRelative } from "@/lib/format"
+import { useNow } from "@/lib/use-now"
 import { useLogs } from "./logs-modal"
+import type { Heartbeat } from "./workspace-view"
 
 /** Cloud workspace sidebar: this workspace's chats, plus stop/back. Mirrors the local Sidebar without the folder picker. */
-export function WorkspaceSidebar({ workspaceId, name, sessionId, start }: { workspaceId: string; name: string; sessionId?: string; start: "cold" | "warm" | "hot" | null }) {
+export function WorkspaceSidebar({ workspaceId, name, sessionId, start, beat, reopening }: { workspaceId: string; name: string; sessionId?: string; start: "cold" | "warm" | "hot" | null; beat: Heartbeat | null; reopening: boolean }) {
   const { sessions, sessionsLoaded, status, connected, renameSession, deleteSession } = useEngine()
   const { open: openLogs } = useLogs()
   const router = useRouter()
   const [stopping, setStopping] = useState(false)
+  const now = useNow(30_000)
+  const idleMin = beat?.expiresAt && now ? Math.max(1, Math.round((new Date(beat.expiresAt).getTime() - now) / 60_000)) : null
 
   const list = useMemo(
     () =>
@@ -49,6 +53,9 @@ export function WorkspaceSidebar({ workspaceId, name, sessionId, start }: { work
         <div className="mt-1 flex items-center justify-between gap-2">
           <div className="min-w-0 truncate font-serif text-[1.15rem] font-semibold tracking-tight text-ink">{name}</div>
           <span title={connected ? `Connected (${start ?? "ready"})` : "Reconnecting…"} className={`h-2 w-2 shrink-0 rounded-full ${connected ? "bg-ok" : "bg-warn pulse"}`} />
+        </div>
+        <div className="mt-1 text-[11px] text-muted">
+          {reopening ? "Waking…" : !connected ? "Reconnecting…" : beat?.running === false ? "Stopped · wakes on your next message" : idleMin ? `Running · sleeps after ${idleMin} min idle` : "Running"}
         </div>
       </div>
 

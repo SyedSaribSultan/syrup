@@ -279,14 +279,39 @@ function friendly(message: string): string {
 }
 
 /** Extends the running session so the sandbox does not idle-stop while a tab is open. */
-export async function heartbeat(userId: string, workspaceId: string): Promise<{ expiresAt: string | null }> {
+export type Heartbeat = { running: boolean; expiresAt: string | null; sessionStartedAt: string | null; sessionCapMs: number }
+/** Hobby sandboxes stop at 45 minutes per session regardless of extensions; the UI warns before that. */
+export const SESSION_CAP_MS = 45 * 60_000
+
+export async function heartbeat(userId: string, workspaceId: string): Promise<Heartbeat> {
+  const ws = await getWorkspace(userId, workspaceId)
+  if (!ws?.sandbox) throw new Error("workspace not found")
+  let sb: Sandbox
+  try {
+    sb = await Sandbox.get({ name: ws.sandbox.vercelName, resume: false })
+  } catch {
+    return { running: false, expiresAt: null, sessionStartedAt: null, sessionCapMs: SESSION_CAP_MS }
+  }
+  const startedAt = ws.sandbox.lastSessionStartedAt?.toISOString() ?? null
+  if (sb.status !== "running") {
+    if (ws.sandbox.status === "running") await saveSandbox(userId, workspaceId, { status: "stopped", lastSessionEndedAt: new Date() })
+    return { running: false, expiresAt: null, sessionStartedAt: startedAt, sessionCapMs: SESSION_CAP_MS }
+  }
+  const remaining = (sb.expiresAt?.getTime() ?? 0) - Date.now()
+  let expiresAt = sb.expiresAt ?? null
+  if (remaining < IDLE_MS / 2) {
+    await sb.extendTimeout(IDLE_MS)
+    expiresAt = new Date(Date.now() + IDLE_MS)
+  }
+  return { running: true, expiresAt: expiresAt?.toISOString() ?? null, sessionStartedAt: startedAt, sessionCapMs: SESSION_CAP_MS }
+}
+
+/** Test hook (admin probe): make the running session expire soon. */
+export async function shortenTimeout(userId: string, workspaceId: string, ms: number): Promise<void> {
   const ws = await getWorkspace(userId, workspaceId)
   if (!ws?.sandbox) throw new Error("workspace not found")
   const sb = await Sandbox.get({ name: ws.sandbox.vercelName, resume: false })
-  if (sb.status !== "running") return { expiresAt: null }
-  const remaining = (sb.expiresAt?.getTime() ?? 0) - Date.now()
-  if (remaining < IDLE_MS / 2) await sb.extendTimeout(IDLE_MS)
-  return { expiresAt: (remaining < IDLE_MS / 2 ? new Date(Date.now() + IDLE_MS) : sb.expiresAt)?.toISOString() ?? null }
+  await sb.update({ timeout: ms })
 }
 
 /** Stops the VM (filesystem is snapshotted) and records the session's cost. */

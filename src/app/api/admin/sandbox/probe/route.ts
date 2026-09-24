@@ -2,7 +2,7 @@ import { createOpencodeClient } from "@opencode-ai/sdk/client"
 import { z } from "zod"
 import { handler, requireAdmin } from "@/server/cloud/session"
 import { createWorkspace, deleteWorkspace, getWorkspace } from "@/server/cloud/workspaces"
-import { destroyWorkspaceSandbox, openWorkspace, stopWorkspace } from "@/server/engine/sandbox"
+import { destroyWorkspaceSandbox, openWorkspace, shortenTimeout, stopWorkspace } from "@/server/engine/sandbox"
 
 export const dynamic = "force-dynamic"
 export const maxDuration = 300
@@ -17,6 +17,8 @@ const Body = z.object({
   cleanup: z.boolean().optional(),
   /** If set, send this prompt to the agent through the syrup router and return its reply. */
   prompt: z.string().max(2000).optional(),
+  /** Test hook: shrink the sandbox timeout (ms) after opening, to force a stop and exercise re-open. */
+  shortTimeoutMs: z.number().min(30_000).max(600_000).optional(),
 })
 
 /** One round trip through OpenCode inside the sandbox, using the syrup/auto alias (i.e. the sidecar router). */
@@ -63,7 +65,8 @@ export const POST = handler(async (req: Request) => {
       chat = { error: err instanceof Error ? err.message : String(err) }
     }
   }
-  const stopped = parsed.data.keep ? null : await stopWorkspace(me.id, workspaceId)
+  if (parsed.data.shortTimeoutMs) await shortenTimeout(me.id, workspaceId, parsed.data.shortTimeoutMs)
+  const stopped = parsed.data.keep && !parsed.data.shortTimeoutMs ? null : parsed.data.shortTimeoutMs ? null : await stopWorkspace(me.id, workspaceId)
   const row = await getWorkspace(me.id, workspaceId)
   if (temporary && parsed.data.cleanup !== false) {
     await destroyWorkspaceSandbox(me.id, workspaceId)
