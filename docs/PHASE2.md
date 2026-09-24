@@ -78,23 +78,25 @@ src/app/w/[id]/…             # workspace pages (chat lives here in cloud)
 - `oc()` gains a connection parameter; `EngineProvider` takes `{ baseUrl, headers, directory }` from the workspace page instead of `/api/oc`. Event stream fetch sends the header. CORS preflight verified against `--cors`.
 - **Gate:** the existing chat UI streams a reply from the sandbox on syrup.syedsarib.com; permissions and questions round-trip.
 
-### S5 — Workspaces UI (1 day)
-- `/workspaces` list, "New workspace" (public Git URL or empty), open, rename, delete (stops + deletes sandbox and snapshots). Private GitHub repos via a **fine-grained PAT** stored encrypted per user (GitHub App/OAuth later).
-- Home shows workspaces; sidebar shows recent chats for the open workspace; local-mode folder picker hidden.
-- **Gate:** create from `https://github.com/SyedSaribSultan/sarib-lang`, open, ask the agent to summarise the repo.
+### S5 — Workspaces, complete (1 day)
+- **Private repos:** `users.github_token_enc` (under the user's DEK); Settings → Connections card for a fine-grained PAT. Clone authenticates through `GIT_ASKPASS` in process env so the token never touches `.git/config` or the snapshot. Creation validates the repo via the GitHub API when a token exists.
+- **Details:** rename, default branch, last opened, minutes used, per-workspace egress allow-list editor (consumed in S7).
+- **Robust open:** concurrent opens collapse (status=starting + updated_at guard); readable errors for bad URL, private-without-token, installer failure, sandbox pool busy.
+- **Gate:** private repo with PAT opens and lists files; delete removes the sandbox from the Vercel dashboard.
 
 ### S6 — Lifecycle polish (1 day)
-- Heartbeat every 60 s from an open workspace tab → `/api/workspaces/:id/heartbeat` → `extendTimeout` when < 5 min remain, capped at the 45-minute session. No heartbeat ⇒ the VM stops by itself within 10 minutes (no cron needed).
-- States in the UI: `starting` (cold, with progress log lines), `waking` (resume), `running`, `stopped`, `error` with the real reason. Automatic re-`open` when a request hits a stopped sandbox.
-- 45-minute rollover: detect session end, resume, reconnect the event stream, continue the OpenCode session.
-- **Gate:** leave a tab idle 12 minutes → sandbox stopped in dashboard; type a message → wakes and answers; force a 45-minute boundary with a short timeout in a test → conversation continues.
+- Heartbeat only while the tab is visible; sidebar shows running/waking/stopped and the idle countdown; wake reloads sessions and re-attaches the open chat without refresh.
+- 45-minute cap: soft warning at 40 min; on stream drop auto re-open and resume the same OpenCode session. Probe route accepts a short `timeout` to force rollover in test.
+- Stream reconnect with backoff and a "reconnecting" pill; refetch messages on reconnect; `beforeunload` aborts a running prompt.
+- **Gate:** idle 12 min → stopped; type → wakes; forced 90-s session → chat continues; closing the tab aborts the run.
 
 ### S7 — Hardening and observability (1 day)
-- Egress allow-list per workspace: defaults from the user's providers + GitHub + npm/pypi registries + the ingest host; one-click add from an error toast.
-- Password rotated every resume; `sandboxes.password_enc` under the user's DEK; ingest tokens expire hourly.
-- PostHog events: `workspace_created`, `sandbox_started` (cold/warm, ms), `sandbox_stopped` (seconds, CPU ms from `stop()`), `message_sent` (alias, tokens bucket), `sandbox_error` (type). Admin page: sandbox pool view (running now, minutes today, CPU-ms), per-user usage (informational).
-- Kill switch, docs (ARCHITECTURE/PLAN/SETUP), Phase 3 handoff notes.
-- **Gate:** security checklist from PLAN §4 walked; `next build` clean; a fresh user (second Google account, invited) can do the whole flow.
+- Egress allow-list from providers + git/package hosts + workspace extras; blocked-host tool errors offer one-click allow via `sandbox.update`.
+- Ingest token rotation every 45 min via heartbeat; password rotated on stop as well as start.
+- PostHog: workspace_created, sandbox_started/stopped (with CPU ms), message_sent (tokens bucket), sandbox_error, egress_blocked. Admin: sandbox pool view against the 5 CPU-hour budget. Kill switch `SYRUP_AGENT_ENABLED` + PostHog flag.
+- Data-rights jobs (nightly cron): exports to R2 + Resend email, deletions after 30 days, log pruning. Needs R2 + Resend accounts.
+- Docs: ARCHITECTURE cloud runtime, PHASE2 numbers, SECURITY sandbox model, README hosted section.
+- **Gate:** a second invited account completes the whole flow; rows invisible under the admin's scope.
 
 **Total: ~7.5 working days.** Order is fixed; S1–S3 are server-only and testable without touching the UI.
 
