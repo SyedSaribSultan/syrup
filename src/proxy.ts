@@ -61,6 +61,8 @@ const cloudGuard = auth((req) => {
   if (LOCAL_ONLY_API.test(pathname)) return NextResponse.json({ error: "not available in the hosted version yet" }, { status: 501 })
   if (LOCAL_ONLY_PAGE.test(pathname)) return NextResponse.redirect(new URL("/", req.nextUrl.origin))
   const session = req.auth
+  // Scripted access: a Bearer token is validated by the route itself (cloud/session.ts opsViewer).
+  if (!session?.user && pathname.startsWith("/api/") && req.headers.get("authorization")?.startsWith("Bearer ")) return NextResponse.next()
   if (!session?.user) {
     if (pathname.startsWith("/api/")) return NextResponse.json({ error: "sign in required" }, { status: 401 })
     const url = new URL("/signin", req.nextUrl.origin)
