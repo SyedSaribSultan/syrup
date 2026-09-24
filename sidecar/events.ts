@@ -65,15 +65,27 @@ export function startEventTap(cfg: SidecarConfig, log: Log): { flush(): Promise<
   }
 
   void (async () => {
+    let attempt = 0
     for (;;) {
+      attempt++
       try {
-        const res = await fetch(`${cfg.engineUrl}/global/event`, { headers: { authorization: cfg.engineAuth }, cache: "no-store" })
+        // Headers must arrive within 20 s; the body then streams for as long as the engine lives.
+        const headersCtl = new AbortController()
+        const headersTimer = setTimeout(() => headersCtl.abort(new Error("no response headers in 20 s")), 20_000)
+        const res = await fetch(`${cfg.engineUrl}/global/event`, { headers: { authorization: cfg.engineAuth, accept: "text/event-stream" }, cache: "no-store", signal: headersCtl.signal })
+        clearTimeout(headersTimer)
         if (!res.ok) throw new Error(`event stream ${res.status}`)
-        log("sidecar", "events.connected", {})
-        for await (const ev of sse<GlobalEvent>(res)) enqueue(ev.payload)
-        log("sidecar", "events.ended", {}, { level: "warn" })
+        log("sidecar", "events.connected", { attempt })
+        let n = 0
+        for await (const ev of sse<GlobalEvent>(res)) {
+          n++
+          enqueue(ev.payload)
+        }
+        log("sidecar", "events.ended", { received: n }, { level: "warn" })
       } catch (err) {
-        log("sidecar", "events.error", err, { level: "warn" })
+        const cause = err instanceof Error && err.cause instanceof Error ? err.cause.message : undefined
+        // The engine starts after the sidecar; the first attempts are expected to fail.
+        if (attempt > 3) log("sidecar", "events.error", { attempt, message: err instanceof Error ? err.message : String(err), cause }, { level: "warn" })
       }
       await new Promise((r) => setTimeout(r, 1500))
     }
