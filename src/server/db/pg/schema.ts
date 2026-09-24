@@ -22,6 +22,9 @@ export const users = pgTable("users", {
   plan: text("plan").notNull().default("free"),
   /** Product analytics opt-out (PLAN §6 layer B). */
   analyticsOptOut: boolean("analytics_opt_out").notNull().default(false),
+  /** GitHub fine-grained token for private repos, AES-GCM under the user's DEK (S5). */
+  githubTokenEnc: text("github_token_enc"),
+  githubTokenHint: text("github_token_hint"),
   createdAt: ts("created_at").notNull().defaultNow(),
   lastSeenAt: ts("last_seen_at"),
   deletedAt: ts("deleted_at"),

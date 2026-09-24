@@ -2,6 +2,7 @@ import { and, desc, eq, isNull } from "drizzle-orm"
 import { ulid } from "ulid"
 import { pgSchema, withUser } from "../db/pg"
 import { audit } from "./audit"
+import { githubToken, inspectGithubRepo } from "./github"
 
 /**
  * Workspaces (cloud). A workspace is a repository (or an empty folder) the
@@ -53,8 +54,14 @@ export async function getWorkspace(userId: string, id: string): Promise<(Workspa
 export async function createWorkspace(userId: string, input: { name?: string; repoUrl?: string }): Promise<Workspace> {
   const repoUrl = input.repoUrl ? normalizeRepoUrl(input.repoUrl) : null
   const name = (input.name?.trim() || (repoUrl ? repoName(repoUrl) : "New workspace")).slice(0, 80)
+  // GitHub repos are looked up first: clear errors for typos and private repos, and the default branch on record.
+  let defaultBranch: string | null = null
+  if (repoUrl?.includes("github.com")) {
+    const info = await inspectGithubRepo(repoUrl, await githubToken(userId))
+    defaultBranch = info?.defaultBranch ?? null
+  }
   return withUser(userId, async (tx) => {
-    const [ws] = await tx.insert(pgSchema.workspaces).values({ id: ulid(), userId, name, source: repoUrl ? "git" : "empty", repoUrl }).returning()
+    const [ws] = await tx.insert(pgSchema.workspaces).values({ id: ulid(), userId, name, source: repoUrl ? "git" : "empty", repoUrl, defaultBranch }).returning()
     await tx.insert(pgSchema.sandboxes).values({ id: ulid(), workspaceId: ws.id, userId, vercelName: `ws_${ws.id.toLowerCase()}` })
     await audit(tx, { userId, actor: "user", action: "workspace.create", target: ws.id, data: { source: ws.source } })
     return ws
