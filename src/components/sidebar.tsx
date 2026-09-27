@@ -44,7 +44,7 @@ export function Sidebar({ status, footer }: { status?: ReactNode; footer?: React
         </Link>
         <div className="flex items-center gap-2">
           {w.mode === "cloud" && <span className="rounded bg-accent-soft px-1.5 py-0.5 text-[10px] font-medium text-accent">early access</span>}
-          {engine && <span title={engine.connected ? "Connected to engine" : "Reconnecting…"} className={`h-2 w-2 rounded-full ${engine.connected ? "bg-ok" : "bg-warn pulse"}`} />}
+          {engine && <span title={engine.connected ? "Connected to engine" : engine.ready ? "Reconnecting…" : "Starting…"} className={`h-2 w-2 rounded-full ${engine.connected ? "bg-ok" : "bg-warn pulse"}`} />}
         </div>
       </div>
 
@@ -67,7 +67,7 @@ export function Sidebar({ status, footer }: { status?: ReactNode; footer?: React
         <ul className="space-y-0.5">
           {chats.map((c) => {
             const active = activeChat === c.id
-            const mine = c.workspaceId === w.activeId && !!engine
+            const mine = c.workspaceId === w.activeId && !!engine?.sessionsLoaded
             const st = mine ? engine!.status[c.id]?.type : undefined
             const busy = st === "busy" || st === "retry"
             return (

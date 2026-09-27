@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm"
 import { boolean, index, integer, jsonb, pgTable, primaryKey, real, smallint, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core"
 import type { AdapterAccountType } from "next-auth/adapters"
 
@@ -191,10 +192,15 @@ export const workspaces = pgTable("workspaces", {
   egressAllow: text("egress_allow").array().notNull().default([]),
   /** Palette index 0–7 (src/lib/workspace-limits.ts), unique among the user's live workspaces. */
   color: smallint("color").notNull().default(0),
+  /** The user's personal workspace: created automatically, never deleted, one per user. */
+  isHome: boolean("is_home").notNull().default(false),
   createdAt: ts("created_at").notNull().defaultNow(),
   lastOpenedAt: ts("last_opened_at"),
   deletedAt: ts("deleted_at"),
-}, (t) => [index("workspaces_user_idx").on(t.userId, t.lastOpenedAt)])
+}, (t) => [
+  index("workspaces_user_idx").on(t.userId, t.lastOpenedAt),
+  uniqueIndex("workspaces_home_idx").on(t.userId).where(sql`${t.isHome} and ${t.deletedAt} is null`),
+])
 
 /** One Vercel Sandbox per workspace. The row is the durable record; the VM is disposable. */
 export const sandboxes = pgTable("sandboxes", {

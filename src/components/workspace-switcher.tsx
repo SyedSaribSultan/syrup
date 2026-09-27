@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { hostOS, localFileAction } from "@/lib/file-actions"
+import { Skel } from "./brew"
 import { useDismiss } from "@/lib/use-dismiss"
 import { MAX_WORKSPACES } from "@/lib/workspace-limits"
 import { baseName, useAllChats, useWorkspaces, wsColor, wsTint, type WorkspaceItem } from "@/lib/workspaces"
@@ -51,7 +52,7 @@ export function WorkspaceSwitcher() {
       >
         {active ? <WorkspaceTile name={active.name} color={active.color} /> : <span className="h-7 w-7 shrink-0 rounded-lg border border-dashed border-line-2" />}
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[13px] font-medium text-ink">{active ? active.name : workspaces ? "Choose a workspace" : "Loading…"}</span>
+          <span className="block truncate text-[13px] font-medium text-ink">{active ? active.name : workspaces ? "Choose a workspace" : <Skel className="h-3 w-20" />}</span>
           <span className="block truncate text-[11px] text-muted">{active ? shortDetail(active.detail) : "No workspace open"}</span>
         </span>
         <svg width="12" height="12" viewBox="0 0 12 12" className="shrink-0 text-muted" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
@@ -135,7 +136,7 @@ function Menu({ onDone }: { onDone(): void }) {
                   {n} {n === 1 ? "chat" : "chats"}
                 </span>
               </button>
-              {(mode === "local" || !isActive) && (
+              {(mode === "local" || (!isActive && !w.home)) && (
                 <span className="absolute top-1/2 right-2 hidden -translate-y-1/2 items-center gap-0.5 group-hover:flex">
                   {mode === "local" && (
                     <button type="button" title={`Open folder in ${folderApp}`} aria-label="Open folder" onClick={() => void onReveal(w)} className="rounded-md p-1.5 text-muted transition hover:bg-surface hover:text-ink">
@@ -144,7 +145,7 @@ function Menu({ onDone }: { onDone(): void }) {
                       </svg>
                     </button>
                   )}
-                  {!isActive && (
+                  {!isActive && !w.home && (
                     <button type="button" title={mode === "cloud" ? "Delete workspace" : "Remove from list"} onClick={() => void onRemove(w)} className="rounded-md p-1.5 text-muted transition hover:bg-surface hover:text-err">
                       <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
                         <path d="M3.5 3.5l7 7M10.5 3.5l-7 7" />
@@ -275,7 +276,7 @@ function FolderBrowser({ onBack, onChoose }: { onBack(): void; onChoose(path: st
   )
 }
 
-/** Cloud: new workspace from a public repository, or an empty one. Used in the switcher and on the first-run home. */
+/** Cloud: new workspace from a public repository, or an empty one. */
 export function CloudAddForm({ compact, onDone }: { compact?: boolean; onDone?(): void }) {
   const { add } = useWorkspaces()
   const [repo, setRepo] = useState("")

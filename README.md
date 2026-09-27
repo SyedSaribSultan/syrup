@@ -7,7 +7,7 @@ No subscription. No single vendor. Start with free models that need no key, then
 ## What you get
 
 - **A full coding agent** in a clean chat UI: streaming replies, tool calls (read, write, edit, run, search), permission prompts, plan/build agents, subagents, LSP diagnostics, context compaction. The engine is [OpenCode](https://opencode.ai), the most-used open-source coding agent.
-- **Workspaces.** Point it at any folder on your machine with the native OS folder dialog, or type a path. Chats are per folder.
+- **Workspaces.** Everyone starts in **Home**, a folder syrup makes for you (`~/syrup`, `%USERPROFILE%\syrup` on Windows), so there is nothing to pick before the first chat. Add any other folder with the native OS folder dialog, or type a path. Chats are per folder.
 - **Bring your own keys.** Add as many keys as you like per provider, label them, mark them free or paid. Keys are encrypted at rest and never leave your machine.
 - **Router.** **Auto** picks the best model for each chat from your keys. It sticks with that model for the rest of the chat, so prompt caches stay warm and answers stay consistent. If a model is rate-limited, overloaded or slow to start, syrup switches to the next one before any text reaches you, so you do not see the error. **Fast** does the same with quicker models and low thinking effort, for small tasks.
 - **Model picker.** Auto and Fast come first, then your favorites, recent models and recommended ones. Everything else sits behind **All models**.
@@ -55,7 +55,7 @@ On first launch syrup starts an OpenCode server, the router and the memory serve
 ## First steps
 
 1. Open **Providers** and add a key. See [Which keys to add first](#which-keys-to-add-first). Auto and Fast route only across your keys.
-2. Pick a folder with the workspace switcher at the top of the sidebar.
+2. Start in **Home**, or pick another folder with the workspace switcher at the top of the sidebar.
 3. Start a chat with **Auto** selected. No key yet? Pick an OpenCode Zen free model in the model picker instead.
 4. Check **Usage & cost** afterwards to see what it used.
 
@@ -83,7 +83,7 @@ Everything is optional. Copy `.env.example` to `.env.local` to change:
 | `OPENCODE_PORT` | `4096` | Port for the embedded OpenCode server |
 | `OPENCODE_URL` | – | Attach to an OpenCode server you run yourself instead of spawning one |
 | `SYRUP_ROUTER_PORT` | `4210` | Port for the router and memory MCP server |
-| `SYRUP_WORKSPACE` | cwd | Default folder the agent works in |
+| `SYRUP_WORKSPACE` | cwd | Folder the engine starts in. The app opens Home (`~/syrup`) on a first visit and uses this only if Home cannot be created |
 | `SYRUP_DB` | `file:./data/syrup.db` | SQLite location |
 | `SYRUP_VAULT_KEY` | auto-generated | 32-byte base64 key that encrypts provider keys. Generated into `data/vault.key` if unset |
 

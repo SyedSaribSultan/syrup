@@ -1,0 +1,2 @@
+ALTER TABLE "workspaces" ADD COLUMN "is_home" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "workspaces_home_idx" ON "workspaces" USING btree ("user_id") WHERE "workspaces"."is_home" and "workspaces"."deleted_at" is null;

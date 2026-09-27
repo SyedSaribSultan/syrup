@@ -1,18 +1,23 @@
 "use client"
 
-import { useRouter } from "next/navigation"
+import { useParams, useRouter } from "next/navigation"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { EngineProvider, useEngine, type EngineConnection } from "@/lib/engine-store"
+import { openSandbox } from "@/lib/home"
 import { useNow } from "@/lib/use-now"
+import { Brew } from "./brew"
 import { EgressEditor } from "./egress-editor"
 import { NewChat } from "./new-chat"
 import { SessionView } from "./session-view"
 import { Sidebar } from "./sidebar"
 
 /**
- * Cloud workspace: opens (boots or wakes) the sandbox, then mounts the same
- * chat UI as local mode against it. The connection (URL + per-start password)
- * lives only in this component's state.
+ * Cloud workspace: the same chat UI as local mode, mounted at once while the
+ * sandbox opens (boots or wakes) in the background. A message sent before the
+ * engine is up waits in the engine store and goes out when it connects. The
+ * connection (URL + per-start password) lives only in this component's state.
+ * Rendered by the /w/[id] layout, so it survives moving between the new-chat
+ * screen and a chat.
  *
  * Lifecycle: a heartbeat while the tab is visible keeps the sandbox alive; a
  * lost event stream, a stopped sandbox reported by the heartbeat, or the
@@ -20,46 +25,39 @@ import { Sidebar } from "./sidebar"
  * files and the same OpenCode session.
  */
 
-type Phase = "opening" | "ready" | "error"
-type OpenResponse = { connection: { baseUrl: string; authorization: string; directory: string; start: "cold" | "warm" | "hot"; ms: number; expiresAt: string | null } }
 export type Heartbeat = { running: boolean; expiresAt: string | null; sessionStartedAt: string | null; sessionCapMs: number }
 
 const HEARTBEAT_MS = 60_000
 
-export function WorkspaceView({ workspaceId, name, sessionId, egressAllow }: { workspaceId: string; name: string; sessionId?: string; egressAllow: string[] }) {
-  const [phase, setPhase] = useState<Phase>("opening")
+export function WorkspaceView({ workspaceId, egressAllow, hasKeys }: { workspaceId: string; egressAllow: string[]; hasKeys: boolean }) {
+  const sessionId = useParams<{ sid?: string }>()?.sid
   const [conn, setConn] = useState<EngineConnection | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [elapsed, setElapsed] = useState(0)
   const [start, setStart] = useState<"cold" | "warm" | "hot" | null>(null)
   const [beat, setBeat] = useState<Heartbeat | null>(null)
   const [reopening, setReopening] = useState(false)
   const opening = useRef(false)
+  const ready = conn !== null
 
-  const open = useCallback(async (reason: "initial" | "reopen" = "initial") => {
-    if (opening.current) return
-    opening.current = true
-    if (reason === "initial") setPhase("opening")
-    else setReopening(true)
-    setError(null)
-    const t0 = Date.now()
-    const tick = setInterval(() => setElapsed(Math.round((Date.now() - t0) / 1000)), 500)
-    try {
-      const r = await fetch(`/api/workspaces/${workspaceId}/open`, { method: "POST" })
-      const j = (await r.json()) as OpenResponse & { error?: string }
-      if (!r.ok || !j.connection) throw new Error(j.error ?? `open failed (${r.status})`)
-      setStart(j.connection.start)
-      setConn({ baseUrl: j.connection.baseUrl, headers: { authorization: j.connection.authorization }, directory: j.connection.directory })
-      setPhase("ready")
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-      setPhase("error")
-    } finally {
-      clearInterval(tick)
-      setReopening(false)
-      opening.current = false
-    }
-  }, [workspaceId])
+  const open = useCallback(
+    async (reason: "initial" | "reopen" = "initial") => {
+      if (opening.current) return
+      opening.current = true
+      if (reason === "reopen") setReopening(true)
+      setError(null)
+      try {
+        const c = await openSandbox(workspaceId, reason === "reopen")
+        setStart(c.start)
+        setConn({ baseUrl: c.baseUrl, headers: { authorization: c.authorization }, directory: c.directory })
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err))
+      } finally {
+        setReopening(false)
+        opening.current = false
+      }
+    },
+    [workspaceId],
+  )
 
   useEffect(() => {
     const t = setTimeout(() => void open("initial"), 0)
@@ -68,7 +66,7 @@ export function WorkspaceView({ workspaceId, name, sessionId, egressAllow }: { w
 
   // Heartbeat while the tab is visible. Background tabs let the sandbox idle-stop; the next look wakes it.
   useEffect(() => {
-    if (phase !== "ready") return
+    if (!ready) return
     let stopped = false
     async function beatOnce() {
       if (document.visibilityState !== "visible") return
@@ -89,49 +87,20 @@ export function WorkspaceView({ workspaceId, name, sessionId, egressAllow }: { w
       clearInterval(t)
       document.removeEventListener("visibilitychange", onVisible)
     }
-  }, [phase, workspaceId, open])
+  }, [ready, workspaceId, open])
 
-  if (phase !== "ready" || !conn) {
-    return (
-      <div className="flex h-full min-h-0 flex-1">
-        <Sidebar />
-      <main className="flex min-w-0 flex-1 items-center justify-center px-6">
-        <div className="w-full max-w-[440px] rounded-2xl border border-line bg-surface p-6 shadow-card">
-          <div className="text-[11px] font-medium uppercase tracking-wider text-muted">{name}</div>
-          {phase === "opening" ? (
-            <>
-              <div className="mt-2 flex items-center gap-2 text-sm font-medium text-ink">
-                <span className="h-2 w-2 rounded-full bg-accent pulse" />
-                {elapsed < 4 ? "Waking your workspace…" : elapsed < 12 ? "Starting the agent…" : "First start takes a little longer: installing the engine and cloning the repository…"}
-              </div>
-              <div className="mt-1 text-xs text-muted">{elapsed}s · a warm workspace takes a few seconds, a brand-new one about fifteen.</div>
-            </>
-          ) : (
-            <>
-              <div className="mt-2 text-sm font-medium text-err">Could not start the workspace</div>
-              <pre className="mt-2 max-h-40 overflow-auto rounded-lg bg-code-bg p-3 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap text-ink-2">{error}</pre>
-              <div className="mt-3 flex gap-2">
-                <button type="button" onClick={() => void open("initial")} className="rounded-lg bg-accent px-3 py-2 text-xs font-medium text-accent-ink">
-                  Try again
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-      </main>
-      </div>
-    )
-  }
+  const retry = () => void open(ready ? "reopen" : "initial")
 
   return (
-    <EngineProvider connection={conn}>
+    <EngineProvider connection={conn} remote>
       <ConnectionWatch onLost={() => void open("reopen")} />
       <AbortOnUnload />
       <div className="flex h-full min-h-0 flex-1">
-        <Sidebar status={<SandboxStatus start={start} beat={beat} reopening={reopening} />} footer={<SandboxControls workspaceId={workspaceId} egressAllow={egressAllow} />} />
+        <Sidebar status={<SandboxStatus ready={ready} start={start} beat={beat} reopening={reopening} failed={!!error} />} footer={<SandboxControls workspaceId={workspaceId} egressAllow={egressAllow} />} />
         <main className="relative flex min-w-0 flex-1 flex-col">
           <SessionCapNotice beat={beat} />
-          {sessionId ? <SessionView id={sessionId} /> : <NewChat hrefFor={(id) => `/w/${workspaceId}/s/${id}`} />}
+          {error && sessionId && <OpenError error={error} onRetry={retry} />}
+          {sessionId ? <SessionView id={sessionId} /> : <NewChat hrefFor={(id) => `/w/${workspaceId}/s/${id}`} noKeys={!hasKeys} error={error} onRetry={retry} />}
         </main>
       </div>
     </EngineProvider>
@@ -139,13 +108,40 @@ export function WorkspaceView({ workspaceId, name, sessionId, egressAllow }: { w
 }
 
 /** One line under the switcher: whether the sandbox is running and when it sleeps. */
-function SandboxStatus({ start, beat, reopening }: { start: "cold" | "warm" | "hot" | null; beat: Heartbeat | null; reopening: boolean }) {
+function SandboxStatus({ ready, start, beat, reopening, failed }: { ready: boolean; start: "cold" | "warm" | "hot" | null; beat: Heartbeat | null; reopening: boolean; failed: boolean }) {
   const { connected } = useEngine()
   const now = useNow(30_000)
   const idleMin = beat?.expiresAt && now ? Math.max(1, Math.round((new Date(beat.expiresAt).getTime() - now) / 60_000)) : null
   return (
     <div className="px-5 pb-2 text-[11px] text-muted" title={start ? `Last start: ${start}` : undefined}>
-      {reopening ? "Waking…" : !connected ? "Reconnecting…" : beat?.running === false ? "Stopped · wakes on your next message" : idleMin ? `Running · sleeps after ${idleMin} min idle` : "Running"}
+      {failed ? (
+        <span className="text-err">Didn&apos;t start · try again</span>
+      ) : !ready || reopening ? (
+        <Brew mood="wake" timerAfter={10} className="text-[11px]!" />
+      ) : !connected ? (
+        <Brew mood="connect" timerAfter={10} className="text-[11px]!" />
+      ) : beat?.running === false ? (
+        "Stopped · wakes on your next message"
+      ) : idleMin ? (
+        `Running · sleeps after ${idleMin} min idle`
+      ) : (
+        "Running"
+      )}
+    </div>
+  )
+}
+
+/** The sandbox could not open. Non-blocking: the chat stays readable and anything typed waits for the retry. */
+function OpenError({ error, onRetry }: { error: string; onRetry(): void }) {
+  return (
+    <div className="flex items-center gap-2 border-b border-err/30 bg-err/5 px-5 py-2 text-[12px] text-ink-2">
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-err" />
+      <span className="min-w-0 flex-1 truncate" title={error}>
+        <span className="font-medium text-err">Your workspace didn&apos;t start.</span> {error}
+      </span>
+      <button type="button" onClick={onRetry} className="shrink-0 rounded-lg bg-accent px-2.5 py-1 text-xs font-medium text-accent-ink">
+        Try again
+      </button>
     </div>
   )
 }

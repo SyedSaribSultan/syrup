@@ -3,8 +3,9 @@
 import { usePathname, useRouter } from "next/navigation"
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react"
 import { useEngine, useOptionalEngine } from "./engine-store"
+import { localHomePath, prewarmSandbox } from "./home"
 import { oc } from "./oc"
-import { LIMIT_MESSAGE, MAX_WORKSPACES, nextColor } from "./workspace-limits"
+import { LIMIT_MESSAGE, MAX_WORKSPACES, nextColor, placeHome, type LocalEntry } from "./workspace-limits"
 
 /**
  * The user's workspaces and their chats, with one shape in both modes so the
@@ -12,9 +13,10 @@ import { LIMIT_MESSAGE, MAX_WORKSPACES, nextColor } from "./workspace-limits"
  * - Local: a workspace is a folder, kept in localStorage; chats come from the engine per folder.
  * - Cloud: a workspace is a row in Postgres; chats come from chat_sessions (no sandbox has to wake).
  * The active workspace's chats are overlaid live from the engine by the sidebar.
+ * Both modes have a Home workspace (src/lib/home.ts): listed first, never removed, the default for new chats.
  */
 
-export type WorkspaceItem = { id: string; name: string; color: number; detail: string }
+export type WorkspaceItem = { id: string; name: string; color: number; detail: string; home: boolean }
 export type ChatItem = { id: string; title: string; workspaceId: string; updated: number }
 export type CloudUser = { name: string | null; email: string | null; image: string | null; admin: boolean }
 export type AddInput = { path: string } | { repoUrl?: string; name?: string }
@@ -34,6 +36,7 @@ type Ctx = {
   open(id: string): void
   chatHref(c: ChatItem): string
   newChatHref: string | null
+  homeId: string | null
   /** Resolves to an error message, or null on success. */
   add(input: AddInput): Promise<string | null>
   remove(id: string): Promise<void>
@@ -96,9 +99,9 @@ function useFocusTick(): number {
 
 // ---------------------------------------------------------------- local
 
-type LocalEntry = { path: string; color: number }
 const LOCAL_KEY = "syrup.workspaces"
 const LEGACY_RECENT_KEY = "syrup.recentDirs"
+const DIR_KEY = "syrup.directory"
 
 function readLocal(): LocalEntry[] {
   try {
@@ -116,17 +119,46 @@ function readLocal(): LocalEntry[] {
   }
 }
 
+function writeLocal(list: LocalEntry[]) {
+  try {
+    localStorage.setItem(LOCAL_KEY, JSON.stringify(list))
+  } catch {}
+}
+
+function savedDirectory(): string {
+  try {
+    return localStorage.getItem(DIR_KEY) ?? ""
+  } catch {
+    return ""
+  }
+}
+
 export function LocalWorkspacesProvider({ children }: { children: ReactNode }) {
   const { directory, setDirectory, connection } = useEngine()
   const router = useRouter()
   const [stored, setStored] = useState<LocalEntry[] | null>(null)
+  const [home, setHome] = useState<string | null>(null)
   const [others, setOthers] = useState<ChatItem[]>([])
   const tick = useFocusTick()
 
-  useEffect(() => {
-    const t = setTimeout(() => setStored(readLocal()), 0)
-    return () => clearTimeout(t)
+  const save = useCallback((next: LocalEntry[]) => {
+    setStored(next)
+    writeLocal(next)
   }, [])
+
+  // Home joins the list once, first; a full legacy list gives up its least recently used folder for it.
+  useEffect(() => {
+    let alive = true
+    void localHomePath().then((path) => {
+      if (!alive) return
+      const list = readLocal()
+      setHome(path)
+      save(path ? placeHome(list, path, savedDirectory(), samePath) : list)
+    })
+    return () => {
+      alive = false
+    }
+  }, [save])
 
   // The engine's folder is always a workspace, while there is room for it.
   const list = useMemo(() => {
@@ -135,23 +167,13 @@ export function LocalWorkspacesProvider({ children }: { children: ReactNode }) {
   }, [stored, directory])
 
   useEffect(() => {
-    if (!list || list === stored) return
-    try {
-      localStorage.setItem(LOCAL_KEY, JSON.stringify(list))
-    } catch {}
+    if (list && list !== stored) writeLocal(list)
   }, [list, stored])
 
-  // No room for the engine's folder: switch to the first workspace instead.
+  // No room for the engine's folder: switch to the first workspace (Home) instead.
   useEffect(() => {
     if (list && directory && list.length && !list.some((w) => samePath(w.path, directory))) setDirectory(list[0].path)
   }, [list, directory, setDirectory])
-
-  const save = useCallback((next: LocalEntry[]) => {
-    setStored(next)
-    try {
-      localStorage.setItem(LOCAL_KEY, JSON.stringify(next))
-    } catch {}
-  }, [])
 
   const active = list?.find((w) => directory && samePath(w.path, directory)) ?? null
   const paths = list?.map((w) => w.path).join("\n") ?? ""
@@ -175,7 +197,13 @@ export function LocalWorkspacesProvider({ children }: { children: ReactNode }) {
   }, [paths, directory, connection, tick])
 
   const value = useMemo<Ctx>(() => {
-    const workspaces = list?.map((w) => ({ id: w.path, name: baseName(w.path), color: w.color, detail: w.path })) ?? null
+    const isHome = (p: string) => !!home && samePath(p, home)
+    const workspaces = list?.map((w) => ({ id: w.path, name: isHome(w.path) ? "Home" : baseName(w.path), color: w.color, detail: w.path, home: isHome(w.path) })) ?? null
+    // Remember when each folder was last used: a full list makes room by dropping the stalest.
+    const pick = (path: string) => {
+      setDirectory(path)
+      if (list) save(list.map((w) => (samePath(w.path, path) ? { ...w, used: Date.now() } : w)))
+    }
     return {
       mode: "local",
       workspaces,
@@ -183,9 +211,10 @@ export function LocalWorkspacesProvider({ children }: { children: ReactNode }) {
       chats: others.filter((c) => !active || c.workspaceId !== active.path),
       full: (list?.length ?? 0) >= MAX_WORKSPACES,
       user: null,
-      select: (id) => setDirectory(id),
+      homeId: workspaces?.find((w) => w.home)?.id ?? null,
+      select: pick,
       open: (id) => {
-        setDirectory(id)
+        pick(id)
         router.push("/")
       },
       chatHref: (c) => `/s/${c.id}`,
@@ -194,24 +223,24 @@ export function LocalWorkspacesProvider({ children }: { children: ReactNode }) {
         if (!("path" in input) || !list) return "Choose a folder"
         if (!list.some((w) => samePath(w.path, input.path))) {
           if (list.length >= MAX_WORKSPACES) return LIMIT_MESSAGE
-          save([...list, { path: input.path, color: nextColor(list.map((w) => w.color)) }])
-        }
-        setDirectory(input.path)
+          save([...list, { path: input.path, color: nextColor(list.map((w) => w.color)), used: Date.now() }])
+          setDirectory(input.path)
+        } else pick(input.path)
         router.push("/")
         return null
       },
       remove: async (id) => {
-        if (list) save(list.filter((w) => w.path !== id))
+        if (list && !isHome(id)) save(list.filter((w) => w.path !== id))
       },
     }
-  }, [list, active, others, setDirectory, router, save])
+  }, [list, home, active, others, setDirectory, router, save])
 
   return <WorkspacesContext.Provider value={value}>{children}</WorkspacesContext.Provider>
 }
 
 // ---------------------------------------------------------------- cloud
 
-type ApiWorkspace = { id: string; name: string; color: number; repoUrl: string | null }
+type ApiWorkspace = { id: string; name: string; color: number; repoUrl: string | null; home: boolean }
 
 export function CloudWorkspacesProvider({ user, children }: { user: CloudUser | null; children: ReactNode }) {
   const pathname = usePathname()
@@ -225,7 +254,7 @@ export function CloudWorkspacesProvider({ user, children }: { user: CloudUser | 
     const [w, c] = await Promise.all([fetch("/api/workspaces", { cache: "no-store" }), fetch("/api/chats", { cache: "no-store" })])
     if (w.ok) {
       const list = (await w.json()).workspaces as ApiWorkspace[]
-      setWorkspaces(list.map((x) => ({ id: x.id, name: x.name, color: x.color, detail: x.repoUrl ? x.repoUrl.replace(/^https:\/\//, "").replace(/\.git$/, "") : "empty workspace" })))
+      setWorkspaces(list.map((x) => ({ id: x.id, name: x.name, color: x.color, home: x.home, detail: x.home ? "Your files, always here" : x.repoUrl ? x.repoUrl.replace(/^https:\/\//, "").replace(/\.git$/, "") : "empty workspace" })))
     }
     if (c.ok) setChats((await c.json()).chats as ChatItem[])
   }, [])
@@ -236,6 +265,15 @@ export function CloudWorkspacesProvider({ user, children }: { user: CloudUser | 
     return () => clearTimeout(t)
   }, [user, load, activeId, tick])
 
+  const homeId = workspaces?.find((w) => w.home)?.id ?? null
+
+  // Start Home's sandbox as soon as the app loads, so the first message rarely waits. Shared with WorkspaceView (src/lib/home.ts).
+  // Skipped while another workspace is open: that one is what the user is waiting for.
+  const elsewhere = !!activeId && activeId !== homeId
+  useEffect(() => {
+    if (homeId && !elsewhere && document.visibilityState === "visible") prewarmSandbox(homeId)
+  }, [homeId, elsewhere])
+
   const value = useMemo<Ctx>(
     () => ({
       mode: "cloud",
@@ -244,10 +282,11 @@ export function CloudWorkspacesProvider({ user, children }: { user: CloudUser | 
       chats,
       full: (workspaces?.length ?? 0) >= MAX_WORKSPACES,
       user,
+      homeId,
       select: () => {},
       open: (id) => router.push(`/w/${id}`),
       chatHref: (c) => `/w/${c.workspaceId}/s/${c.id}`,
-      newChatHref: activeId ? `/w/${activeId}` : null,
+      newChatHref: activeId ? `/w/${activeId}` : homeId ? `/w/${homeId}` : "/",
       add: async (input) => {
         if ("path" in input) return "Folders are not available in the hosted version"
         const r = await fetch("/api/workspaces", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) })
@@ -262,7 +301,7 @@ export function CloudWorkspacesProvider({ user, children }: { user: CloudUser | 
         await load()
       },
     }),
-    [workspaces, activeId, chats, user, router, load],
+    [workspaces, activeId, chats, user, homeId, router, load],
   )
 
   return <WorkspacesContext.Provider value={value}>{children}</WorkspacesContext.Provider>

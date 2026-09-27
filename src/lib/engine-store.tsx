@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, type ReactNode } from "react"
 import posthog from "posthog-js"
 import { clog, installClientLogging } from "./clientlog"
+import { localHomePath } from "./home"
 import { oc, ocRaw, type Connection, type Message, type Model, type Part, type Provider, type Session, type SessionStatus } from "./oc"
 
 /**
@@ -203,6 +204,8 @@ type Ctx = State & {
   models: (Model & { free: boolean })[]
   /** True when at least one key-based provider is connected (not just the built-in free ones). */
   hasKeys: boolean
+  /** Booted with a workspace directory. createSession and send wait for this, so a message typed early is kept, not lost. */
+  ready: boolean
 }
 
 const EngineContext = createContext<Ctx | null>(null)
@@ -216,7 +219,8 @@ type RawEvent = { type: string; properties: Record<string, unknown> }
 
 export type EngineConnection = Connection & { directory: string }
 
-export function EngineProvider({ children, connection }: { children: ReactNode; connection?: EngineConnection | null }) {
+/** `remote`: the engine lives in a cloud sandbox; until `connection` arrives, nothing is fetched and sends wait. */
+export function EngineProvider({ children, connection, remote }: { children: ReactNode; connection?: EngineConnection | null; remote?: boolean }) {
   const [state, dispatch] = useReducer(reducer, initial)
   const loading = useRef(new Set<string>())
   const dir = state.directory
@@ -225,13 +229,16 @@ export function EngineProvider({ children, connection }: { children: ReactNode; 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const conn = useMemo<Connection | null>(() => (connection ? { baseUrl: connection.baseUrl, headers: connection.headers } : null), [connKey])
   const fixedDirectory = connection?.directory ?? null
+  const waiting = !!remote && !conn
+  const modelKey = remote || conn ? MODEL_KEY_CLOUD : MODEL_KEY
 
-  // Boot: engine default directory, saved workspace, providers, saved model.
+  // Boot: engine default directory, saved workspace (Home on first run), providers, saved model.
   useEffect(() => {
     installClientLogging()
+    if (waiting) return
     void (async () => {
       const t0 = Date.now()
-      const [pathRes, prov, projRes] = await Promise.all([oc(undefined, conn).path.get(), oc(undefined, conn).config.providers(), oc(undefined, conn).project.list()])
+      const [pathRes, prov, projRes, home] = await Promise.all([oc(undefined, conn).path.get(), oc(undefined, conn).config.providers(), oc(undefined, conn).project.list(), fixedDirectory ? null : localHomePath()])
       clog("boot.loaded", { ms: Date.now() - t0, providers: prov.data?.providers.map((p) => `${p.id}(${Object.keys(p.models).length})`), defaultDirectory: pathRes.data?.directory, projects: projRes.data?.length })
       const defaultDirectory = pathRes.data?.directory ?? ""
       let saved = ""
@@ -240,12 +247,12 @@ export function EngineProvider({ children, connection }: { children: ReactNode; 
           saved = localStorage.getItem(DIR_KEY) ?? ""
         } catch {}
       }
-      dispatch({ type: "directory", directory: fixedDirectory ?? (saved || defaultDirectory), defaultDirectory })
+      dispatch({ type: "directory", directory: fixedDirectory ?? (saved || home || defaultDirectory), defaultDirectory })
       if (projRes.data) dispatch({ type: "projects", projects: projRes.data as Project[] })
       if (prov.data) dispatch({ type: "providers", providers: prov.data.providers, defaults: prov.data.default })
       let model: ModelRef | null = null
       try {
-        const raw = localStorage.getItem(fixedDirectory ? MODEL_KEY_CLOUD : MODEL_KEY)
+        const raw = localStorage.getItem(modelKey)
         if (raw) model = JSON.parse(raw)
       } catch {}
       // A remembered model only counts if the engine still offers it.
@@ -259,7 +266,7 @@ export function EngineProvider({ children, connection }: { children: ReactNode; 
         if (providerID) dispatch({ type: "model", model: { providerID, modelID: providerID === "syrup" ? "auto" : d[providerID] } })
       }
     })()
-  }, [conn, fixedDirectory])
+  }, [conn, fixedDirectory, waiting, modelKey])
 
   // Sessions for the current workspace.
   useEffect(() => {
@@ -429,7 +436,8 @@ export function EngineProvider({ children, connection }: { children: ReactNode; 
       loading.current.add(key)
       try {
         const res = await oc(dir, conn).session.messages({ path: { id: sessionID } })
-        if (res.data) dispatch({ type: "messages", sessionID, entries: res.data })
+        // An empty or failed read still ends the loading state, so the chat never sits on a skeleton forever.
+        dispatch({ type: "messages", sessionID, entries: res.data ?? [] })
         loadedSessions.current.add(sessionID)
       } finally {
         loading.current.delete(key)
@@ -438,7 +446,22 @@ export function EngineProvider({ children, connection }: { children: ReactNode; 
     [dir, conn],
   )
 
+  // Latest engine target for callbacks that waited for boot (their render-time closure predates it).
+  const ready = !!state.directory
+  const live = useRef<{ dir: string; conn: Connection | null; model: ModelRef | null }>({ dir: "", conn: null, model: null })
+  const waiters = useRef<(() => void)[]>([])
+  useEffect(() => {
+    live.current = { dir: state.directory, conn, model: state.model }
+    if (!ready) return
+    const w = waiters.current
+    waiters.current = []
+    for (const resolve of w) resolve()
+  }, [ready, state.directory, conn, state.model])
+  const whenReady = useCallback(() => (live.current.dir ? Promise.resolve() : new Promise<void>((resolve) => waiters.current.push(resolve))), [])
+
   const createSession = useCallback(async () => {
+    await whenReady()
+    const { dir, conn } = live.current
     const res = await oc(dir, conn).session.create({ body: {} })
     if (!res.data) {
       clog("session.create.failed", { error: res.error }, { level: "error", directory: dir })
@@ -446,27 +469,31 @@ export function EngineProvider({ children, connection }: { children: ReactNode; 
     }
     clog("session.created", { id: res.data.id }, { sessionId: res.data.id, directory: dir })
     dispatch({ type: "session", session: res.data })
-    void refreshProjects()
+    void oc(undefined, conn)
+      .project.list()
+      .then((r) => r.data && dispatch({ type: "projects", projects: r.data as Project[] }))
     return res.data
-  }, [dir, conn, refreshProjects])
+  }, [whenReady])
 
   const send = useCallback(
     async (sessionID: string, text: string, files: { name: string; mime: string; url: string }[] = []) => {
+      await whenReady()
+      const { dir, conn, model } = live.current
       dispatch({ type: "error", sessionID, error: undefined })
       const parts: ({ type: "text"; text: string } | { type: "file"; mime: string; filename: string; url: string })[] = []
       if (text) parts.push({ type: "text", text })
       for (const f of files) parts.push({ type: "file", mime: f.mime, filename: f.name, url: f.url })
-      clog("prompt.sent", { model: state.model, chars: text.length, files: files.map((f) => ({ name: f.name, mime: f.mime, bytes: f.url.length })) }, { sessionId: sessionID, directory: dir })
+      clog("prompt.sent", { model, chars: text.length, files: files.map((f) => ({ name: f.name, mime: f.mime, bytes: f.url.length })) }, { sessionId: sessionID, directory: dir })
       try {
-        if (posthog.__loaded) posthog.capture("message_sent", { provider: state.model?.providerID, model: state.model?.modelID, chars_bucket: text.length < 200 ? "s" : text.length < 2000 ? "m" : "l", files: files.length, cloud: !!conn })
+        if (posthog.__loaded) posthog.capture("message_sent", { provider: model?.providerID, model: model?.modelID, chars_bucket: text.length < 200 ? "s" : text.length < 2000 ? "m" : "l", files: files.length, cloud: !!conn })
       } catch {}
       const res = await oc(dir, conn).session.promptAsync({
         path: { id: sessionID },
-        body: { model: state.model ?? undefined, parts },
+        body: { model: model ?? undefined, parts },
       })
       if (res.error) clog("prompt.failed", { error: res.error }, { level: "error", sessionId: sessionID, directory: dir })
     },
-    [dir, conn, state.model],
+    [whenReady],
   )
 
   const abort = useCallback(
@@ -502,9 +529,9 @@ export function EngineProvider({ children, connection }: { children: ReactNode; 
     clog("model.changed", m)
     dispatch({ type: "model", model: m })
     try {
-      localStorage.setItem(fixedDirectory ? MODEL_KEY_CLOUD : MODEL_KEY, JSON.stringify(m))
+      localStorage.setItem(modelKey, JSON.stringify(m))
     } catch {}
-  }, [fixedDirectory])
+  }, [modelKey])
 
   const replyPermission = useCallback(
     async (req: PermissionReq, response: "once" | "always" | "reject") => {
@@ -576,6 +603,7 @@ export function EngineProvider({ children, connection }: { children: ReactNode; 
     rejectQuestion,
     models,
     hasKeys,
+    ready,
   }
   return <EngineContext.Provider value={value}>{children}</EngineContext.Provider>
 }

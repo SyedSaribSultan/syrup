@@ -29,15 +29,49 @@ export function repoName(url: string): string {
   return url.replace(/\.git$/, "").split("/").pop() || "workspace"
 }
 
+/** Home first, then most recently opened. Creates the user's Home on first call. */
 export async function listWorkspaces(userId: string): Promise<(Workspace & { sandbox: SandboxRow | null })[]> {
+  const select = () =>
+    withUser(userId, async (tx) => {
+      const rows = await tx
+        .select()
+        .from(pgSchema.workspaces)
+        .leftJoin(pgSchema.sandboxes, eq(pgSchema.sandboxes.workspaceId, pgSchema.workspaces.id))
+        .where(and(eq(pgSchema.workspaces.userId, userId), isNull(pgSchema.workspaces.deletedAt)))
+        .orderBy(desc(pgSchema.workspaces.isHome), desc(pgSchema.workspaces.lastOpenedAt), desc(pgSchema.workspaces.createdAt))
+      return rows.map((r) => ({ ...r.workspaces, sandbox: r.sandboxes }))
+    })
+  const rows = await select()
+  if (rows.some((w) => w.isHome)) return rows
+  await ensureHome(userId)
+  return select()
+}
+
+export const HOME_NAME = "Home"
+
+/**
+ * Creates the user's Home workspace if it does not exist yet. Safe to race:
+ * the partial unique index workspaces_home_idx admits one live Home per user,
+ * so a concurrent insert does nothing and the winner's row is returned.
+ * Home takes color 0; a workspace already holding it moves to a free color.
+ * It counts toward the cap but is created even when the cap is reached.
+ */
+export async function ensureHome(userId: string): Promise<Workspace> {
   return withUser(userId, async (tx) => {
-    const rows = await tx
-      .select()
-      .from(pgSchema.workspaces)
-      .leftJoin(pgSchema.sandboxes, eq(pgSchema.sandboxes.workspaceId, pgSchema.workspaces.id))
-      .where(and(eq(pgSchema.workspaces.userId, userId), isNull(pgSchema.workspaces.deletedAt)))
-      .orderBy(desc(pgSchema.workspaces.lastOpenedAt), desc(pgSchema.workspaces.createdAt))
-    return rows.map((r) => ({ ...r.workspaces, sandbox: r.sandboxes }))
+    const [existing] = await tx.select().from(pgSchema.workspaces).where(and(eq(pgSchema.workspaces.userId, userId), eq(pgSchema.workspaces.isHome, true), isNull(pgSchema.workspaces.deletedAt)))
+    if (existing) return existing
+    const [ws] = await tx.insert(pgSchema.workspaces).values({ id: ulid(), userId, name: HOME_NAME, source: "empty", color: 0, isHome: true }).onConflictDoNothing().returning()
+    if (!ws) {
+      const [winner] = await tx.select().from(pgSchema.workspaces).where(and(eq(pgSchema.workspaces.userId, userId), eq(pgSchema.workspaces.isHome, true), isNull(pgSchema.workspaces.deletedAt)))
+      return winner
+    }
+    await tx.insert(pgSchema.sandboxes).values({ id: ulid(), workspaceId: ws.id, userId, vercelName: `ws_${ws.id.toLowerCase()}` })
+    const others = await tx.select({ id: pgSchema.workspaces.id, color: pgSchema.workspaces.color }).from(pgSchema.workspaces).where(and(eq(pgSchema.workspaces.userId, userId), isNull(pgSchema.workspaces.deletedAt), eq(pgSchema.workspaces.isHome, false)))
+    const clash = others.find((w) => w.color === 0)
+    const free = nextColor([0, ...others.map((w) => w.color)])
+    if (clash && free !== 0 && !others.some((w) => w.color === free)) await tx.update(pgSchema.workspaces).set({ color: free }).where(eq(pgSchema.workspaces.id, clash.id))
+    await audit(tx, { userId, actor: "system", action: "workspace.create", target: ws.id, data: { source: ws.source, home: true } })
+    return ws
   })
 }
 
@@ -78,10 +112,10 @@ export async function renameWorkspace(userId: string, id: string, name: string):
   })
 }
 
-/** Soft-deletes the row. The caller destroys the sandbox first (engine/sandbox.ts destroyWorkspaceSandbox). */
+/** Soft-deletes the row; Home is never deleted. The caller destroys the sandbox first (engine/sandbox.ts destroyWorkspaceSandbox). */
 export async function deleteWorkspace(userId: string, id: string): Promise<void> {
   await withUser(userId, async (tx) => {
-    await tx.update(pgSchema.workspaces).set({ deletedAt: new Date() }).where(and(eq(pgSchema.workspaces.id, id), eq(pgSchema.workspaces.userId, userId)))
+    await tx.update(pgSchema.workspaces).set({ deletedAt: new Date() }).where(and(eq(pgSchema.workspaces.id, id), eq(pgSchema.workspaces.userId, userId), eq(pgSchema.workspaces.isHome, false)))
     await audit(tx, { userId, actor: "user", action: "workspace.delete", target: id })
   })
 }

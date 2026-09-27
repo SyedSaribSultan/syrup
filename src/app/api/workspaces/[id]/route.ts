@@ -34,10 +34,13 @@ export const PATCH = handler(async (req: Request, ctx: Ctx) => {
   return Response.json({ ok: true })
 })
 
-/** Destroys the sandbox and its snapshots, then soft-deletes the workspace. */
+/** Destroys the sandbox and its snapshots, then soft-deletes the workspace. Home stays. */
 export const DELETE = handler(async (_req: Request, ctx: Ctx) => {
   const me = await requireUser()
   const { id } = await ctx.params
+  const ws = await getWorkspace(me.id, id)
+  if (!ws) return Response.json({ error: "not found" }, { status: 404 })
+  if (ws.isHome) return Response.json({ error: "Home can't be deleted" }, { status: 409 })
   await destroyWorkspaceSandbox(me.id, id)
   await deleteWorkspace(me.id, id)
   return Response.json({ ok: true })

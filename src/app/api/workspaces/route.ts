@@ -13,6 +13,7 @@ export const GET = handler(async () => {
       id: w.id,
       name: w.name,
       color: w.color,
+      home: w.isHome,
       source: w.source,
       repoUrl: w.repoUrl,
       createdAt: w.createdAt,
