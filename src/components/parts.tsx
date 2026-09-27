@@ -3,6 +3,7 @@
 import { useState } from "react"
 import type { Part, ToolPart } from "@/lib/oc"
 import { fmtCost, fmtDuration, fmtTokens } from "@/lib/format"
+import { FileLink } from "./file-link"
 import { Markdown } from "./markdown"
 
 /** Renders one message part. Unknown/structural parts render nothing. */
@@ -29,7 +30,13 @@ export function PartView({ part, streaming }: { part: Part; streaming: boolean }
     case "patch":
       return (
         <div className="text-xs text-muted">
-          Edited {part.files.length} file{part.files.length === 1 ? "" : "s"}
+          Edited {part.files.length === 1 ? "" : `${part.files.length} files: `}
+          {part.files.map((f, i) => (
+            <span key={f}>
+              {i > 0 && ", "}
+              <FileLink path={f} className="font-mono text-ink-2" />
+            </span>
+          ))}
         </div>
       )
     case "retry":
@@ -72,6 +79,16 @@ const TOOL_LABEL: Record<string, string> = {
   question: "Question",
 }
 
+const FILE_TOOLS = new Set(["read", "write", "edit", "list"])
+
+/** The file or folder a read/write/edit/list call works on. */
+function toolPath(part: ToolPart): string | null {
+  if (!FILE_TOOLS.has(part.tool)) return null
+  const input = part.state.input ?? {}
+  const p = input.filePath ?? input.path
+  return typeof p === "string" && p ? p : null
+}
+
 function toolSummary(part: ToolPart): string {
   const st = part.state
   if ("title" in st && st.title) return st.title
@@ -85,19 +102,31 @@ function Tool({ part }: { part: ToolPart }) {
   const st = part.state
   const label = TOOL_LABEL[part.tool] ?? part.tool
   const summary = toolSummary(part)
+  const file = toolPath(part)
   const dot =
     st.status === "completed" ? "bg-ok" : st.status === "error" ? "bg-err" : st.status === "running" ? "bg-accent pulse" : "bg-muted pulse"
   const dur = "time" in st && "end" in st.time && st.time.end ? fmtDuration(st.time.end - st.time.start) : null
 
   return (
     <div className="my-1.5 overflow-hidden rounded-xl border border-line bg-surface/70 text-[13px]">
-      <button type="button" onClick={() => setOpen((v) => !v)} className="flex w-full items-center gap-2 px-3 py-2 text-left transition hover:bg-surface-2/60">
-        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
-        <span className="shrink-0 font-medium text-ink">{label}</span>
-        <span className="min-w-0 flex-1 truncate font-mono text-xs text-ink-2">{summary}</span>
+      {/* The whole row toggles; the button gives keyboard access and leaves the file link its own control. */}
+      <div onClick={() => setOpen((v) => !v)} className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left transition hover:bg-surface-2/60">
+        <button type="button" aria-expanded={open} className="flex shrink-0 items-center gap-2 rounded-sm focus-visible:outline-1 focus-visible:outline-accent">
+          <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
+          <span className="font-medium text-ink">{label}</span>
+        </button>
+        <span className="min-w-0 flex-1 truncate font-mono text-xs text-ink-2">
+          {file ? (
+            <FileLink path={file} className="max-w-full truncate align-bottom">
+              {summary || undefined}
+            </FileLink>
+          ) : (
+            summary
+          )}
+        </span>
         {dur && <span className="shrink-0 text-[11px] text-muted">{dur}</span>}
         <Chevron open={open} />
-      </button>
+      </div>
       {open && (
         <div className="space-y-2 border-t border-line px-3 py-2">
           <Block title="Input" text={JSON.stringify(st.input, null, 2)} />

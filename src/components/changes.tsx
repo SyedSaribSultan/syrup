@@ -1,13 +1,19 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { oc, type FileDiff } from "@/lib/oc"
 import { useEngine } from "@/lib/engine-store"
+import { isWindowsPath } from "@/lib/file-actions"
+import { useDismiss } from "@/lib/use-dismiss"
+import { FileLink, useFileMenu } from "./file-link"
 
 /** Files the agent changed in this session, from the engine's snapshot diff. */
 export function Changes({ sessionID }: { sessionID: string }) {
   const { directory, connection, status, messages } = useEngine()
   const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const close = useCallback(() => setOpen(false), [])
+  useDismiss(ref, open, close)
   const [diffs, setDiffs] = useState<FileDiff[] | null>(null)
   const [active, setActive] = useState<string | null>(null)
   const busy = status[sessionID]?.type === "busy"
@@ -31,23 +37,25 @@ export function Changes({ sessionID }: { sessionID: string }) {
   // Fallback when the engine has no snapshot diff: files the agent wrote or edited, from the tool calls.
   const sm = messages[sessionID]
   const touched = useMemo(() => {
-    const set = new Set<string>()
+    // Patches and tool calls spell the same file differently (C:/a vs C:\a); keep one per file.
+    const set = new Map<string, string>()
+    const add = (f: string) => set.set(isWindowsPath(directory) ? f.replace(/\\/g, "/").toLowerCase() : f, f)
     if (!sm) return []
     for (const id of sm.order) {
       for (const p of sm.byId[id]?.parts ?? []) {
-        if (p.type === "patch") for (const f of p.files) set.add(f)
+        if (p.type === "patch") for (const f of p.files) add(f)
         if (p.type === "tool" && (p.tool === "write" || p.tool === "edit")) {
           const fp = p.state.input?.filePath
-          if (typeof fp === "string") set.add(fp)
+          if (typeof fp === "string") add(fp)
         }
       }
     }
-    return [...set]
-  }, [sm])
+    return [...set.values()]
+  }, [sm, directory])
 
   return (
-    <div className="relative">
-      <button type="button" onClick={() => setOpen((v) => !v)} className={`rounded-lg px-2 py-1 text-xs transition ${open ? "bg-surface-2 text-ink" : "text-ink-2 hover:bg-surface-2 hover:text-ink"}`}>
+    <div ref={ref} className="relative">
+      <button type="button" aria-expanded={open} aria-haspopup="dialog" onClick={() => setOpen((v) => !v)} className={`rounded-lg px-2 py-1 text-xs transition ${open ? "bg-surface-2 text-ink" : "text-ink-2 hover:bg-surface-2 hover:text-ink"}`}>
         Changes
         {diffs && diffs.length > 0 ? (
           <span className="ml-1.5 tabular-nums">
@@ -67,20 +75,17 @@ export function Changes({ sessionID }: { sessionID: string }) {
               <>
                 <div className="px-3 pt-2 pb-1 text-[10px] font-medium uppercase tracking-wider text-muted">Files touched</div>
                 {touched.map((f) => (
-                  <div key={f} className="truncate px-3 py-1 font-mono text-xs text-ink-2" title={f}>
-                    {f.split(/[\\/]/).pop()}
+                  <div key={f} className="truncate px-3 py-1 font-mono text-xs text-ink-2">
+                    <FileLink path={f} className="max-w-full truncate">
+                      {f.split(/[\\/]/).pop()}
+                    </FileLink>
                   </div>
                 ))}
                 <div className="px-3 pt-2 text-[10px] text-muted">No line diff available for this session.</div>
               </>
             )}
             {diffs?.map((d) => (
-              <button key={d.file} type="button" onClick={() => setActive(d.file)} className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition hover:bg-surface-2 ${active === d.file ? "bg-surface-2" : ""}`} title={d.file}>
-                <span className="min-w-0 flex-1 truncate font-mono text-ink-2">{d.file.split(/[\\/]/).pop()}</span>
-                <span className="shrink-0 tabular-nums text-[10px]">
-                  <span className="text-ok">+{d.additions}</span> <span className="text-err">−{d.deletions}</span>
-                </span>
-              </button>
+              <DiffRow key={d.file} diff={d} active={active === d.file} onSelect={() => setActive(d.file)} />
             ))}
           </div>
           <div className="min-w-0 flex-1 overflow-auto">
@@ -89,6 +94,22 @@ export function Changes({ sessionID }: { sessionID: string }) {
         </div>
       )}
     </div>
+  )
+}
+
+/** Click shows the diff; right-click gives the file actions. */
+function DiffRow({ diff, active, onSelect }: { diff: FileDiff; active: boolean; onSelect(): void }) {
+  const fm = useFileMenu(diff.file)
+  return (
+    <>
+      <button type="button" onClick={onSelect} onContextMenu={fm.bind.onContextMenu} className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition hover:bg-surface-2 ${active ? "bg-surface-2" : ""}`} title={diff.file}>
+        <span className="min-w-0 flex-1 truncate font-mono text-ink-2">{diff.file.split(/[\\/]/).pop()}</span>
+        <span className="shrink-0 tabular-nums text-[10px]">
+          <span className="text-ok">+{diff.additions}</span> <span className="text-err">−{diff.deletions}</span>
+        </span>
+      </button>
+      {fm.ui}
+    </>
   )
 }
 
@@ -139,7 +160,9 @@ function UnifiedDiff({ before, after, file }: { before: string; after: string; f
   flush(true)
   return (
     <div>
-      <div className="sticky top-0 border-b border-line bg-surface px-3 py-1.5 font-mono text-[11px] text-muted">{file}</div>
+      <div className="sticky top-0 border-b border-line bg-surface px-3 py-1.5 font-mono text-[11px] text-muted">
+        <FileLink path={file}>{file}</FileLink>
+      </div>
       <pre className="p-2 font-mono text-[11.5px] leading-[1.5]">
         {shown.map((r, i) =>
           "gap" in r ? (
