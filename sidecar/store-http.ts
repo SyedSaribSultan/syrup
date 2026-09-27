@@ -1,14 +1,17 @@
 import type { MemoryRecord, MemoryStore } from "../src/server/memory/tools"
 import { BASE_URL } from "../src/server/router/backends"
-import type { ActiveKey, Catalog, CatalogModel, RouterEvent, RouterStore } from "../src/server/router/store"
+import { catalogFrom } from "../src/server/router/catalog"
+import type { ActiveKey, Catalog, RouterEvent, RouterStore } from "../src/server/router/store"
 import type { Log } from "../src/server/shared/log"
+
+type SidecarKeys = Record<string, { id: string; secret: string; tier: "free" | "paid" }>
 
 /** Everything the sidecar is told at start, all through process env. */
 export type SidecarConfig = {
   port: number
   secret: string
-  /** provider id -> key. Parsed from SYRUP_KEYS, then removed from process.env. */
-  keys: Record<string, { id: string; secret: string; tier: "free" | "paid" }>
+  /** provider id -> key at start. Parsed from SYRUP_KEYS, then removed from process.env; HttpRouterStore refreshes its own copy. */
+  keys: SidecarKeys
   ingestUrl: string
   ingestToken: string
   engineUrl: string
@@ -50,19 +53,76 @@ export async function ingest<T = unknown>(cfg: SidecarConfig, path: string, body
   return (await res.json().catch(() => ({}))) as T
 }
 
+/** The keys endpoint's answer, keeping only well-formed entries. */
+function parseKeys(v: unknown): SidecarKeys {
+  if (!v || typeof v !== "object" || Array.isArray(v)) throw new Error("keys: not an object")
+  const out: SidecarKeys = {}
+  for (const [p, k] of Object.entries(v as Record<string, { id?: unknown; secret?: unknown; tier?: unknown }>)) {
+    if (typeof k?.id === "string" && typeof k.secret === "string" && k.secret && (k.tier === "free" || k.tier === "paid")) out[p] = { id: k.id, secret: k.secret, tier: k.tier }
+  }
+  return out
+}
+
+function sameKeys(a: SidecarKeys, b: SidecarKeys): boolean {
+  const pa = Object.keys(a)
+  if (pa.length !== Object.keys(b).length) return false
+  return pa.every((p) => b[p] && b[p].id === a[p].id && b[p].secret === a[p].secret && b[p].tier === a[p].tier)
+}
+
+export type HttpRouterStoreOptions = {
+  /** How often to re-read the user's keys from the syrup app. */
+  keysRefreshMs?: number
+  /** Least time between refreshes triggered by a rejected key. */
+  authRefreshGapMs?: number
+}
+
 export class HttpRouterStore implements RouterStore {
   private catalogCache: { at: number; value: Catalog } | undefined
+  private keys: SidecarKeys
+  private refreshing: Promise<void> | null = null
+  private lastAuthRefresh = 0
+  private authRefreshGapMs: number
+
   constructor(
     private cfg: SidecarConfig,
     private log: Log,
-  ) {}
+    opts: HttpRouterStoreOptions = {},
+  ) {
+    this.keys = cfg.keys
+    this.authRefreshGapMs = opts.authRefreshGapMs ?? 5_000
+    setInterval(() => void this.refreshKeys("interval"), opts.keysRefreshMs ?? 60_000).unref()
+  }
 
   async activeKeys(): Promise<Map<string, ActiveKey>> {
     const out = new Map<string, ActiveKey>()
-    for (const [providerId, k] of Object.entries(this.cfg.keys)) {
+    for (const [providerId, k] of Object.entries(this.keys)) {
       if (BASE_URL[providerId]) out.set(providerId, { id: k.id, secret: k.secret, tier: k.tier })
     }
     return out
+  }
+
+  /**
+   * Re-reads the user's active keys, so a key added, switched or removed in
+   * Settings reaches this running sandbox (local mode reads its vault on every
+   * request). Concurrent calls share one fetch; failures keep the current keys.
+   */
+  refreshKeys(why: "interval" | "auth"): Promise<void> {
+    this.refreshing ??= this.fetchKeys(why).finally(() => {
+      this.refreshing = null
+    })
+    return this.refreshing
+  }
+
+  private async fetchKeys(why: string) {
+    try {
+      const have = Object.keys(this.keys).sort().join(",")
+      const next = parseKeys(await ingest<unknown>(this.cfg, `/api/ingest/keys?have=${encodeURIComponent(have)}`, undefined, { method: "GET" }))
+      if (sameKeys(next, this.keys)) return
+      this.keys = next
+      this.log("router", "keys.refreshed", { why, providers: Object.keys(next).sort() })
+    } catch (err) {
+      this.log("router", "keys.refresh_failed", { why, message: err instanceof Error ? err.message : String(err) }, { level: "warn" })
+    }
   }
 
   /** models.dev catalog through the OpenCode running next to us. */
@@ -70,18 +130,18 @@ export class HttpRouterStore implements RouterStore {
     if (this.catalogCache && Date.now() - this.catalogCache.at < 10 * 60_000) return this.catalogCache.value
     const res = await fetch(`${this.cfg.engineUrl}/provider`, { headers: { authorization: this.cfg.engineAuth }, signal: AbortSignal.timeout(15_000) })
     if (!res.ok) throw new Error(`engine /provider → ${res.status}`)
-    const data = (await res.json()) as { all?: { id: string; models: Record<string, CatalogModel> }[] }
-    const byProvider: Catalog = new Map()
-    for (const p of data.all ?? []) {
-      const models = new Map<string, CatalogModel>()
-      for (const m of Object.values(p.models)) models.set(m.id, m)
-      byProvider.set(p.id, models)
-    }
+    const data = (await res.json()) as { all?: { id: string; models: Record<string, unknown> }[] }
+    const byProvider = catalogFrom(data.all ?? [])
     this.catalogCache = { at: Date.now(), value: byProvider }
     return byProvider
   }
 
   async record(e: RouterEvent): Promise<void> {
+    // A rejected key is the moment the user is most likely to have just replaced it.
+    if (e.reason === "auth" && Date.now() - this.lastAuthRefresh >= this.authRefreshGapMs) {
+      this.lastAuthRefresh = Date.now()
+      void this.refreshKeys("auth")
+    }
     try {
       await ingest(this.cfg, "/api/ingest/router", { events: [e] })
     } catch (err) {

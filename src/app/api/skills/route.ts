@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { createSkill, installFromGit, listSkills, skillsDir } from "@/server/skills"
+import { createSkill, installFromGit, listSkills, setSkillsEnabled, skillsDir } from "@/server/skills"
 
 export const dynamic = "force-dynamic"
 
@@ -24,5 +24,18 @@ export async function POST(req: Request) {
     return Response.json({ installed })
   } catch (err) {
     return Response.json({ error: err instanceof Error ? err.message : String(err) }, { status: 400 })
+  }
+}
+
+const Toggle = z.object({ enabled: z.record(z.string().min(1).max(128), z.boolean()) })
+
+export async function PATCH(req: Request) {
+  const parsed = Toggle.safeParse(await req.json().catch(() => ({})))
+  if (!parsed.success) return Response.json({ error: "Give { enabled: { name: boolean } }" }, { status: 400 })
+  try {
+    await setSkillsEnabled(parsed.data.enabled)
+    return Response.json({ ok: true })
+  } catch (err) {
+    return Response.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 })
   }
 }

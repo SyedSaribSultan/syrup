@@ -1,21 +1,45 @@
+import { createHash } from "node:crypto"
+import {
+  freeKeyServes,
+  freeLimits,
+  interleavedField,
+  isFree,
+  isScarce,
+  modelInfo,
+  reasoningCapable,
+  usableForAgent,
+  visionCapable,
+  type FreeLimits,
+  type ModelInfo,
+} from "../../lib/model-registry"
 import type { ActiveKey, Catalog, CatalogModel, Tier } from "./store"
 
 /**
- * Which concrete models the router may send an alias to, in order of
- * preference, and how to reach each provider's OpenAI-compatible endpoint.
- * Pure: given a catalog and the user's keys, returns ordered candidates.
+ * Which concrete backends (provider + model + key) the router may send an
+ * alias to, and how to reach each provider's OpenAI-compatible endpoint.
+ * Pure apart from a small cache: given a catalog and the user's keys, returns
+ * every usable candidate. Ranking happens per request in policy.ts.
  */
 
 export type Alias = "auto" | "fast"
 
 export const ALIASES: Record<Alias, { name: string; description: string }> = {
-  auto: { name: "Auto (best available)", description: "Strongest connected model with tool calling and a large context. Fails over on rate limits." },
-  fast: { name: "Fast", description: "Quickest connected model for small tasks. Fails over on rate limits." },
+  auto: { name: "Auto", description: "Picks the best model for each chat from your keys, sticks with it, and fails over instantly." },
+  fast: { name: "Fast", description: "Quickest capable model, low thinking effort." },
 }
 
-/** OpenAI-compatible chat completions base URLs. Only providers listed here can be routed. */
+/**
+ * OpenAI-compatible chat completions base URLs. Only providers listed here can be routed;
+ * the rest of the app reads this map to tell which keys Auto/Fast can use.
+ * OpenCode Zen is deliberately absent: its free tier answers 403 "can only be used from
+ * within OpenCode" to proxied requests, so its models are direct picks in the engine only.
+ * Cloudflare Workers AI is absent because its URL needs the account id, which a key alone
+ * does not carry.
+ */
 export const BASE_URL: Record<string, string> = {
+  anthropic: "https://api.anthropic.com/v1",
   google: "https://generativelanguage.googleapis.com/v1beta/openai",
+  zai: "https://api.z.ai/api/paas/v4",
   groq: "https://api.groq.com/openai/v1",
   mistral: "https://api.mistral.ai/v1",
   openrouter: "https://openrouter.ai/api/v1",
@@ -31,7 +55,9 @@ export const BASE_URL: Record<string, string> = {
 
 /** Environment variables OpenCode itself would read for each provider (local-mode fallback). */
 export const ENV_NAMES: Record<string, string[]> = {
+  anthropic: ["ANTHROPIC_API_KEY"],
   google: ["GOOGLE_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY", "GEMINI_API_KEY"],
+  zai: ["ZHIPU_API_KEY", "ZAI_API_KEY"],
   groq: ["GROQ_API_KEY"],
   mistral: ["MISTRAL_API_KEY"],
   openrouter: ["OPENROUTER_API_KEY"],
@@ -45,92 +71,130 @@ export const ENV_NAMES: Record<string, string[]> = {
   "fireworks-ai": ["FIREWORKS_API_KEY"],
 }
 
-/**
- * Preference lists. Verified against the models.dev catalog on 2026-09-23;
- * entries missing from the live catalog are skipped at runtime.
- * Free-tier keys are tried before paid ones regardless of this order.
- */
-const PREFER: Record<Alias, [provider: string, model: string][]> = {
-  auto: [
-    ["google", "gemini-3.8-flash"],
-    ["nvidia", "z-ai/glm-5.3"],
-    ["nvidia", "deepseek-ai/deepseek-v4-pro-0813"],
-    ["nvidia", "moonshotai/kimi-k3"],
-    ["mistral", "mistral-medium-latest"],
-    ["deepseek", "deepseek-v4-pro"],
-    ["openrouter", "*free*"],
-    ["cerebras", "gpt-oss-120b"],
-    ["groq", "openai/gpt-oss-120b"],
-    // Same-provider fallback when the flagship is rate limited or under load.
-    ["google", "gemini-3.5-flash-lite"],
-    ["cohere", "north-mini-code-1-0"],
-    ["huggingface", "deepseek-ai/DeepSeek-V4.1-Flash"],
-    ["openai", "gpt-6-luna"],
-  ],
-  fast: [
-    ["groq", "openai/gpt-oss-20b"],
-    ["cerebras", "gpt-oss-120b"],
-    ["google", "gemini-3.5-flash-lite"],
-    ["google", "gemini-flash-lite-latest"],
-    ["nvidia", "nvidia/nemotron-3.5-lightning-30b-a3b"],
-    ["nvidia", "z-ai/glm-5.3-flash"],
-    ["mistral", "mistral-small-latest"],
-    ["deepseek", "deepseek-flash"],
-    ["openrouter", "*free*"],
-    ["groq", "llama-3.3-70b-versatile"],
-    ["openai", "gpt-6-luna"],
-  ],
-}
+/** Providers with no free tier. Local mode ignores their environment keys: only keys added in syrup may spend money. */
+export const PAID_ONLY = new Set(["anthropic", "openai", "deepseek", "togetherai", "fireworks-ai"])
 
 export type Candidate = {
+  /** provider/model#key: identity for health, cooldowns and stickiness. */
+  id: string
+  /** provider/model, what logs and the UI show. */
+  backend: string
   providerID: string
+  /** Catalog id: identity, events and the UI. */
   modelID: string
+  /** Model name the provider's API expects (the catalog's api.id when it differs). */
+  upstreamModel: string
   baseURL: string
   apiKey: string
   keyID: string | null
+  /** provider#key, the scope for key-wide cooldowns, in-flight counts and learned limits. */
+  keyScope: string
   tier: Tier
+  keyless: boolean
+  model: CatalogModel
+  info: ModelInfo
   /** USD per million tokens. */
   price: { input: number; output: number }
   context: number
+  maxOutput: number
+  vision: boolean
+  reasoning: boolean
+  /** Assistant-message field the model needs echoed back with its tool calls (e.g. reasoning_content). */
+  interleaved: string | null
+  /** $0 model in the catalog (the free-models-per-day scope on OpenRouter). */
+  freeModel: boolean
+  /** Using it spends the user's money. */
+  costs: boolean
+  /** Free-tier limits, when the key is free or keyless. */
+  limits: FreeLimits | null
+  /** Daily free capacity small enough that routine turns should not spend it. */
+  scarce: boolean
+  /** Provider allows one request at a time on this key. */
+  serial: boolean
 }
 
-/** Ordered candidates for an alias given the catalog and the keys the user has connected. */
-export function candidates(alias: Alias, cat: Catalog, keys: Map<string, ActiveKey>): Candidate[] {
+function keyScopeOf(providerID: string, key: ActiveKey): string {
+  return `${providerID}#${key.id ?? (key.secret === "public" ? "public" : "env")}`
+}
+
+/** Every usable candidate for the catalog and keys, unordered. */
+export function buildCandidates(cat: Catalog, keys: Map<string, ActiveKey>, baseURLs: Record<string, string> = BASE_URL): Candidate[] {
   const out: Candidate[] = []
-  const seen = new Set<string>()
-
-  const push = (providerID: string, m: CatalogModel, key: ActiveKey) => {
-    const k = `${providerID}/${m.id}`
-    if (seen.has(k)) return
-    seen.add(k)
-    out.push({
-      providerID,
-      modelID: m.id,
-      baseURL: BASE_URL[providerID],
-      apiKey: key.secret,
-      keyID: key.id,
-      tier: key.tier,
-      price: { input: m.cost?.input ?? 0, output: m.cost?.output ?? 0 },
-      context: m.limit?.context ?? 0,
-    })
-  }
-
-  for (const [providerID, modelID] of PREFER[alias]) {
-    const key = keys.get(providerID)
+  for (const [providerID, key] of keys) {
+    const baseURL = baseURLs[providerID]
     const models = cat.get(providerID)
-    if (!key || !models || !BASE_URL[providerID]) continue
-    if (modelID === "*free*") {
-      // Any zero-price, tool-capable model with a decent context, newest first.
-      const free = [...models.values()]
-        .filter((m) => m.cost && m.cost.input === 0 && m.cost.output === 0 && m.tool_call !== false && (m.limit?.context ?? 0) >= 64_000 && m.status !== "deprecated")
-        .slice(0, 6)
-      for (const m of free) push(providerID, m, key)
-      continue
+    if (!baseURL || !models) continue
+    const free = key.tier === "free"
+    const keyScope = keyScopeOf(providerID, key)
+    for (const m of models.values()) {
+      if (!usableForAgent(m)) continue
+      // A variant entry (e.g. gpt-6-astra-fast → api.id gpt-6-astra with a priority tier) duplicates its base model,
+      // and the router cannot apply the options it exists for.
+      const apiID = m.api?.id || m.id
+      if (apiID !== m.id && models.has(apiID)) continue
+      const freeModel = isFree(m)
+      let limits: FreeLimits | null = null
+      if (free) {
+        if (!freeKeyServes(providerID, m)) continue
+        limits = freeLimits(providerID, m.id)
+      }
+      out.push({
+        id: `${providerID}/${m.id}#${keyScope.slice(providerID.length + 1)}`,
+        backend: `${providerID}/${m.id}`,
+        providerID,
+        modelID: m.id,
+        upstreamModel: apiID,
+        baseURL: baseURL.replace(/\/$/, ""),
+        apiKey: key.secret,
+        keyID: key.id,
+        keyScope,
+        tier: key.tier,
+        keyless: key.id === null && key.secret === "public",
+        model: m,
+        info: modelInfo(providerID, m),
+        price: { input: m.cost?.input ?? 0, output: m.cost?.output ?? 0 },
+        context: m.limit?.context ?? 0,
+        maxOutput: m.limit?.output ?? 0,
+        vision: visionCapable(m),
+        reasoning: reasoningCapable(m),
+        interleaved: interleavedField(m),
+        freeModel,
+        costs: !free && !freeModel,
+        limits,
+        scarce: limits ? isScarce(limits) : false,
+        serial: !!limits?.serial,
+      })
     }
-    const m = models.get(modelID)
-    if (m) push(providerID, m, key)
   }
+  return out
+}
 
-  // Free-tier keys before paid ones; otherwise keep preference order.
-  return out.sort((a, b) => Number(a.tier === "paid") - Number(b.tier === "paid"))
+function keysSignature(keys: Map<string, ActiveKey>): string {
+  const parts: string[] = []
+  for (const [p, k] of keys) parts.push(`${p}:${k.id ?? "-"}:${k.tier}:${createHash("sha256").update(k.secret).digest("hex").slice(0, 10)}`)
+  return parts.sort().join("|")
+}
+
+/**
+ * buildCandidates with a short cache per (catalog object, keys) so the
+ * per-request cost stays at a map lookup. Stores keep returning the same
+ * catalog object while their own cache is warm.
+ */
+export class CandidateCache {
+  private byCatalog = new WeakMap<Catalog, { sig: string; at: number; list: Candidate[] }>()
+  constructor(
+    private baseURLs: Record<string, string>,
+    private ttlMs: number,
+    private now: () => number,
+  ) {}
+
+  get(cat: Catalog, keys: Map<string, ActiveKey>): Candidate[] {
+    const sig = keysSignature(keys)
+    const hit = this.byCatalog.get(cat)
+    const t = this.now()
+    if (hit && hit.sig === sig && t - hit.at < this.ttlMs) return hit.list
+    const list = buildCandidates(cat, keys, this.baseURLs)
+    this.byCatalog.set(cat, { sig, at: t, list })
+    return list
+  }
 }

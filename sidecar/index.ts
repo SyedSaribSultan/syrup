@@ -10,7 +10,8 @@ import { HttpMemoryStore, HttpRouterStore, readSidecarEnv } from "./store-http"
 /**
  * syrup sidecar: runs inside the workspace sandbox next to OpenCode.
  * One loopback HTTP server with the router (/v1) and the memory MCP (/mcp),
- * both guarded by SYRUP_INTERNAL_SECRET. Keys arrive in process env only.
+ * both guarded by SYRUP_INTERNAL_SECRET. Keys arrive in process env at start
+ * and are refreshed from the syrup app while it runs (store-http.ts).
  * Everything it learns is posted to the syrup app at SYRUP_INGEST_URL.
  *
  * Bundled by sidecar/build.mjs into a single file; no node_modules in the VM.
@@ -18,6 +19,8 @@ import { HttpMemoryStore, HttpRouterStore, readSidecarEnv } from "./store-http"
 
 const cfg = readSidecarEnv()
 const log = new HttpLog(cfg)
+// Nothing restarts the sidecar inside a running sandbox, so a stray rejection must not take routing and memory down with it.
+process.on("unhandledRejection", (err) => log.fn("sidecar", "unhandled_rejection", err, { level: "error" }))
 const router = createRouter({ store: new HttpRouterStore(cfg, log.fn), log: log.fn, secret: cfg.secret })
 
 /** MEMORY.md that OpenCode loads as instructions (engine/sandbox.ts engineConfig). Rewritten after every change. */
@@ -61,16 +64,23 @@ const tap = startEventTap(cfg, log.fn)
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url ?? "/", "http://localhost")
-  void router.handle(req, res, url).then((handled) => {
-    if (handled) return
-    if (url.pathname === "/mcp")
-      return handleMemoryMcp(req, res, memory, log.fn, cfg.secret).catch((err) => {
-        log.fn("mcp", "transport.error", err, { level: "error" })
-        if (!res.headersSent) json(res, 500, { error: { message: String(err) } })
-        else res.end()
-      })
-    json(res, 404, { error: { message: `sidecar: no route ${req.method} ${url.pathname}` } })
-  })
+  router
+    .handle(req, res, url)
+    .then((handled) => {
+      if (handled) return
+      if (url.pathname === "/mcp")
+        return handleMemoryMcp(req, res, memory, log.fn, cfg.secret).catch((err) => {
+          log.fn("mcp", "transport.error", err, { level: "error" })
+          if (!res.headersSent) json(res, 500, { error: { message: String(err) } })
+          else res.end()
+        })
+      json(res, 404, { error: { message: `sidecar: no route ${req.method} ${url.pathname}` } })
+    })
+    .catch((err) => {
+      log.fn("router", "request.crashed", err, { level: "error" })
+      if (!res.headersSent) json(res, 500, { error: { message: "sidecar: internal error" } })
+      else res.end()
+    })
 })
 
 server.listen(cfg.port, "127.0.0.1", () => {

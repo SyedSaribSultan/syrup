@@ -16,7 +16,7 @@ type Sums = {
   freeTokens: number
   paidTokens: number
 }
-type RSums = { requests: number; ok: number; rateLimited: number; errors: number; input: number; output: number; cost: number; avgLatency: number }
+type RSums = { requests: number; ok: number; rateLimited: number; errors: number; timeouts: number; input: number; output: number; cost: number; avgLatency: number; avgTtft: number | null }
 type Usage = {
   days: number
   totals: Sums
@@ -111,11 +111,12 @@ export default function UsagePage() {
           {data && data.routed.byBackend.length === 0 && <Empty />}
           {rt && rt.requests > 0 && (
             <div className="mb-3 text-xs text-muted">
-              {rt.requests} requests · {rt.ok} ok · {rt.rateLimited} rate limited · {rt.errors} errors · {Math.round(rt.avgLatency)}ms avg
+              {rt.requests} requests · {rt.ok} ok · {rt.rateLimited} rate limited · {rt.errors} errors{rt.timeouts > 0 ? ` · ${rt.timeouts} timeouts` : ""} · {Math.round(rt.avgLatency)}ms avg
+              {rt.avgTtft != null ? ` · ${fmtSeconds(rt.avgTtft)} to first token` : ""}
             </div>
           )}
           <Table
-            head={["Backend", "Alias", "Tier", "Requests", "Rate limited", "In", "Out", "Cost"]}
+            head={["Backend", "Alias", "Tier", "Requests", "Rate limited", "Timeouts", "First token", "In", "Out", "Cost"]}
             rows={(data?.routed.byBackend ?? []).map((b) => [
               <span key="b">
                 <span className="text-muted">{b.providerId}/</span>
@@ -127,6 +128,8 @@ export default function UsagePage() {
               </span>,
               String(b.requests),
               String(b.rateLimited),
+              String(b.timeouts),
+              b.avgTtft != null ? fmtSeconds(b.avgTtft) : <span key="f" className="text-muted">—</span>,
               fmtTokens(b.input),
               fmtTokens(b.output),
               fmtCost(b.cost),
@@ -152,6 +155,10 @@ export default function UsagePage() {
       </div>
     </div>
   )
+}
+
+function fmtSeconds(ms: number): string {
+  return `${(ms / 1000).toFixed(1)}s`
 }
 
 function Stat({ label, value, hint, accent }: { label: string; value: string; hint?: string; accent?: boolean }) {

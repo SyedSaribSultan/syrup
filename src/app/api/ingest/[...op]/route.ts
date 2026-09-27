@@ -1,16 +1,20 @@
 import { z } from "zod"
 import { applyEvents, recordRouterEvents } from "@/server/cloud/history"
 import { verifyIngestToken, type IngestClaims } from "@/server/cloud/ingest"
+import { activeKeyDetails } from "@/server/cloud/keys"
 import { pgMemoryStore } from "@/server/cloud/memory"
+import { applyEgress } from "@/server/engine/sandbox"
+import { BASE_URL } from "@/server/router/backends"
 
 export const dynamic = "force-dynamic"
 
 /**
- * Everything a sandbox sidecar sends home, one route:
+ * Everything a sandbox sidecar sends home or reads back, one route:
  *   POST /api/ingest/router          { events: RouterEvent[] }
  *   POST /api/ingest/events          { events: EngineEvent[] }   (OpenCode session/message/part events)
  *   POST /api/ingest/memory/<op>     search | list | get | save | update | delete
- * The token binds every write to one user and one workspace; RLS does the rest.
+ *   GET  /api/ingest/keys?have=a,b   the user's active routable keys (same shape as SYRUP_KEYS)
+ * The token binds every call to one user and one workspace; RLS does the rest.
  * (/api/ingest/logs has its own route.)
  */
 
@@ -30,6 +34,11 @@ const RouterEventSchema = z.object({
   outputTokens: z.number(),
   cost: z.number(),
   error: z.string().nullable(),
+  // Optional so a sidecar from before these fields keeps working until the sandbox restarts.
+  sessionId: z.string().max(200).nullable().optional(),
+  ttftMs: z.number().nullable().optional(),
+  retryAt: z.number().nullable().optional(),
+  reason: z.string().max(40).nullable().optional(),
 })
 
 const EngineEventSchema = z.object({ type: z.string(), properties: z.record(z.string(), z.unknown()).default({}) })
@@ -65,6 +74,26 @@ async function memory(op: string, claims: IngestClaims, body: Record<string, unk
   }
 }
 
+/**
+ * The sidecar polls the keys so adding, switching or removing one reaches a
+ * running sandbox's router without a restart. A provider the sidecar does not
+ * have yet (`have`) also needs its host in the sandbox's egress policy.
+ */
+export async function GET(req: Request, ctx: { params: Promise<{ op: string[] }> }) {
+  const claims = verifyIngestToken(req.headers.get("authorization")?.replace(/^Bearer /, ""))
+  if (!claims) return Response.json({ error: "invalid ingest token" }, { status: 401 })
+  const { op } = await ctx.params
+  if (op.join("/") !== "keys") return Response.json({ error: `unknown ingest op ${op.join("/")}` }, { status: 404 })
+  try {
+    const keys = Object.fromEntries(Object.entries(await activeKeyDetails(claims.u)).filter(([providerId]) => BASE_URL[providerId]))
+    const have = new Set((new URL(req.url).searchParams.get("have") ?? "").split(",").filter(Boolean))
+    if (Object.keys(keys).some((providerId) => !have.has(providerId))) await applyEgress(claims.u, claims.w)
+    return Response.json(keys, { headers: { "cache-control": "no-store" } })
+  } catch (err) {
+    return Response.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 })
+  }
+}
+
 export async function POST(req: Request, ctx: { params: Promise<{ op: string[] }> }) {
   const claims = verifyIngestToken(req.headers.get("authorization")?.replace(/^Bearer /, ""))
   if (!claims) return Response.json({ error: "invalid ingest token" }, { status: 401 })
@@ -74,7 +103,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ op: string[] }
     if (op[0] === "router") {
       const parsed = z.object({ events: z.array(RouterEventSchema).max(200) }).safeParse(body)
       if (!parsed.success) return Response.json({ error: "invalid events" }, { status: 400 })
-      await recordRouterEvents(claims.u, claims.w, parsed.data.events)
+      await recordRouterEvents(
+        claims.u,
+        claims.w,
+        parsed.data.events.map((e) => ({ ...e, sessionId: e.sessionId ?? null, ttftMs: e.ttftMs ?? null, retryAt: e.retryAt ?? null, reason: e.reason ?? null })),
+      )
       return Response.json({ ok: true, n: parsed.data.events.length })
     }
     if (op[0] === "events") {

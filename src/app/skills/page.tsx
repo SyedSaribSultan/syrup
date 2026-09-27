@@ -2,7 +2,18 @@
 
 import { useCallback, useEffect, useState } from "react"
 
-type Skill = { name: string; description: string; location: string; managed: boolean; content: string }
+type Source = "syrup" | "claude" | "agents" | "project" | "builtin"
+type Skill = { name: string; description: string; location: string; managed: boolean; source: Source; enabled: boolean; tokens: number; content: string }
+
+const GROUPS: { source: Source; label: string; hint: string }[] = [
+  { source: "syrup", label: "Installed in syrup", hint: "On when installed" },
+  { source: "claude", label: "Claude Code", hint: "From ~/.claude/skills · new ones start off" },
+  { source: "agents", label: "Other agents", hint: "From ~/.agents/skills · new ones start off" },
+  { source: "project", label: "Project", hint: "From this workspace · new ones start off" },
+  { source: "builtin", label: "Built into the engine", hint: "Off by default" },
+]
+
+const fmt = (n: number) => n.toLocaleString("en-US")
 
 export default function SkillsPage() {
   const [skills, setSkills] = useState<Skill[] | null>(null)
@@ -13,6 +24,7 @@ export default function SkillsPage() {
   const [msg, setMsg] = useState<string | null>(null)
   const [mode, setMode] = useState<"git" | "paste">("git")
   const [content, setContent] = useState("")
+  const [q, setQ] = useState("")
 
   const load = useCallback(async () => {
     const r = await fetch("/api/skills", { cache: "no-store" })
@@ -51,6 +63,26 @@ export default function SkillsPage() {
       setBusy(false)
     }
   }
+
+  async function toggle(names: string[], enabled: boolean) {
+    const set = new Set(names)
+    setError(null)
+    setSkills((prev) => prev?.map((s) => (set.has(s.name) ? { ...s, enabled } : s)) ?? prev)
+    const r = await fetch("/api/skills", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ enabled: Object.fromEntries(names.map((n) => [n, enabled])) }),
+    })
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}))
+      setError(j.error ?? "Could not save")
+      await load()
+    }
+  }
+
+  const on = skills?.filter((s) => s.enabled) ?? []
+  const needle = q.trim().toLowerCase()
+  const shown = skills?.filter((s) => !needle || s.name.toLowerCase().includes(needle) || s.description.toLowerCase().includes(needle)) ?? []
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
@@ -106,15 +138,65 @@ export default function SkillsPage() {
 
         <SaribCard />
 
-        <h2 className="mt-8 mb-3 text-sm font-medium text-ink">
-          Installed <span className="font-normal text-muted">· {skills?.length ?? "…"}</span>
-        </h2>
-        {skills && skills.length === 0 && <div className="rounded-xl border border-dashed border-line p-8 text-center text-sm text-muted">No skills yet.</div>}
-        <ul className="space-y-2">
-          {skills?.map((s) => (
-            <SkillCard key={s.location} s={s} onChange={load} />
-          ))}
-        </ul>
+        <div className="mt-8 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <h2 className="text-sm font-medium text-ink">In the agent&apos;s prompt</h2>
+          <span className="text-sm text-muted">
+            {skills ? (
+              <>
+                <span className="text-ink-2">
+                  {on.length} of {skills.length} on
+                </span>{" "}
+                · ~{fmt(on.reduce((n, s) => n + s.tokens, 0))} tokens per request
+              </>
+            ) : (
+              "…"
+            )}
+          </span>
+        </div>
+        <p className="mt-1 max-w-[640px] text-[13px] text-muted">Every request lists the skills that are on, so each one costs tokens even when unused. Changes apply from the next message; running chats finish first.</p>
+
+        {skills && skills.length > 0 && (
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search skills…"
+            className="mt-4 w-full rounded-xl border border-line bg-surface px-4 py-2.5 text-sm outline-none placeholder:text-muted focus:border-line-2"
+          />
+        )}
+        {skills && skills.length === 0 && <div className="mt-4 rounded-xl border border-dashed border-line p-8 text-center text-sm text-muted">No skills yet.</div>}
+        {skills && skills.length > 0 && shown.length === 0 && <div className="mt-4 rounded-xl border border-dashed border-line p-8 text-center text-sm text-muted">Nothing matches.</div>}
+
+        {GROUPS.map((grp) => {
+          const all = skills?.filter((s) => s.source === grp.source) ?? []
+          const rows = shown.filter((s) => s.source === grp.source)
+          if (rows.length === 0) return null
+          const groupOn = all.filter((s) => s.enabled)
+          return (
+            <section key={grp.source} className="mt-6">
+              <div className="mb-2 flex items-baseline gap-3">
+                <h3 className="text-[13px] font-medium text-ink">{grp.label}</h3>
+                <span className="text-[12px] text-muted">
+                  {groupOn.length}/{all.length} on · ~{fmt(groupOn.reduce((n, s) => n + s.tokens, 0))} tokens
+                </span>
+                <span className="hidden text-[11px] text-muted sm:inline">{grp.hint}</span>
+                <span className="flex-1" />
+                <button
+                  type="button"
+                  disabled={groupOn.length === 0}
+                  onClick={() => void toggle(groupOn.map((s) => s.name), false)}
+                  className="text-[12px] text-muted hover:text-ink disabled:opacity-40 disabled:hover:text-muted"
+                >
+                  Turn all off
+                </button>
+              </div>
+              <ul className="space-y-2">
+                {rows.map((s) => (
+                  <SkillCard key={s.location} s={s} onChange={load} onToggle={(v) => void toggle([s.name], v)} />
+                ))}
+              </ul>
+            </section>
+          )
+        })}
       </div>
     </div>
   )
@@ -194,23 +276,35 @@ function SaribCard() {
   )
 }
 
-function SkillCard({ s, onChange }: { s: Skill; onChange(): Promise<void> }) {
+function SkillCard({ s, onChange, onToggle }: { s: Skill; onChange(): Promise<void>; onToggle(enabled: boolean): void }) {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   return (
     <li className="rounded-xl border border-line bg-surface shadow-card">
-      <button type="button" onClick={() => setOpen((v) => !v)} className="flex w-full items-start gap-3 px-4 py-3 text-left">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="font-mono text-[13px] font-medium text-ink">{s.name}</span>
-            {!s.managed && <span className="rounded bg-surface-2 px-1 text-[10px] text-ink-2">project / external</span>}
+      <div className="flex items-start gap-3 pr-4">
+        <button type="button" onClick={() => setOpen((v) => !v)} className="flex min-w-0 flex-1 items-start gap-3 py-3 pl-4 text-left">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <span className={`font-mono text-[13px] font-medium ${s.enabled ? "text-ink" : "text-ink-2"}`}>{s.name}</span>
+              <span className="text-[11px] text-muted">~{fmt(s.tokens)} tokens</span>
+            </div>
+            <div className={`mt-0.5 line-clamp-2 text-[13px] ${s.enabled ? "text-ink-2" : "text-muted"}`}>{s.description || "No description"}</div>
           </div>
-          <div className="mt-0.5 text-[13px] text-ink-2">{s.description || <span className="text-muted">No description</span>}</div>
-        </div>
-        <svg width="10" height="10" viewBox="0 0 10 10" className={`mt-1.5 shrink-0 opacity-60 transition ${open ? "rotate-180" : ""}`}>
-          <path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" strokeWidth="1.3" />
-        </svg>
-      </button>
+          <svg width="10" height="10" viewBox="0 0 10 10" className={`mt-1.5 shrink-0 opacity-60 transition ${open ? "rotate-180" : ""}`}>
+            <path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" strokeWidth="1.3" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={s.enabled}
+          aria-label={`${s.enabled ? "Turn off" : "Turn on"} ${s.name}`}
+          onClick={() => onToggle(!s.enabled)}
+          className={`relative mt-3 h-5 w-9 shrink-0 rounded-full transition ${s.enabled ? "bg-accent" : "bg-line-2"}`}
+        >
+          <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition ${s.enabled ? "left-[18px]" : "left-0.5"}`} />
+        </button>
+      </div>
       {open && (
         <div className="border-t border-line px-4 py-3">
           <div className="mb-2 flex items-center gap-3 text-[11px] text-muted">

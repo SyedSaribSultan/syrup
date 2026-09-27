@@ -1,11 +1,62 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import type { MessageEntry } from "@/lib/engine-store"
 import { fmtCost, fmtTokens } from "@/lib/format"
+import { displayName, providerName } from "@/lib/model-registry"
+import type { Answer } from "@/lib/router-status"
+import { answersFor, routerSwitch, useSessionAnswers } from "@/lib/use-session-answers"
 import { PartView } from "./parts"
+
+/** "kimi-k3" → "Kimi K3" when the id is all we have. */
+function modelLabel(id: string): string {
+  const bare = id.replace(/[:-]free$/i, "")
+  const name = displayName({ id: bare })
+  if (name !== bare.split("/").pop()) return name
+  return name
+    .split("-")
+    .map((t) => (/^(gpt|glm|oss|llm)$/i.test(t) ? t.toUpperCase() : /^\d+[bk]$/i.test(t) ? t.toUpperCase() : t.charAt(0).toUpperCase() + t.slice(1)))
+    .join(" ")
+}
+
+function seconds(ms: number): string {
+  return `${(ms / 1000).toFixed(1)} s`
+}
+
+function listNames(names: string[]): string {
+  return names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`
+}
+
+function backendLabel(a: Answer): string {
+  return `${modelLabel(a.modelId)} (${providerName(a.providerId)})`
+}
+
+/** A visible line when the router changed models or retried for this message, so switches are never silent. */
+function switchNote(mine: Answer[], all: Answer[], created: number): string | null {
+  const s = routerSwitch(mine, all, created)
+  if (!s) return null
+  if (s.kind === "stopped") return `Switched to ${backendLabel(s.to)} — ${listNames([...new Set(s.from.map((a) => modelLabel(a.modelId)))])} stopped mid-answer`
+  if (s.kind === "escalated") return `Escalated from ${modelLabel(s.from.modelId)} to ${backendLabel(s.to)} for a harder step`
+  if (s.kind === "unavailable") return `Switched to ${backendLabel(s.to)} — ${modelLabel(s.from.modelId)} was busy`
+  return `${backendLabel(s.to)} answered after ${s.to.attempts} tries — the first pick was busy`
+}
 
 export function MessageView({ entry, streaming }: { entry: MessageEntry; streaming: boolean }) {
   const { info, parts } = entry
+
+  // Auto/Fast: ask the router which real model(s) answered. Cloud and local share this path.
+  const routed = info.role === "assistant" && info.providerID === "syrup"
+  const completed = info.role === "assistant" ? info.time.completed : undefined
+  // The router's row can land a moment after the engine marks the message done (cloud posts it via ingest), so retry briefly.
+  const [retry, setRetry] = useState(0)
+  const all = useSessionAnswers(routed ? info.sessionID : undefined, `${completed ?? ""}:${retry}`)
+  const mine = routed && info.role === "assistant" && (completed || streaming) ? answersFor(all, info.modelID, info.time.created, completed ?? Number.POSITIVE_INFINITY) : []
+  const missing = routed && !!completed && all !== null && mine.length === 0
+  useEffect(() => {
+    if (!missing || retry >= 2 || !completed || Date.now() - completed > 60_000) return
+    const t = setTimeout(() => setRetry((n) => n + 1), 2_500)
+    return () => clearTimeout(t)
+  }, [missing, retry, completed])
 
   if (info.role === "user") {
     // The engine adds synthetic text parts carrying attachment contents; show only what the user typed.
@@ -41,6 +92,21 @@ export function MessageView({ entry, streaming }: { entry: MessageEntry; streami
   const tokens = info.tokens ? info.tokens.input + info.tokens.output + info.tokens.reasoning : 0
   const err = info.error
 
+  const final = mine.length > 0 ? mine[mine.length - 1] : null
+  const note = final && all ? switchNote(mine, all, info.time.created) : null
+  const ttft = final?.ttftMs ?? null
+  const routedLine = final
+    ? [
+        `${info.modelID === "fast" ? "Fast" : "Auto"} → ${modelLabel(final.modelId)}`,
+        providerName(final.providerId),
+        ttft != null ? `${seconds(ttft)} to first token` : null,
+        tokens > 0 ? `${fmtTokens(tokens)} tokens` : null,
+        info.cost > 0 ? fmtCost(info.cost) : null,
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    : null
+
   return (
     <div className="group">
       <div className="space-y-1">
@@ -58,7 +124,9 @@ export function MessageView({ entry, streaming }: { entry: MessageEntry; streami
           </div>
         )}
       </div>
-      {!streaming && (tokens > 0 || info.cost > 0) && (
+      {note && <div className="mt-1.5 text-[11px] text-muted">{note}</div>}
+      {!streaming && routedLine && <div className="mt-1.5 text-[11px] text-muted opacity-0 transition group-hover:opacity-100">{routedLine}</div>}
+      {!streaming && !routedLine && (tokens > 0 || info.cost > 0) && (
         <div className="mt-1.5 text-[11px] text-muted opacity-0 transition group-hover:opacity-100">
           {info.modelID} · {fmtTokens(tokens)} tokens · {fmtCost(info.cost)}
         </div>

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useOptionalEngine } from "@/lib/engine-store"
+import { useRouterStatus } from "@/lib/use-router-status"
 
 type Tier = "free" | "paid"
 type KeyInfo = { id: string; label: string; tier: Tier; hint: string; active: boolean; createdAt: number }
@@ -10,12 +11,16 @@ type ProviderInfo = {
   id: string
   name: string
   connected: boolean
-  models: number
-  freeModels: number
+  routable: boolean
   env: string[]
   keys: KeyInfo[]
   curated?: Curated
 }
+
+/** Shipped with syrup: never take a key, never show a key form. Mirrors BUILT_IN in src/server/providers.ts. */
+const BUILT_IN = new Set(["syrup", "opencode"])
+
+const DIRECT_ONLY = "Direct pick only — Auto and Fast don't use this provider."
 
 export default function ProvidersPage() {
   const [providers, setProviders] = useState<ProviderInfo[] | null>(null)
@@ -23,6 +28,8 @@ export default function ProvidersPage() {
   const [q, setQ] = useState("")
   const engine = useOptionalEngine()
   const refreshProviders = engine?.refreshProviders
+  const status = useRouterStatus(true)
+  const authFailures = useMemo(() => new Set(status?.authFailures ?? []), [status])
 
   const load = useCallback(async () => {
     const r = await fetch("/api/providers", { cache: "no-store" })
@@ -56,21 +63,22 @@ export default function ProvidersPage() {
     await refreshProviders?.()
   }, [load, refreshProviders])
 
-  const connected = useMemo(() => (providers ?? []).filter((p) => p.connected && p.id !== "opencode"), [providers])
+  const connected = useMemo(() => (providers ?? []).filter((p) => p.connected && !BUILT_IN.has(p.id)), [providers])
   const recommended = useMemo(
     () =>
       (providers ?? [])
-        .filter((p) => p.curated && !p.connected)
+        .filter((p) => p.curated && !p.connected && !BUILT_IN.has(p.id))
         .sort((a, b) => a.curated!.rank - b.curated!.rank),
     [providers],
   )
   const others = useMemo(() => {
     const s = q.trim().toLowerCase()
     return (providers ?? [])
-      .filter((p) => !p.connected && !p.curated && p.id !== "opencode")
+      .filter((p) => !p.connected && !p.curated && !BUILT_IN.has(p.id))
       .filter((p) => !s || `${p.id} ${p.name}`.toLowerCase().includes(s))
       .sort((a, b) => a.name.localeCompare(b.name))
   }, [providers, q])
+  const routerReady = connected.some((p) => p.routable)
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
@@ -83,16 +91,32 @@ export default function ProvidersPage() {
         {error && <div className="mt-4 rounded-lg border border-err/30 bg-err/5 px-3 py-2 text-[13px] text-err">{error}</div>}
         {!providers && !error && <div className="mt-6 text-sm text-muted">Loading catalog…</div>}
 
+        <Section title="Built in" hint="Ships with syrup">
+          <div className="grid gap-2 sm:grid-cols-2">
+            <BuiltInCard
+              name="syrup router"
+              badge="built in"
+              note="Auto and Fast. Picks the best model for each chat from your keys and fails over instantly. Nothing to set up."
+              waiting={providers && !routerReady ? "Add a key below to turn it on." : undefined}
+            />
+            <BuiltInCard
+              name="OpenCode Zen"
+              badge="free models"
+              note="Free models with no key: Big Pickle, Muse Spark 1.3, MiMo-V2.6-Flash, Space Bunny and more. Pick them directly in the model picker — Auto can't route them, because OpenCode limits its free tier to OpenCode itself. Free for a limited time; some use your prompts for training."
+            />
+          </div>
+        </Section>
+
         {connected.length > 0 && (
           <Section title="Connected" hint={`${connected.length} provider${connected.length === 1 ? "" : "s"}`}>
             {connected.map((p) => (
-              <ProviderCard key={p.id} p={p} onChange={changed} open />
+              <ProviderCard key={p.id} p={p} onChange={changed} open authFailed={authFailures.has(p.id)} />
             ))}
           </Section>
         )}
 
         {recommended.length > 0 && (
-          <Section title="Recommended" hint="Free tiers first">
+          <Section title="Add next" hint="In order of value for a free setup">
             {recommended.map((p) => (
               <ProviderCard key={p.id} p={p} onChange={changed} />
             ))}
@@ -139,13 +163,40 @@ function Section({ title, hint, right, children }: { title: string; hint?: strin
   )
 }
 
-function ProviderCard({ p, onChange, open: initiallyOpen, compact }: { p: ProviderInfo; onChange(): Promise<void>; open?: boolean; compact?: boolean }) {
+function BuiltInCard({ name, badge, note, waiting }: { name: string; badge: string; note: string; waiting?: string }) {
+  return (
+    <div className="rounded-xl border border-line bg-surface px-4 py-3 shadow-card">
+      <div className="flex items-center gap-2">
+        <span className={`h-2 w-2 shrink-0 rounded-full ${waiting ? "bg-line-2" : "bg-ok"}`} />
+        <span className="truncate text-sm font-medium text-ink">{name}</span>
+        <span className="rounded bg-accent-soft px-1 text-[10px] font-medium text-accent">{badge}</span>
+      </div>
+      <div className="mt-1 text-[13px] text-ink-2">{note}</div>
+      {waiting && <div className="mt-1 text-[12px] text-muted">{waiting}</div>}
+    </div>
+  )
+}
+
+function ProviderCard({
+  p,
+  onChange,
+  open: initiallyOpen,
+  compact,
+  authFailed,
+}: {
+  p: ProviderInfo
+  onChange(): Promise<void>
+  open?: boolean
+  compact?: boolean
+  authFailed?: boolean
+}) {
   const [open, setOpen] = useState(!!initiallyOpen)
   const [busy, setBusy] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [key, setKey] = useState("")
   const [label, setLabel] = useState("")
-  const [tier, setTier] = useState<Tier>(p.curated?.freeTier === false ? "paid" : "free")
+  // Mirrors defaultTier in src/server/providers.ts: a free key on a paid-only provider gives the router nothing.
+  const [tier, setTier] = useState<Tier>(p.curated?.freeTier ? "free" : "paid")
 
   async function call(what: string, fn: () => Promise<Response>) {
     setBusy(what)
@@ -180,17 +231,22 @@ function ProviderCard({ p, onChange, open: initiallyOpen, compact }: { p: Provid
   const c = p.curated
 
   return (
-    <div className={`rounded-xl border bg-surface shadow-card transition ${p.connected ? "border-ok/40" : "border-line"}`}>
+    <div className={`rounded-xl border bg-surface shadow-card transition ${authFailed ? "border-err/40" : p.connected ? "border-ok/40" : "border-line"}`}>
       <button type="button" onClick={() => setOpen((v) => !v)} className="flex w-full items-center gap-3 px-4 py-3 text-left">
-        <span className={`h-2 w-2 shrink-0 rounded-full ${p.connected ? "bg-ok" : "bg-line-2"}`} />
+        <span className={`h-2 w-2 shrink-0 rounded-full ${authFailed ? "bg-err" : p.connected ? "bg-ok" : "bg-line-2"}`} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="truncate text-sm font-medium text-ink">{p.name}</span>
             {c?.freeTier && <span className="rounded bg-accent-soft px-1 text-[10px] font-medium text-accent">free tier</span>}
-            {p.connected && <span className="text-[11px] text-muted">{p.models} models</span>}
           </div>
           {!compact && c && <div className="mt-0.5 text-[13px] text-ink-2">{c.note}</div>}
+          {!compact && !p.routable && <div className="mt-0.5 text-[12px] text-muted">{DIRECT_ONLY}</div>}
           {compact && <div className="text-[11px] text-muted">{p.id}</div>}
+          {authFailed && (
+            <div className="mt-1.5 rounded-md border border-err/30 bg-err/5 px-2 py-1 text-[12px] text-err">
+              The last request with this key was rejected. Check it or add a new one.
+            </div>
+          )}
         </div>
         <svg width="10" height="10" viewBox="0 0 10 10" className={`shrink-0 opacity-60 transition ${open ? "rotate-180" : ""}`}>
           <path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" strokeWidth="1.3" />
@@ -261,6 +317,7 @@ function ProviderCard({ p, onChange, open: initiallyOpen, compact }: { p: Provid
                 Get a key ↗
               </a>
             )}
+            {compact && !p.routable && <span>{DIRECT_ONLY}</span>}
             {c?.trainsOnData && <span>Free tier may use your prompts for training.</span>}
             {p.env.length > 0 && <span>Also reads {p.env.join(", ")} from the environment.</span>}
           </div>

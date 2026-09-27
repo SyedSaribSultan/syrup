@@ -41,7 +41,8 @@ export async function applyEvents(userId: string, workspaceId: string, events: E
           await tx
             .insert(pgSchema.chatSessions)
             .values({ id: info.id, userId, workspaceId, parentId: info.parentID ?? null, title: info.title ?? null, createdAt: ms(info.time?.created) ?? new Date(), updatedAt: ms(info.time?.updated ?? info.time?.created) ?? new Date() })
-            .onConflictDoUpdate({ target: pgSchema.chatSessions.id, set: { title: info.title ?? null, updatedAt: ms(info.time?.updated) ?? new Date() } })
+            // parentId too: a subagent's row may already exist from an earlier message event, created without it.
+            .onConflictDoUpdate({ target: pgSchema.chatSessions.id, set: { title: info.title ?? null, parentId: info.parentID ?? null, updatedAt: ms(info.time?.updated) ?? new Date() } })
           applied++
           break
         }
@@ -124,18 +125,22 @@ export async function recordRouterEvents(userId: string, workspaceId: string, ev
   await withUser(userId, async (tx) => {
     await tx
       .insert(pgSchema.routerEvents)
-      .values(events.map((e) => ({ ...e, userId, workspaceId, ts: new Date(e.ts) })))
+      .values(events.map((e) => ({ ...e, userId, workspaceId, ts: new Date(e.ts), retryAt: e.retryAt ? new Date(e.retryAt) : null })))
       .onConflictDoNothing()
   })
 }
 
-export async function listSessions(userId: string, workspaceId: string, limit = 200) {
+/** Top-level chats across the user's live workspaces, newest first. Chats of deleted workspaces are left out. */
+export async function listAllSessions(userId: string, limit = 300) {
+  const cs = pgSchema.chatSessions
+  const ws = pgSchema.workspaces
   return withUser(userId, (tx) =>
     tx
-      .select()
-      .from(pgSchema.chatSessions)
-      .where(and(eq(pgSchema.chatSessions.userId, userId), eq(pgSchema.chatSessions.workspaceId, workspaceId), isNull(pgSchema.chatSessions.deletedAt), isNull(pgSchema.chatSessions.parentId)))
-      .orderBy(desc(pgSchema.chatSessions.updatedAt))
+      .select({ id: cs.id, title: cs.title, workspaceId: cs.workspaceId, updatedAt: cs.updatedAt })
+      .from(cs)
+      .innerJoin(ws, eq(ws.id, cs.workspaceId))
+      .where(and(eq(cs.userId, userId), isNull(cs.deletedAt), isNull(cs.parentId), isNull(ws.deletedAt)))
+      .orderBy(desc(cs.updatedAt))
       .limit(limit),
   )
 }

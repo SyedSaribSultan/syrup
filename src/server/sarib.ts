@@ -167,6 +167,16 @@ async function hasSaribFiles(root: string): Promise<boolean> {
 
 const inflight = new Map<string, Promise<void>>()
 
+/** Workspace directories the engine has been asked about since boot. */
+export function knownDirectories(): string[] {
+  return [...state.scanned.keys()]
+}
+
+/** After the engine drops its instances, rescan on the next request so sarib is added back. */
+export function forgetSaribScans() {
+  state.scanned.clear()
+}
+
 /**
  * Adds the sarib MCP server to this directory's engine instance when the
  * folder has .sarib files and sarib is installed. Cheap to call often: the

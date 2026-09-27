@@ -1,7 +1,7 @@
 import { and, desc, eq } from "drizzle-orm"
 import { ulid } from "ulid"
 import { pgSchema, withUser } from "../db/pg"
-import { CURATED, type KeyInfo, type ProviderInfo, type Tier } from "../providers"
+import { BUILT_IN, CURATED, isRoutable, type KeyInfo, type ProviderInfo, type Tier } from "../providers"
 import { audit } from "./audit"
 import { hint, openWith, sealWith, userDek } from "./crypto"
 
@@ -13,15 +13,16 @@ import { hint, openWith, sealWith, userDek } from "./crypto"
 
 const NAMES: Record<string, string> = {
   google: "Google AI Studio",
-  mistral: "Mistral",
-  openrouter: "OpenRouter",
-  groq: "Groq",
   nvidia: "NVIDIA NIM",
+  openrouter: "OpenRouter",
+  mistral: "Mistral",
+  zai: "Z.ai",
+  cohere: "Cohere",
+  groq: "Groq",
   cerebras: "Cerebras",
   deepseek: "DeepSeek",
   anthropic: "Anthropic",
   openai: "OpenAI",
-  cohere: "Cohere",
   huggingface: "Hugging Face",
   "cloudflare-workers-ai": "Cloudflare Workers AI",
 }
@@ -34,13 +35,14 @@ export async function listProviders(userId: string): Promise<{ providers: Provid
   const rows = await withUser(userId, (tx) => tx.select().from(pgSchema.providerKeys).where(eq(pgSchema.providerKeys.userId, userId)).orderBy(desc(pgSchema.providerKeys.createdAt)))
   const keysBy = new Map<string, KeyInfo[]>()
   for (const r of rows) keysBy.set(r.providerId, [...(keysBy.get(r.providerId) ?? []), toInfo(r)])
-  const ids = new Set([...Object.keys(CURATED), ...keysBy.keys()])
+  // Cloud has no engine catalog here: the list is the curated providers plus any with a stored key.
+  // Built-in providers (router, OpenCode Zen) never take a key, so they are never listed.
+  const ids = new Set([...Object.keys(CURATED), ...keysBy.keys()].filter((id) => !BUILT_IN.has(id)))
   const providers: ProviderInfo[] = [...ids].map((id) => ({
     id,
     name: NAMES[id] ?? id,
     connected: (keysBy.get(id)?.length ?? 0) > 0,
-    models: 0,
-    freeModels: 0,
+    routable: isRoutable(id),
     env: [],
     keys: keysBy.get(id) ?? [],
     curated: CURATED[id],
@@ -49,6 +51,7 @@ export async function listProviders(userId: string): Promise<{ providers: Provid
 }
 
 export async function addKey(userId: string, providerId: string, key: string, label: string, tier: Tier): Promise<KeyInfo> {
+  if (BUILT_IN.has(providerId)) throw new Error(`${providerId} is built in and does not take a key`)
   return withUser(userId, async (tx) => {
     const dek = await userDek(tx, userId)
     const id = ulid()

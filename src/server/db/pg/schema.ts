@@ -1,4 +1,4 @@
-import { boolean, index, integer, jsonb, pgTable, primaryKey, real, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core"
+import { boolean, index, integer, jsonb, pgTable, primaryKey, real, smallint, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core"
 import type { AdapterAccountType } from "next-auth/adapters"
 
 /**
@@ -189,6 +189,8 @@ export const workspaces = pgTable("workspaces", {
   defaultBranch: text("default_branch"),
   /** Extra egress hosts the user allowed for this workspace. */
   egressAllow: text("egress_allow").array().notNull().default([]),
+  /** Palette index 0–7 (src/lib/workspace-limits.ts), unique among the user's live workspaces. */
+  color: smallint("color").notNull().default(0),
   createdAt: ts("created_at").notNull().defaultNow(),
   lastOpenedAt: ts("last_opened_at"),
   deletedAt: ts("deleted_at"),
@@ -285,7 +287,11 @@ export const routerEvents = pgTable("router_events", {
   outputTokens: integer("output_tokens").notNull().default(0),
   cost: real("cost").notNull().default(0),
   error: text("error"),
-}, (t) => [index("router_events_user_idx").on(t.userId, t.ts)])
+  sessionId: text("session_id"),
+  ttftMs: integer("ttft_ms"),
+  retryAt: ts("retry_at"),
+  reason: text("reason"),
+}, (t) => [index("router_events_user_idx").on(t.userId, t.ts), index("router_events_session_idx").on(t.userId, t.sessionId)])
 
 /** Long-term memory (cloud). Full-text search over title, content and tags via the `search` column (added in the RLS migration). */
 export const memories = pgTable("memories", {

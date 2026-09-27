@@ -21,17 +21,24 @@ export function startRouter(): Promise<string> {
       const router = createRouter({ store: new LocalRouterStore(), log: slog, secret: env.internalSecret })
       const server = http.createServer((req, res) => {
         const url = new URL(req.url ?? "/", "http://localhost")
-        void router.handle(req, res, url).then((handled) => {
-          if (handled) return
-          if (url.pathname === "/mcp")
-            return handleMcp(req, res, env.internalSecret).catch((err) => {
-              slog("mcp", "transport.error", err, { level: "error" })
-              if (!res.headersSent) json(res, 500, { error: { message: String(err) } })
-              else res.end()
-            })
-          slog("router", "request.unknown_route", { method: req.method, path: url.pathname }, { level: "warn" })
-          json(res, 404, { error: { message: `syrup router: no route ${req.method} ${url.pathname}` } })
-        })
+        router
+          .handle(req, res, url)
+          .then((handled) => {
+            if (handled) return
+            if (url.pathname === "/mcp")
+              return handleMcp(req, res, env.internalSecret).catch((err) => {
+                slog("mcp", "transport.error", err, { level: "error" })
+                if (!res.headersSent) json(res, 500, { error: { message: String(err) } })
+                else res.end()
+              })
+            slog("router", "request.unknown_route", { method: req.method, path: url.pathname }, { level: "warn" })
+            json(res, 404, { error: { message: `syrup router: no route ${req.method} ${url.pathname}` } })
+          })
+          .catch((err) => {
+            slog("router", "request.crashed", err, { level: "error" })
+            if (!res.headersSent) json(res, 500, { error: { message: "syrup router: internal error" } })
+            else res.end()
+          })
       })
       server.on("error", (err) => {
         g.__syrupRouter = undefined

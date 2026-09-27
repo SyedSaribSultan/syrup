@@ -1,4 +1,4 @@
-import { integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core"
+import { index, integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core"
 
 /**
  * One row per assistant message OpenCode produces. Cost and tokens come
@@ -62,7 +62,15 @@ export const routerEvents = sqliteTable("router_events", {
   /** USD at list price, 0 when the key is on a free tier. */
   cost: real("cost").notNull().default(0),
   error: text("error"),
-})
+  /** OpenCode session the request belongs to (x-session-affinity). */
+  sessionId: text("session_id"),
+  /** Time from sending to the first content token, ms. */
+  ttftMs: integer("ttft_ms"),
+  /** Epoch ms until which the router skips this backend after this event. */
+  retryAt: integer("retry_at"),
+  /** Why this backend was chosen, or how it failed (sticky, best, escalated, rpd, rpm, overloaded, auth, context, timeout, …). */
+  reason: text("reason"),
+}, (t) => [index("router_events_ts_idx").on(t.ts), index("router_events_session_idx").on(t.sessionId)])
 
 /**
  * Long-term memory. Searched through the FTS5 index `memories_fts`, which is

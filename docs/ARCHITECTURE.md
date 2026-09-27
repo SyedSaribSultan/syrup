@@ -38,10 +38,11 @@
 │  agent loop, tools, LSP, MCP, skills, compaction,          │
 │  sessions, permissions, questions, PTY, VCS diff           │
 └─────────┬──────────────────────────────────────────────────┘
-          │ provider SDKs (Vercel AI SDK)
+          │ provider SDKs (Vercel AI SDK); Auto/Fast via the router
 ┌─────────▼──────────────────────────────────────────────────┐
-│  Providers: Google AI Studio, Groq, Mistral, OpenRouter,   │
-│  Cerebras, NVIDIA, OpenCode Zen (free), any OpenAI-compat  │
+│  Providers: Google AI Studio, NVIDIA, OpenRouter, Mistral, │
+│  Groq, Z.ai, any OpenAI-compat. OpenCode Zen (free) is     │
+│  a direct pick only; the router never sends to it.         │
 └────────────────────────────────────────────────────────────┘
 ```
 
@@ -61,16 +62,30 @@ The engine sits behind one interface (`src/server/engine`). If OpenCode ever bec
 |---|---|---|
 | UI | TUI, basic web | Full web app |
 | Keys | One key per provider in `auth.json` | Vault with many keys per provider, labels, free/paid flag |
-| Routing | Pick one model | Router: rate-limit aware, fails over across keys and providers, prefers free tiers |
+| Routing | Pick one model | Router: best model per chat from your keys, sticky per session, per-model cooldowns, invisible failover before the first token |
 | Cost | Per message/session numbers | Ledger, dashboard, budgets, free-vs-paid split, per provider/day |
 | Memory | `AGENTS.md`, session history | Long-term memory store exposed as MCP tools |
 | Skills | Loads `SKILL.md` | Browse, install, enable from the UI |
+
+## Router
+
+The router (`src/server/router`) is an OpenAI-compatible server registered in OpenCode as the `syrup` provider with two aliases, `syrup/auto` and `syrup/fast`. The same core runs in-process locally and inside the cloud sandbox sidecar (`sidecar/`). The research behind it: gains come from plumbing (feasibility, cooldowns, deadlines, stickiness, measured health), not from an LLM classifier. Switching models mid-session costs quality and kills prompt caching.
+
+- **Candidates.** Every model the engine catalog lists (OpenCode `provider.list`, models.dev data) for a provider the router can reach (one with an OpenAI-compatible base URL in `backends.ts`) and holds a key for: the active vault key, or in local mode the provider's environment variable (except paid-only providers such as Anthropic and OpenAI, so a stray `ANTHROPIC_API_KEY` never spends money through Auto). Anthropic is reached through its OpenAI-compatible endpoint. The catalog lists models an account may not have (Mistral's free plan has no GLM-5.3 or Large), so each key's own `GET /models` list is fetched on first use and hourly (`served.ts`) and unserved models are dropped; an unreadable list, or one matching no catalog id, filters nothing. In the cloud the sidecar refreshes keys every minute, and right after a rejected key, from `GET /api/ingest/keys` (authorised by the sandbox's ingest token), so a key added mid-session applies without a restart. OpenCode Zen is never a candidate: its free tier answers 403 "can only be used from within OpenCode" to proxied requests, so Zen models are direct picks only. The Providers page marks other providers the router cannot reach as direct picks too. A key tagged free only yields the models that provider's free tier serves (`buildCandidates`), so a new key defaults to paid unless the curated entry says the provider has a free tier. What syrup knows beyond the catalog lives in `src/lib/model-registry.ts`: a 0–100 coding-agent quality score, speed priors (tokens/s, time to first token), free-tier capacity per model, and which models matter for an agent at all. The model picker reads the same module.
+- **Feasibility filter.** Candidates that cannot take the request are dropped before scoring: not usable by an agent (not chat, no tool calling, deprecated, small context), prompt plus output budget larger than the context window or the free tier's tokens-per-minute limit (the output budget is clamped first, so e.g. Groq's 8K TPM still serves tiny requests), image input on a model without vision, one-request-at-a-time providers already busy, or cooling down. A context-length rejection teaches the router a prompt cap for that backend, which expires after an hour. Tool support is read from the catalog's `capabilities.toolcall`.
+- **Scoring.** Each remaining candidate gets a score from quality, predicted time (registry priors, replaced by measured time to first token and tokens/s as requests come in; the measurements decay back toward the priors with a 10-minute half-life, so one bad minute does not demote a model for good), error rate, scarcity (a free tier with ~20 requests/day is saved for hard turns) and cost. **Free first:** a paid key wins only when no good free model (quality 70+, or 84+ on a hard turn) can take the turn. **Auto** favours quality; **Fast** favours predicted time and asks for low thinking effort. A turn is hard when the user asks to plan, debug, design or investigate, or after two tool results in a row that start with an error.
+- **Stickiness.** OpenCode sends the session id on every model request (`x-session-affinity`, `X-Session-Id`; `x-parent-session-id` for subagents). The router keeps a session on the model it started with, so prompt caches stay warm and behaviour does not drift. It lets go only when needed: the model is unavailable, a hard turn needs a stronger grade, a scarce free model reaches a new routine user turn, the model became far slower, the session landed there only through a failover (or on a paid key) and the better free backend is back, or a new user turn has a clearly better model on offer. Tool-call continuations stay put.
+- **Cooldowns per model, by limit type.** Most failures cool down only that provider/model on that key: Google quotas are per model, and one overloaded model must not bench the rest. Two cases reach wider. A rejected key (401/403) or payment required (402) cools down every model on that key. OpenRouter's daily free-model cap cools down every $0 model on that account. The reason decides how long: per-day limit (until the reset, e.g. midnight Pacific for Google), per-minute limit (the provider's retry delay; Google 429 bodies carry `QuotaFailure` with `PerDay`/`PerMinute` quota ids and `RetryInfo.retryDelay`), overloaded (503), rejected key (401/403, recorded as an auth failure for the provider), timeout, or other error.
+- **First-token commit.** The router sends nothing to OpenCode until the chosen backend produces its first token, within a deadline. If the backend errors or misses the deadline first, the router moves to the next candidate and the client never sees the failure. Once a byte is sent, the request is committed to that backend.
+- **Status API.** Every attempt is a row in `router_events` (now with session id, time to first token, retry-at and reason). `GET /api/router/status` derives per-backend health (cooldown and reason, median time to first token, success rate), the model each alias last answered with, and providers whose key was rejected in the last hour. `GET /api/router/answers` lists which model answered each request in a chat. Shapes live in `src/lib/router-status.ts`, so local and cloud read the same thing; the Providers page uses it to flag a rejected key.
+
+**Token efficiency.** `syrupEngineConfig` (`src/server/engine/opencode.ts`, shared by local mode and the sandbox) turns on OpenCode's tool-output pruning (`compaction: { auto: true, prune: true }`; masking old tool outputs costs about half the tokens with equal or better solve rates) and declares the aliases with a 256K context and 32K output. That keeps prompts within reach of the strong free models (mostly 200K–1M windows) and makes OpenCode compact before prompts get slow.
 
 ## Phasing
 
 **Phase 1 — drive OpenCode from the browser.** ✅ Spawn `opencode serve`, relay SSE, render sessions and streaming messages, handle permissions and questions. Ledger reads cost/tokens from OpenCode messages.
 
-**Phase 2 — key vault + router.** ✅ Vault: many encrypted keys per provider with a free/paid tier; the active one is written into OpenCode auth. Router: an in-process OpenAI-compatible server (port 4210) registered in OpenCode as the `syrup` provider with `syrup/auto` and `syrup/fast`. It resolves an alias to ranked backends from the user's connected keys (free tiers first), injects the key, fails over on 429/5xx with per-key cooldowns, and logs every attempt with real cost to `router_events`. OpenCode Zen free models cannot be routed (they only accept requests from OpenCode itself); they remain selectable directly.
+**Phase 2 — key vault + router.** ✅ Vault: many encrypted keys per provider with a free/paid tier; the active one is written into OpenCode auth. Router: an in-process OpenAI-compatible server (port 4210) registered in OpenCode as the `syrup` provider with `syrup/auto` and `syrup/fast`. It resolves an alias to ranked backends from the user's connected keys (free tiers first), injects the key, fails over on 429/5xx with per-key cooldowns, and logs every attempt with real cost to `router_events`. OpenCode Zen free models cannot be routed (they only accept requests from OpenCode itself); they remain selectable directly. Since superseded by the routing described under [Router](#router): per-model cooldowns, session stickiness and first-token failover.
 
 **Phase 3 — memory + skills.** ✅ Memory: `memories` table with an FTS5 index (no embedding model needed), a Streamable HTTP MCP server on the router port exposing `memory_search/list/get/save/update/forget`, and a generated `data/memory/MEMORY.md` loaded as engine instructions so the agent always sees its index. Skills: list from the engine, create from pasted `SKILL.md`, install from GitHub (packs supported) into `~/.config/opencode/skills`, remove.
 
@@ -93,17 +108,17 @@ The engine sits behind one interface (`src/server/engine`). If OpenCode ever bec
 ## Known issues
 
 - ✅ Router verified with a real Google key (2026-09-23): a tool-calling turn hit a 503 on `gemini-3.8-flash`, failed over to `gemini-3.5-flash-lite`, and the follow-up turn (which needs the Gemini thought signature restored) succeeded on `gemini-3.8-flash`.
-- Gemini 3.8 Flash on the free tier returns 503 "high demand" and 429 often. The router fails over, but each failover adds several seconds; the UI shows the engine's retry status while this happens.
+- Gemini 3.8 Flash on the free tier returns 503 "high demand" and 429 often. Observed before the router rewrite: one 503 put the whole Google key into cooldown, Gemini 3.5 Flash-Lite averaged 49 s to first byte, and one failed attempt hung 31 s with no deadline. Per-model cooldowns and the first-token deadline address these.
 - A session whose directory does not exist makes the engine return a bare "Unexpected server error". The workspace picker only offers existing folders, so this only bites API callers.
 - `GET /session/{id}/diff` returned empty for sessions that did write files; the Changes panel falls back to listing touched files.
 - Skills with the same name in two roots (e.g. `~/.claude/skills` and `~/.agents/skills`) trigger the engine's "duplicate skill name" warning and only one is listed; which one can change between reloads. That is why a skill occasionally disappears from the list. Fix on the user side: keep one copy.
-- OpenCode Zen free models cannot be routed by syrup (they only accept requests from OpenCode itself). They remain selectable directly.
+- OpenCode Zen free models cannot be routed by syrup: the free tier answers 403 "can only be used from within OpenCode" to proxied requests (observed live). They remain selectable directly in the model picker; Auto and Fast never use them.
 
 ## Data (SQLite via Drizzle)
 
 - `provider_keys` — provider id, label, encrypted key, tier (free/paid), rate-limit hints, enabled.
 - `usage_events` — one row per assistant message: session, message, provider, model, tokens, cost, timestamp, key used.
-- `router_events` — one row per routed request: alias, provider, model, key, tier, status, attempts, latency, tokens, real cost, error.
+- `router_events` — one row per routed request: alias, provider, model, key, tier, status, attempts, latency, time to first token, tokens, real cost, error, session id, retry-at and reason. Source for the router status API.
 - `memories` — id, kind, content, embedding, tags, source session, timestamps.
 - `logs` — structured application log: timestamp, level, source, event, session, directory, redacted JSON data.
 - `settings` — key/value.
@@ -112,11 +127,13 @@ OpenCode keeps its own session and message storage. syrup does not duplicate it;
 
 ## Free tier notes (as of Sept 2026, verify before trusting)
 
-- Google AI Studio: best free frontier model (Gemini Flash, 1M context, tools). Pro often quota-zero.
-- Mistral Experiment: ~1B tokens/month incl. Devstral/Codestral. Data-training opt-in required.
-- Groq: free, fast, but 6k–12k TPM. Only for small/fast tasks.
-- OpenRouter: free models at 50 req/day, 1,000/day after one-time $10 top-up.
-- Cerebras: no-card free tier ended mid-2026. $5 trial with card.
-- NVIDIA NIM: ~1,000 req/day.
-- OpenCode Zen: free models with no key (e.g. Nemotron 3 Ultra Free, 1M context).
+- OpenCode Zen: free models with no key (Big Pickle, Muse Spark 1.3, MiMo-V2.6-Flash, Space Bunny, Nemotron 3 Ultra and more). Direct picks only; the router can't use them. Free for a limited time; some train on prompts.
+- Google AI Studio: per-model, per-project quotas. Gemini 3.x Flash ~20 req/day, Flash-Lite ~500/day, Pro not on the free tier (since Apr 2026). Resets midnight Pacific. Free tier may train on prompts.
+- NVIDIA NIM: ~40 req/min, no published daily cap. Development and evaluation use.
+- OpenRouter `:free`: 20 req/min, 50 req/day shared across the whole account (1,000 after a one-time $10 purchase).
+- Mistral free plan: $10 of API credits per month. Turn off training in Privacy settings.
+- Z.ai: GLM-4.7-Flash, GLM-4.5-Flash, GLM-4.6V-Flash free, one request at a time.
+- Cohere trial: 1,000 calls/month, non-commercial.
+- Groq free: 8K tokens/min. A 50K-token agent turn is rejected outright; side tasks only.
+- Cerebras: no free tier. $5 trial with a card, 30K tokens/min.
 - Free usually means prompts may train the model. The UI must say so per provider.

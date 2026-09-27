@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm"
 import { db, dbReady, schema } from "./db"
 import { engine, engineAuthHeader } from "./engine/opencode"
 import { slog } from "./log"
+import { BASE_URL } from "./router/backends"
 import { hint, open, seal } from "./vault"
 
 /**
@@ -26,8 +27,8 @@ export type ProviderInfo = {
   id: string
   name: string
   connected: boolean
-  models: number
-  freeModels: number
+  /** Auto and Fast can route to it. Everyone else is a direct pick in the model picker only. */
+  routable: boolean
   env: string[]
   keys: KeyInfo[]
   curated?: Curated
@@ -46,93 +47,104 @@ export type Curated = {
 }
 
 // Verified against provider docs in Sept 2026. Free tiers change often; the
-// UI labels this as guidance, not a promise.
+// UI labels this as guidance, not a promise. Rank is the order in "Add next":
+// value for a free setup first (quality x daily volume), then paid picks.
+// "syrup" (the router) and "opencode" (OpenCode Zen, keyless free models) are
+// built in and deliberately absent: they never take a key.
 export const CURATED: Record<string, Curated> = {
   google: {
     rank: 1,
     keyUrl: "https://aistudio.google.com/apikey",
-    note: "Best free frontier model. Gemini Flash with 1M context and tool calling, no card needed.",
+    note: "Best free quality: Gemini 3.8 Flash with 1M context, but only ~20 requests/day on the free tier (Flash-Lite ~500). Pro models are paid only. Free tier may train on prompts.",
     freeTier: true,
     trainsOnData: true,
   },
-  mistral: {
+  nvidia: {
     rank: 2,
-    keyUrl: "https://console.mistral.ai/api-keys",
-    note: "Experiment tier: roughly 1B tokens/month including Devstral and Codestral coding models.",
+    keyUrl: "https://build.nvidia.com/settings/api-keys",
+    note: "Largest free volume: ~40 requests/min with no published daily cap. Free Kimi K3, GLM-5.3, DeepSeek V4 and Nemotron. Terms: development and evaluation use.",
     freeTier: true,
-    trainsOnData: true,
   },
   openrouter: {
     rank: 3,
     keyUrl: "https://openrouter.ai/settings/keys",
-    note: "One key, hundreds of models. Free models at 50 requests/day, 1,000/day after a one-time $10 top-up.",
+    note: "One key, 20+ free models including 1M-context ones. 50 free requests/day shared across all free models; 1,000/day after a one-time $10 purchase.",
+    freeTier: true,
+  },
+  mistral: {
+    rank: 4,
+    keyUrl: "https://console.mistral.ai/api-keys",
+    note: "Free plan: $10 of API credits every month, no card (phone verification). Devstral, Medium 3.5, Codestral. Turn off training in Privacy settings.",
+    freeTier: true,
+    trainsOnData: true,
+  },
+  zai: {
+    rank: 5,
+    keyUrl: "https://z.ai/manage-apikey/apikey-list",
+    note: "GLM-4.7-Flash is free with no daily cap, one request at a time. GLM-5.3 is a cheap paid upgrade.",
+    freeTier: true,
+  },
+  cohere: {
+    rank: 6,
+    keyUrl: "https://dashboard.cohere.com/api-keys",
+    note: "Trial key: 1,000 calls/month on North Mini Code (256K context). Non-commercial use.",
     freeTier: true,
   },
   groq: {
-    rank: 4,
+    rank: 7,
     keyUrl: "https://console.groq.com/keys",
-    note: "Very fast, free, but only 6k–12k tokens/minute. Good for small, quick tasks.",
+    note: "Very fast, but the free tier allows 8K tokens/minute — too small for agent turns. syrup uses it only for quick side tasks.",
     freeTier: true,
-  },
-  nvidia: {
-    rank: 5,
-    keyUrl: "https://build.nvidia.com",
-    note: "Around 1,000 requests/day on open models.",
-    freeTier: true,
-  },
-  cerebras: {
-    rank: 6,
-    keyUrl: "https://cloud.cerebras.ai",
-    note: "Fastest inference. No-card free tier ended mid-2026; new accounts get a $5 trial with a card.",
-    freeTier: false,
   },
   deepseek: {
-    rank: 7,
+    rank: 8,
     keyUrl: "https://platform.deepseek.com/api_keys",
-    note: "Very cheap paid API with strong coding models.",
+    note: "Paid, very cheap: DeepSeek V4.1 Flash is fast at $0.15 / $0.60 per million tokens.",
     freeTier: false,
   },
   anthropic: {
-    rank: 8,
+    rank: 9,
     keyUrl: "https://console.anthropic.com/settings/keys",
-    note: "Paid. Claude models are the strongest for agentic coding when a task deserves it.",
+    note: "Paid, strongest: Claude Opus 5.5 leads coding-agent benchmarks.",
     freeTier: false,
   },
   openai: {
-    rank: 9,
+    rank: 10,
     keyUrl: "https://platform.openai.com/api-keys",
-    note: "Paid. GPT models.",
+    note: "Paid. GPT-6 Sol is a strong value pick; Astra for the hardest work.",
     freeTier: false,
   },
-  cohere: {
-    rank: 10,
-    keyUrl: "https://dashboard.cohere.com/api-keys",
-    note: "Trial key: about 1,000 calls/month, non-commercial use only.",
-    freeTier: true,
+  cerebras: {
+    rank: 11,
+    keyUrl: "https://cloud.cerebras.ai",
+    note: "No free tier any more: a $5 trial with a card, 30K tokens/minute.",
+    freeTier: false,
   },
   huggingface: {
-    rank: 11,
+    rank: 12,
     keyUrl: "https://huggingface.co/settings/tokens",
     note: "Community-rate-limited access to open models.",
     freeTier: true,
   },
   "cloudflare-workers-ai": {
-    rank: 12,
+    rank: 13,
     keyUrl: "https://dash.cloudflare.com/?to=/:account/ai/workers-ai",
-    note: "Daily free neuron allowance on open models. Small context windows.",
+    note: "10,000 neurons/day — only a few agent turns.",
     freeTier: true,
   },
 }
 
-type ModelLike = { cost?: { input: number; output: number } }
+/** Providers syrup ships with. They never take a key and never show a key form. */
+export const BUILT_IN = new Set(["syrup", "opencode"])
 
-function freeCount(p: { models: Record<string, ModelLike> }): number {
-  let n = 0
-  for (const m of Object.values(p.models)) {
-    const c = m.cost
-    if (!c || (c.input === 0 && c.output === 0)) n++
-  }
-  return n
+/** The router has an endpoint for this provider, so Auto and Fast can use its keys. */
+export function isRoutable(providerID: string): boolean {
+  return Object.hasOwn(BASE_URL, providerID)
+}
+
+/** Tier a new key gets when none is chosen: free only where the provider has a free tier. */
+export function defaultTier(providerID: string): Tier {
+  return CURATED[providerID]?.freeTier ? "free" : "paid"
 }
 
 export async function listProviders(): Promise<{ providers: ProviderInfo[]; default: Record<string, string> }> {
@@ -152,8 +164,7 @@ export async function listProviders(): Promise<{ providers: ProviderInfo[]; defa
     id: p.id,
     name: p.name,
     connected: connected.has(p.id),
-    models: Object.keys(p.models).length,
-    freeModels: freeCount(p),
+    routable: isRoutable(p.id),
     env: p.env,
     keys: keysBy.get(p.id) ?? [],
     curated: CURATED[p.id],
@@ -177,6 +188,7 @@ async function setEngineKey(providerID: string, key: string | null) {
 }
 
 export async function addKey(providerID: string, key: string, label: string, tier: Tier): Promise<KeyInfo> {
+  if (BUILT_IN.has(providerID)) throw new Error(`${providerID} is built in and does not take a key`)
   await dbReady()
   const d = db()
   const id = `key_${crypto.randomBytes(8).toString("hex")}`

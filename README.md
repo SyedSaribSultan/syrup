@@ -2,21 +2,22 @@
 
 A coding agent in your browser, powered by whatever API keys you already have. Run it on your own machine (this README), or use the hosted early-access version at **https://syrup.syedsarib.com** (invite-only; see [docs/PLAN.md](docs/PLAN.md)).
 
-No subscription. No single vendor. Bring keys from Google AI Studio, Groq, Mistral, OpenRouter, Cerebras, NVIDIA, or any of 200+ providers. syrup routes work across them, fails over when a free tier hits its limit, tracks every token, and shows you exactly what each session cost.
+No subscription. No single vendor. Start with free models that need no key, then bring keys from NVIDIA, OpenRouter, Mistral, Z.ai, Google AI Studio, or any of 200+ providers. syrup routes work across your keys, fails over when a free tier hits its limit, tracks every token, and shows you exactly what each session cost.
 
 ## What you get
 
 - **A full coding agent** in a clean chat UI: streaming replies, tool calls (read, write, edit, run, search), permission prompts, plan/build agents, subagents, LSP diagnostics, context compaction. The engine is [OpenCode](https://opencode.ai), the most-used open-source coding agent.
 - **Workspaces.** Point it at any folder on your machine with the native OS folder dialog, or type a path. Chats are per folder.
 - **Bring your own keys.** Add as many keys as you like per provider, label them, mark them free or paid. Keys are encrypted at rest and never leave your machine.
-- **Router.** Pick **Auto** and syrup sends each request to the strongest connected model with tool calling and a large context, free tiers first, falling over on rate limits. **Fast** does the same for small tasks.
+- **Router.** **Auto** picks the best model for each chat from your keys. It sticks with that model for the rest of the chat, so prompt caches stay warm and answers stay consistent. If a model is rate-limited, overloaded or slow to start, syrup switches to the next one before any text reaches you, so you do not see the error. **Fast** does the same with quicker models and low thinking effort, for small tasks.
+- **Model picker.** Auto and Fast come first, then your favorites, recent models and recommended ones. Everything else sits behind **All models**.
 - **Cost dashboard.** Tokens and dollars per message, session, model and day. Free-tier usage is shown separately from real spend.
 - **Long-term memory.** The agent saves and searches facts across sessions (SQLite + full-text search), exposed to it as MCP tools. You can edit everything it remembers.
 - **Skills.** Install `SKILL.md` skills from GitHub or paste your own. Works with skills you already have in `~/.claude/skills`.
 - **Attachments.** Drop or paste images and files into the composer.
 - **Logs.** A structured application log (secrets redacted), one click away in the sidebar, with a copy-for-debugging button.
 - **Optional `.sarib` tools.** In workspaces that contain [`.sarib`](https://github.com/SyedSaribSultan/sarib-lang) files, the agent can query and edit them by id instead of rewriting them. Other workspaces pay nothing for it. One click on the Skills page installs it.
-- **Free out of the box.** OpenCode's free models work with no key at all, so you can try it before adding anything.
+- **Free out of the box.** OpenCode Zen's free models work with no key at all, so you can try it before adding anything. Pick one directly in the model picker; Auto and Fast need at least one key.
 
 ## Requirements
 
@@ -53,9 +54,9 @@ On first launch syrup starts an OpenCode server, the router and the memory serve
 
 ## First steps
 
-1. Open **Providers** and add a key. Google AI Studio is free and takes a minute: <https://aistudio.google.com/apikey>.
+1. Open **Providers** and add a key. See [Which keys to add first](#which-keys-to-add-first). Auto and Fast route only across your keys.
 2. Pick a folder with the workspace switcher at the top of the sidebar.
-3. Start a chat with **Auto** selected.
+3. Start a chat with **Auto** selected. No key yet? Pick an OpenCode Zen free model in the model picker instead.
 4. Check **Usage & cost** afterwards to see what it used.
 
 ## How it fits together
@@ -92,14 +93,27 @@ Provider keys can also come from the environment (`GOOGLE_API_KEY`, `GROQ_API_KE
 
 Free tiers change often. As of September 2026:
 
-- **Google AI Studio** — best free frontier model (Gemini Flash, 1M context, tools). Prompts may be used for training.
-- **Mistral** Experiment tier — roughly 1B tokens/month incl. Devstral/Codestral. Data-training opt-in.
-- **OpenRouter** — free models at 50 requests/day, 1,000/day after a one-time $10 top-up.
-- **Groq** — free and fast, but 6k–12k tokens/minute. Agent turns are large; treat it as a "small tasks" provider.
-- **NVIDIA NIM** — about 1,000 requests/day.
-- **Cerebras** — no-card free tier ended mid-2026; $5 trial with a card.
+- **OpenCode Zen** — free models with **no key at all** (Big Pickle, Muse Spark 1.3, MiMo-V2.6-Flash, Space Bunny and more). Pick them directly in the model picker. Auto and Fast can't route them, because OpenCode limits its free tier to OpenCode itself. Free for a limited time; some use your prompts for training.
+- **Google AI Studio** — best free quality: Gemini 3.8 Flash with 1M context. But the free tier is small: about **20 requests/day** for Flash, about 500/day for Flash-Lite. Quotas are per model and reset at midnight Pacific. Pro models are paid only. Prompts may be used for training.
+- **NVIDIA NIM** — the largest free volume: about **40 requests/minute**, no published daily cap. Free Kimi K3, GLM-5.3, DeepSeek V4 and Nemotron. Terms say development and evaluation use.
+- **OpenRouter** — one key, 20+ free models. **50 free requests/day** shared across all free models; 1,000/day after a one-time $10 purchase.
+- **Mistral** — free plan with **$10 of API credits every month**, no card (phone verification). Devstral, Medium 3.5, Codestral. Turn off training in Privacy settings.
+- **Z.ai** — GLM-4.7-Flash is free with no daily cap, one request at a time.
+- **Cohere** — trial key with **1,000 calls/month**. Non-commercial use.
+- **Groq** — very fast, but the free tier allows **8K tokens/minute**. One agent turn is often bigger than that, so syrup uses Groq only for quick side tasks.
+- **Cerebras** — no free tier any more: a $5 trial with a card, 30K tokens/minute.
 
-syrup shows this next to each provider and lets you tag keys so the router knows what is free.
+### Which keys to add first
+
+OpenCode Zen works with no key, so you can start right away by picking one of its models directly. Auto and Fast need keys. Add them in this order:
+
+1. **NVIDIA NIM** — the most free requests. <https://build.nvidia.com/settings/api-keys>
+2. **OpenRouter** — many free models behind one key. <https://openrouter.ai/settings/keys>
+3. **Mistral** — monthly free credits and good coding models. <https://console.mistral.ai/api-keys>
+4. **Z.ai** — a free GLM model with no daily cap. <https://z.ai/manage-apikey/apikey-list>
+5. **Cohere** — a small monthly trial allowance. <https://dashboard.cohere.com/api-keys>
+
+A Google AI Studio key is still worth adding for its quality, but it runs out quickly on the free tier. The Providers page shows the same guidance next to each provider, and you can tag each key free or paid so the router knows what it costs.
 
 ## Hosted version
 

@@ -3,8 +3,9 @@ import { db, dbReady, schema } from "../db"
 import { engine } from "../engine/opencode"
 import { slog } from "../log"
 import { open } from "../vault"
-import { BASE_URL, ENV_NAMES } from "./backends"
-import type { ActiveKey, Catalog, CatalogModel, RouterEvent, RouterStore } from "./store"
+import { BASE_URL, ENV_NAMES, PAID_ONLY } from "./backends"
+import { catalogFrom } from "./catalog"
+import type { ActiveKey, Catalog, RouterEvent, RouterStore } from "./store"
 
 /** Local mode: keys from the SQLite vault (then env), catalog from the local OpenCode, events into SQLite. */
 export class LocalRouterStore implements RouterStore {
@@ -17,9 +18,10 @@ export class LocalRouterStore implements RouterStore {
     for (const r of rows) {
       if (BASE_URL[r.providerId]) out.set(r.providerId, { id: r.id, secret: open(r.secret), tier: r.tier })
     }
-    // Fall back to the environment variables OpenCode itself would read.
+    // Fall back to the environment variables OpenCode itself would read. Paid-only providers are skipped:
+    // a stray ANTHROPIC_API_KEY or OPENAI_API_KEY must not let Auto spend money on a key never added to syrup.
     for (const providerID of Object.keys(BASE_URL)) {
-      if (out.has(providerID)) continue
+      if (out.has(providerID) || PAID_ONLY.has(providerID)) continue
       for (const name of ENV_NAMES[providerID] ?? []) {
         const v = process.env[name]
         if (v) {
@@ -35,12 +37,7 @@ export class LocalRouterStore implements RouterStore {
     if (this.catalogCache && Date.now() - this.catalogCache.at < 5 * 60_000) return this.catalogCache.value
     const { client } = await engine()
     const res = await client.provider.list()
-    const byProvider: Catalog = new Map()
-    for (const p of res.data?.all ?? []) {
-      const models = new Map<string, CatalogModel>()
-      for (const m of Object.values(p.models) as CatalogModel[]) models.set(m.id, m)
-      byProvider.set(p.id, models)
-    }
+    const byProvider = catalogFrom((res.data?.all ?? []) as { id: string; models: Record<string, unknown> }[])
     this.catalogCache = { at: Date.now(), value: byProvider }
     return byProvider
   }

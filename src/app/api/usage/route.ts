@@ -61,6 +61,9 @@ export async function GET(req: Request) {
     output: sql<number>`coalesce(sum(${r.outputTokens}),0)`,
     cost: sql<number>`coalesce(sum(${r.cost}),0)`,
     avgLatency: sql<number>`coalesce(avg(case when ${r.status}='ok' then ${r.latencyMs} end),0)`,
+    timeouts: sql<number>`coalesce(sum(case when ${r.status}='timeout' then 1 else 0 end),0)`,
+    /** Mean send → first token over successful requests; null until the router has measured one. */
+    avgTtft: sql<number | null>`avg(case when ${r.status}='ok' then ${r.ttftMs} end)`,
   }
   const rwhere = sql`${r.ts} >= ${since}`
   const [routedTotals] = await d.select(rsums).from(r).where(rwhere)

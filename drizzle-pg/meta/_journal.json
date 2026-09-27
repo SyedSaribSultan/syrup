@@ -50,6 +50,20 @@
       "when": 1790271596900,
       "tag": "0006_github_token",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1790467348875,
+      "tag": "0007_workspace_color",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1790470202221,
+      "tag": "0008_router_events_routing",
+      "breakpoints": true
     }
   ]
 }
