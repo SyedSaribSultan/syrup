@@ -1,12 +1,13 @@
 "use client"
 
-import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { EngineProvider, useEngine, type EngineConnection } from "@/lib/engine-store"
 import { useNow } from "@/lib/use-now"
+import { EgressEditor } from "./egress-editor"
 import { NewChat } from "./new-chat"
 import { SessionView } from "./session-view"
-import { WorkspaceSidebar } from "./workspace-sidebar"
+import { Sidebar } from "./sidebar"
 
 /**
  * Cloud workspace: opens (boots or wakes) the sandbox, then mounts the same
@@ -92,7 +93,9 @@ export function WorkspaceView({ workspaceId, name, sessionId, egressAllow }: { w
 
   if (phase !== "ready" || !conn) {
     return (
-      <div className="flex flex-1 items-center justify-center px-6">
+      <div className="flex h-full min-h-0 flex-1">
+        <Sidebar />
+      <main className="flex min-w-0 flex-1 items-center justify-center px-6">
         <div className="w-full max-w-[440px] rounded-2xl border border-line bg-surface p-6 shadow-card">
           <div className="text-[11px] font-medium uppercase tracking-wider text-muted">{name}</div>
           {phase === "opening" ? (
@@ -111,13 +114,11 @@ export function WorkspaceView({ workspaceId, name, sessionId, egressAllow }: { w
                 <button type="button" onClick={() => void open("initial")} className="rounded-lg bg-accent px-3 py-2 text-xs font-medium text-accent-ink">
                   Try again
                 </button>
-                <Link href="/workspaces" className="rounded-lg border border-line bg-bg px-3 py-2 text-xs font-medium text-ink">
-                  All workspaces
-                </Link>
               </div>
             </>
           )}
         </div>
+      </main>
       </div>
     )
   }
@@ -127,13 +128,48 @@ export function WorkspaceView({ workspaceId, name, sessionId, egressAllow }: { w
       <ConnectionWatch onLost={() => void open("reopen")} />
       <AbortOnUnload />
       <div className="flex h-full min-h-0 flex-1">
-        <WorkspaceSidebar workspaceId={workspaceId} name={name} sessionId={sessionId} start={start} beat={beat} reopening={reopening} egressAllow={egressAllow} />
+        <Sidebar status={<SandboxStatus start={start} beat={beat} reopening={reopening} />} footer={<SandboxControls workspaceId={workspaceId} egressAllow={egressAllow} />} />
         <main className="relative flex min-w-0 flex-1 flex-col">
           <SessionCapNotice beat={beat} />
-          {sessionId ? <SessionView id={sessionId} /> : <NewChat hrefFor={(id) => `/w/${workspaceId}/s/${id}`} title={`What are we building in ${name}?`} />}
+          {sessionId ? <SessionView id={sessionId} /> : <NewChat hrefFor={(id) => `/w/${workspaceId}/s/${id}`} />}
         </main>
       </div>
     </EngineProvider>
+  )
+}
+
+/** One line under the switcher: whether the sandbox is running and when it sleeps. */
+function SandboxStatus({ start, beat, reopening }: { start: "cold" | "warm" | "hot" | null; beat: Heartbeat | null; reopening: boolean }) {
+  const { connected } = useEngine()
+  const now = useNow(30_000)
+  const idleMin = beat?.expiresAt && now ? Math.max(1, Math.round((new Date(beat.expiresAt).getTime() - now) / 60_000)) : null
+  return (
+    <div className="px-5 pb-2 text-[11px] text-muted" title={start ? `Last start: ${start}` : undefined}>
+      {reopening ? "Waking…" : !connected ? "Reconnecting…" : beat?.running === false ? "Stopped · wakes on your next message" : idleMin ? `Running · sleeps after ${idleMin} min idle` : "Running"}
+    </div>
+  )
+}
+
+function SandboxControls({ workspaceId, egressAllow }: { workspaceId: string; egressAllow: string[] }) {
+  const router = useRouter()
+  const [stopping, setStopping] = useState(false)
+
+  async function stop() {
+    if (!window.confirm("Stop this workspace's sandbox now? Your files and chats are kept; the next message wakes it again.")) return
+    setStopping(true)
+    await fetch(`/api/workspaces/${workspaceId}/stop`, { method: "POST" })
+    router.push("/")
+  }
+
+  return (
+    <>
+      <EgressEditor workspaceId={workspaceId} initial={egressAllow} />
+      <div className="border-t border-line p-2">
+        <button type="button" onClick={() => void stop()} disabled={stopping} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-ink-2 transition hover:bg-surface/70 hover:text-ink disabled:opacity-50">
+          {stopping ? "Stopping…" : "Stop workspace"}
+        </button>
+      </div>
+    </>
   )
 }
 

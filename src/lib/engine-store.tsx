@@ -210,17 +210,6 @@ const EngineContext = createContext<Ctx | null>(null)
 const MODEL_KEY = "syrup.model"
 const MODEL_KEY_CLOUD = "syrup.model.cloud"
 const DIR_KEY = "syrup.directory"
-const RECENT_KEY = "syrup.recentDirs"
-
-export function readRecent(): string[] {
-  try {
-    const raw = localStorage.getItem(RECENT_KEY)
-    const list = raw ? JSON.parse(raw) : []
-    return Array.isArray(list) ? list.filter((x) => typeof x === "string") : []
-  } catch {
-    return []
-  }
-}
 
 // Raw event payloads we care about. Typed loosely: the v1 SDK types lag the server.
 type RawEvent = { type: string; properties: Record<string, unknown> }
@@ -421,9 +410,6 @@ export function EngineProvider({ children, connection }: { children: ReactNode; 
     if (!d || fixedDirectory) return
     try {
       localStorage.setItem(DIR_KEY, d)
-      // Recent workspaces are tracked here: the engine groups non-git folders into one project.
-      const recent = readRecent().filter((x) => x !== d)
-      localStorage.setItem(RECENT_KEY, JSON.stringify([d, ...recent].slice(0, 10)))
     } catch {}
     clog("workspace.changed", { directory: d }, { directory: d })
     dispatch({ type: "directory", directory: d })
@@ -436,14 +422,17 @@ export function EngineProvider({ children, connection }: { children: ReactNode; 
 
   const loadMessages = useCallback(
     async (sessionID: string) => {
-      if (loading.current.has(sessionID)) return
-      loading.current.add(sessionID)
+      // Before boot knows the workspace a load would be wiped by the directory reset; callers re-run once dir is set.
+      if (!dir) return
+      const key = `${dir}\u0000${sessionID}`
+      if (loading.current.has(key)) return
+      loading.current.add(key)
       try {
         const res = await oc(dir, conn).session.messages({ path: { id: sessionID } })
         if (res.data) dispatch({ type: "messages", sessionID, entries: res.data })
         loadedSessions.current.add(sessionID)
       } finally {
-        loading.current.delete(sessionID)
+        loading.current.delete(key)
       }
     },
     [dir, conn],

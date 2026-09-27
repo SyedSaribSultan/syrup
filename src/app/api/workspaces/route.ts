@@ -12,6 +12,7 @@ export const GET = handler(async () => {
     workspaces: rows.map((w) => ({
       id: w.id,
       name: w.name,
+      color: w.color,
       source: w.source,
       repoUrl: w.repoUrl,
       createdAt: w.createdAt,

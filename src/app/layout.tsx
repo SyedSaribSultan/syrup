@@ -4,6 +4,7 @@ import "./globals.css"
 import { CloudShell } from "@/components/cloud-shell"
 import { Shell } from "@/components/shell"
 import { EngineProvider } from "@/lib/engine-store"
+import { LocalWorkspacesProvider } from "@/lib/workspaces"
 import { env } from "@/server/env"
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] })
@@ -24,7 +25,9 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
   } else {
     body = (
       <EngineProvider>
-        <Shell>{children}</Shell>
+        <LocalWorkspacesProvider>
+          <Shell>{children}</Shell>
+        </LocalWorkspacesProvider>
       </EngineProvider>
     )
   }

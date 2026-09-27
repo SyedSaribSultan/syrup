@@ -1,5 +1,6 @@
 import { and, desc, eq, isNull } from "drizzle-orm"
 import { ulid } from "ulid"
+import { LIMIT_MESSAGE, MAX_WORKSPACES, nextColor } from "@/lib/workspace-limits"
 import { pgSchema, withUser } from "../db/pg"
 import { audit } from "./audit"
 import { githubToken, inspectGithubRepo } from "./github"
@@ -61,7 +62,10 @@ export async function createWorkspace(userId: string, input: { name?: string; re
     defaultBranch = info?.defaultBranch ?? null
   }
   return withUser(userId, async (tx) => {
-    const [ws] = await tx.insert(pgSchema.workspaces).values({ id: ulid(), userId, name, source: repoUrl ? "git" : "empty", repoUrl, defaultBranch }).returning()
+    const live = await tx.select({ color: pgSchema.workspaces.color }).from(pgSchema.workspaces).where(and(eq(pgSchema.workspaces.userId, userId), isNull(pgSchema.workspaces.deletedAt)))
+    if (live.length >= MAX_WORKSPACES) throw Response.json({ error: LIMIT_MESSAGE }, { status: 409 })
+    const color = nextColor(live.map((w) => w.color))
+    const [ws] = await tx.insert(pgSchema.workspaces).values({ id: ulid(), userId, name, source: repoUrl ? "git" : "empty", repoUrl, defaultBranch, color }).returning()
     await tx.insert(pgSchema.sandboxes).values({ id: ulid(), workspaceId: ws.id, userId, vercelName: `ws_${ws.id.toLowerCase()}` })
     await audit(tx, { userId, actor: "user", action: "workspace.create", target: ws.id, data: { source: ws.source } })
     return ws

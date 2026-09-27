@@ -18,6 +18,15 @@
   --err: #c2453b;
   --code-bg: #f0eee6;
   --shadow: 0 1px 2px rgba(35, 33, 29, 0.05), 0 8px 24px -12px rgba(35, 33, 29, 0.18);
+  /* Workspace colors, one per workspace (src/lib/workspace-limits.ts caps workspaces at this count). */
+  --ws-0: #3b73c4;
+  --ws-1: #3f9a5a;
+  --ws-2: #d19a1f;
+  --ws-3: #8a5bc9;
+  --ws-4: #d2493f;
+  --ws-5: #1f9a9a;
+  --ws-6: #cf4f95;
+  --ws-7: #9a6a3f;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -38,6 +47,14 @@
     --err: #e2685f;
     --code-bg: #1f1e1a;
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px -12px rgba(0, 0, 0, 0.6);
+    --ws-0: #6d9ee8;
+    --ws-1: #6cc487;
+    --ws-2: #e6b84f;
+    --ws-3: #b08ae8;
+    --ws-4: #ec7068;
+    --ws-5: #4cc4c4;
+    --ws-6: #e87bb8;
+    --ws-7: #c49467;
   }
 }
 
@@ -73,6 +90,30 @@ body {
   color: var(--ink);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+}
+
+/* Interaction basics. Tailwind v4 no longer gives buttons a pointer cursor. */
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  summary,
+  select,
+  label:has(> input[type="checkbox"]),
+  input[type="checkbox"],
+  input[type="radio"] {
+    cursor: pointer;
+  }
+  button:disabled,
+  input:disabled,
+  select:disabled,
+  textarea:disabled {
+    cursor: not-allowed;
+  }
+  /* Keyboard focus only; mouse clicks stay ring-free. Text fields keep their own focus styles. */
+  :where(a, button, summary, [role="button"], select, input[type="checkbox"], input[type="radio"]):focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
 }
 
 /* Thin, quiet scrollbars */
