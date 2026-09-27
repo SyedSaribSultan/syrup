@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useParams } from "next/navigation"
 import { clog } from "@/lib/clientlog"
+import { Skel } from "./brew"
 
 /** App-wide access to the Logs modal, so any page can open it. */
 const LogsContext = createContext<{ open(): void } | null>(null)
@@ -64,6 +65,7 @@ function pretty(s: string | null): string {
 
 export function LogsModal({ sessionID, onClose }: { sessionID?: string; onClose(): void }) {
   const [rows, setRows] = useState<Row[]>([])
+  const [loaded, setLoaded] = useState(false)
   const [engineTail, setEngineTail] = useState<string[]>([])
   const [sources, setSources] = useState<Set<string>>(new Set(SOURCES))
   const [minLevel, setMinLevel] = useState<"debug" | "info" | "warn">("debug")
@@ -88,6 +90,7 @@ export function LogsModal({ sessionID, onClose }: { sessionID?: string; onClose(
     const j = await r.json()
     setRows(j.rows ?? [])
     setEngineTail(j.engineTail ?? [])
+    setLoaded(true)
   }, [levels, sources, onlySession, sessionID, q])
 
   useEffect(() => {
@@ -155,9 +158,15 @@ export function LogsModal({ sessionID, onClose }: { sessionID?: string; onClose(
     <div className="fixed inset-0 z-50 flex flex-col bg-bg/95 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Logs">
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line bg-surface px-5 py-3">
         <h2 className="font-serif text-[1.2rem] font-medium text-ink">Logs</h2>
-        <span className="text-xs text-muted">
-          {onlySession && sessionID ? "this chat" : "whole app"} · last 24h · {rows.length} rows · <span className={counts.error ? "text-err" : ""}>{counts.error} errors</span> ·{" "}
-          <span className={counts.warn ? "text-warn" : ""}>{counts.warn} warnings</span>
+        <span className="flex items-center gap-1 text-xs text-muted">
+          {onlySession && sessionID ? "this chat" : "whole app"} · last 24h ·{" "}
+          {loaded ? (
+            <span>
+              {rows.length} rows · <span className={counts.error ? "text-err" : ""}>{counts.error} errors</span> · <span className={counts.warn ? "text-warn" : ""}>{counts.warn} warnings</span>
+            </span>
+          ) : (
+            <Skel className="h-3 w-44" />
+          )}
         </span>
         <span className="flex-1" />
         <CopyBtn onClick={() => copy("5m")} done={copied === "5m"} primary>
@@ -216,7 +225,8 @@ export function LogsModal({ sessionID, onClose }: { sessionID?: string; onClose(
       </div>
 
       <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto font-mono text-[12px]">
-        {rows.length === 0 && <div className="p-8 text-center font-sans text-sm text-muted">No log rows match.</div>}
+        {!loaded && <LogSkeleton />}
+        {loaded && rows.length === 0 && <div className="p-8 text-center font-sans text-sm text-muted">No log rows match.</div>}
         {rows.map((r) => {
           const isOpen = open === r.id
           return (
@@ -250,6 +260,27 @@ export function LogsModal({ sessionID, onClose }: { sessionID?: string; onClose(
           </details>
         )}
       </div>
+    </div>
+  )
+}
+
+const SKEL_WIDTHS = ["62%", "48%", "71%", "39%", "55%", "66%", "44%", "58%", "35%", "69%", "51%", "42%"]
+
+/** Rows shaped like log lines, so the columns are already where the real ones land. */
+function LogSkeleton() {
+  return (
+    <div aria-busy className="skel-in">
+      {SKEL_WIDTHS.map((w, i) => (
+        <div key={i} className="flex items-center gap-3 border-b border-line/60 px-5 py-[7px]">
+          <Skel className="h-3 w-[86px] shrink-0" />
+          <Skel className="h-1.5 w-1.5 shrink-0 rounded-full" />
+          <Skel className="h-3 w-[56px] shrink-0" />
+          <Skel className="h-3 w-[160px] shrink-0" />
+          <span className="block min-w-0" style={{ width: w }}>
+            <Skel className="h-3" />
+          </span>
+        </div>
+      ))}
     </div>
   )
 }

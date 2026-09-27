@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useMemo, useRef } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { Brew, Skel } from "@/components/brew"
 import { Changes } from "@/components/changes"
 import { Composer } from "@/components/composer"
 import { useLogs } from "@/components/logs-modal"
@@ -25,6 +26,17 @@ export function SessionView({ id }: { id: string }) {
 
   const entries = useMemo(() => (sm ? sm.order.map((mid) => sm.byId[mid]).filter(Boolean) : []), [sm])
   const lastID = entries[entries.length - 1]?.info.id
+  const lastRole = entries[entries.length - 1]?.info.role
+  // Sent, but the engine has not opened the answer yet.
+  const awaiting = busy && lastRole === "user"
+
+  // When a turn finishes in front of the user, its last message gets the landing drip. Switching chats never counts.
+  const [prev, setPrev] = useState({ id, busy })
+  const [landedID, setLandedID] = useState<string | null>(null)
+  if (prev.id !== id || prev.busy !== busy) {
+    setPrev({ id, busy })
+    if (prev.id === id && !busy && lastRole === "assistant") setLandedID(lastID ?? null)
+  }
 
   // Follow the stream unless the user has scrolled up.
   useEffect(() => {
@@ -70,10 +82,15 @@ export function SessionView({ id }: { id: string }) {
 
       <div ref={scroller} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-[720px] space-y-6 px-6 pt-6 pb-40">
-          {!sm?.loaded && <div className="text-sm text-muted">Loading…</div>}
+          {!sm?.loaded && entries.length === 0 && <ChatSkeleton />}
           {entries.map((e) => (
-            <MessageView key={e.info.id} entry={e} streaming={busy && e.info.id === lastID && e.info.role === "assistant"} />
+            <MessageView key={e.info.id} entry={e} streaming={busy && e.info.id === lastID && e.info.role === "assistant"} landed={e.info.id === landedID} />
           ))}
+          {awaiting && (
+            <div className="py-2">
+              <Brew mood="think" size="md" />
+            </div>
+          )}
           <Prompts sessionID={id} />
           {status[id]?.type === "retry" && (
             <div className="flex items-center gap-2 rounded-lg border border-warn/30 bg-warn/5 px-3 py-2 text-[13px] text-ink-2">
@@ -93,5 +110,29 @@ export function SessionView({ id }: { id: string }) {
         </div>
       </div>
     </>
+  )
+}
+
+/** Shaped like a short exchange, so the page does not jump when the real messages arrive. */
+function ChatSkeleton() {
+  return (
+    <div aria-busy className="skel-in space-y-6">
+      <div className="flex justify-end">
+        <Skel className="h-11 w-[44%] rounded-2xl rounded-br-md" />
+      </div>
+      <div className="space-y-2.5 pt-1">
+        <Skel className="h-3.5 w-[92%]" />
+        <Skel className="h-3.5 w-[86%]" />
+        <Skel className="h-3.5 w-[58%]" />
+      </div>
+      <div className="flex justify-end">
+        <Skel className="h-11 w-[30%] rounded-2xl rounded-br-md" />
+      </div>
+      <div className="space-y-2.5 pt-1">
+        <Skel className="h-9 w-full rounded-xl" />
+        <Skel className="h-3.5 w-[78%]" />
+        <Skel className="h-3.5 w-[40%]" />
+      </div>
+    </div>
   )
 }

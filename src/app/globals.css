@@ -222,3 +222,104 @@ body {
 .pulse {
   animation: pulse-dot 1.2s ease-in-out infinite;
 }
+
+/* Brew: syrup's waiting state (src/components/brew.tsx). */
+@keyframes brew-drop {
+  0% { transform: translateY(-3px) scaleY(0.6); opacity: 0; }
+  25% { transform: translateY(0) scaleY(1); opacity: 1; }
+  70% { transform: translateY(2.5px) scaleY(1.12); opacity: 1; }
+  100% { transform: translateY(5px) scaleY(0.9); opacity: 0; }
+}
+.brew-drop {
+  transform-box: fill-box;
+  transform-origin: 50% 0%;
+  animation: brew-drop 1.6s cubic-bezier(0.45, 0, 0.3, 1) infinite;
+}
+@keyframes brew-word-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: none; }
+}
+.brew-word {
+  display: inline-block;
+  animation: brew-word-in 320ms ease-out;
+}
+@keyframes brew-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+.brew-shimmer {
+  background: linear-gradient(90deg, var(--muted) 35%, var(--ink) 50%, var(--muted) 65%) 0 0 / 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: brew-word-in 320ms ease-out, brew-shimmer 2.2s linear infinite;
+}
+.brew {
+  animation: brew-appear 220ms ease-out 60ms both;
+}
+@keyframes brew-appear {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* The last drop lands and spreads when a long wait finishes. */
+@keyframes brew-land {
+  0% { transform: translateY(-7px) scale(0.85, 1.1); opacity: 0; }
+  25% { opacity: 1; }
+  55% { transform: translateY(0) scale(1.2, 0.6); opacity: 1; }
+  100% { transform: translateY(0) scale(1.8, 0.25); opacity: 0; }
+}
+.brew-land {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  animation: brew-land 700ms cubic-bezier(0.3, 0.6, 0.3, 1) forwards;
+}
+
+/* A status dot that just settled: one soft ripple, no bounce. */
+.brew-pop {
+  position: relative;
+}
+.brew-pop::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: inherit;
+  animation: brew-ripple 520ms ease-out forwards;
+}
+@keyframes brew-ripple {
+  from { transform: scale(1); opacity: 0.55; }
+  to { transform: scale(3.2); opacity: 0; }
+}
+
+/* New messages, rows and cards arrive with a short fade-rise. */
+@keyframes rise {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+.rise {
+  animation: rise 240ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+/* Menus and popovers: the same motion, quicker, so they never feel late. */
+.pop {
+  animation: rise 150ms ease-out both;
+}
+
+/* Skeletons: shaped like the real content, breathing gently; groups fade in late so fast loads never flash. */
+.skel {
+  background: var(--line);
+  animation: skel-breathe 1.6s ease-in-out infinite;
+}
+@keyframes skel-breathe {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+.skel-in {
+  animation: brew-appear 240ms ease-out 160ms both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .brew-drop, .brew-word, .brew-shimmer, .pulse, .brew, .rise, .pop, .skel, .skel-in, .brew-pop::after { animation: none; }
+  .brew-shimmer { color: var(--muted); background: none; }
+  .brew-landed, .brew-land { display: none; }
+}

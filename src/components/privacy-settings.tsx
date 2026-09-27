@@ -3,6 +3,7 @@
 import Link from "next/link"
 import posthog from "posthog-js"
 import { useCallback, useEffect, useState } from "react"
+import { Skel } from "./brew"
 
 type Consent = { granted: boolean; current: boolean; at: string | null }
 type Me = {
@@ -54,7 +55,7 @@ export function PrivacySettings() {
     setBusy(null)
   }
 
-  if (!me) return <div className="mt-6 text-sm text-muted">Loading…</div>
+  if (!me) return <PrivacySkeleton />
   const research = me.consents.research
   return (
     <>
@@ -123,6 +124,39 @@ export function PrivacySettings() {
         )}
       </section>
     </>
+  )
+}
+
+/** The account card and two switch cards, at their real heights. */
+function PrivacySkeleton() {
+  const card = "mt-6 rounded-xl border border-line bg-surface p-4 shadow-card"
+  return (
+    <div aria-busy className="skel-in">
+      <section className={card}>
+        <Skel className="h-4 w-20" />
+        <div className="mt-3 space-y-2">
+          {["w-56", "w-28", "w-32"].map((w) => (
+            <div key={w} className="flex gap-4">
+              <Skel className="h-3.5 w-[104px]" />
+              <Skel className={`h-3.5 ${w}`} />
+            </div>
+          ))}
+        </div>
+      </section>
+      {[0, 1].map((i) => (
+        <section key={i} className={card}>
+          <div className="flex items-start gap-4">
+            <div className="min-w-0 flex-1 space-y-2">
+              <Skel className="h-4 w-40" />
+              <Skel className="h-3.5 w-full" />
+              <Skel className="h-3.5 w-[70%]" />
+            </div>
+            <Skel className="mt-0.5 h-6 w-11 rounded-full" />
+          </div>
+          <Skel className="mt-3 h-3 w-10" />
+        </section>
+      ))}
+    </div>
   )
 }
 

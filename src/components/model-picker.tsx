@@ -8,6 +8,7 @@ import { useDismiss } from "@/lib/use-dismiss"
 import { useKeyTiers, type KeyTiers } from "@/lib/use-key-tiers"
 import { useRouterStatus } from "@/lib/use-router-status"
 import { useSessionAnswers } from "@/lib/use-session-answers"
+import { Brew } from "./brew"
 import { MAX_FAVORITES, modelKey, recordRecent, toggleFavorite, useModelPrefs } from "@/lib/model-prefs"
 import { costTier, displayName, providerName } from "@/lib/model-registry"
 import {
@@ -104,7 +105,7 @@ export function ModelPicker() {
 type Cursor = { key: string | null; model: string | null }
 
 function Panel({ onClose, up, maxHeight, sessionId }: { onClose(): void; up: boolean; maxHeight: number; sessionId?: string }) {
-  const { models, model, setModel, hasKeys } = useEngine()
+  const { models, model, setModel, hasKeys, directory } = useEngine()
   const status = useRouterStatus(true)
   const answers = useSessionAnswers(sessionId)
   const tiers = useKeyTiers(true, 10_000)
@@ -179,7 +180,7 @@ function Panel({ onClose, up, maxHeight, sessionId }: { onClose(): void; up: boo
 
   return (
     <div
-      className={`absolute left-0 z-30 flex w-[420px] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-card ${up ? "bottom-full mb-2" : "top-full mt-2"}`}
+      className={`pop absolute left-0 z-30 flex w-[420px] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-card ${up ? "bottom-full mb-2" : "top-full mt-2"}`}
       style={{ maxHeight }}
     >
       <div className="flex shrink-0 items-center gap-2 border-b border-line px-3.5">
@@ -207,7 +208,11 @@ function Panel({ onClose, up, maxHeight, sessionId }: { onClose(): void; up: boo
       </div>
 
       <div ref={list} id="mp-list" role="listbox" aria-label="Models" className="min-h-0 flex-1 overflow-y-auto py-1.5">
-        {models.length === 0 ? (
+        {models.length === 0 && !directory ? (
+          <div className="px-3.5 py-3">
+            <Brew mood="load" />
+          </div>
+        ) : models.length === 0 ? (
           <div className="px-3.5 py-3 text-[13px] text-muted">
             No models yet.{" "}
             <Link href="/settings/providers" onClick={onClose} className="text-accent hover:underline">

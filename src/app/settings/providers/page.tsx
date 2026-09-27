@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
+import { Brew, Skel } from "@/components/brew"
 import { useOptionalEngine } from "@/lib/engine-store"
 import { useRouterStatus } from "@/lib/use-router-status"
 
@@ -89,7 +90,6 @@ export default function ProvidersPage() {
         </p>
 
         {error && <div className="mt-4 rounded-lg border border-err/30 bg-err/5 px-3 py-2 text-[13px] text-err">{error}</div>}
-        {!providers && !error && <div className="mt-6 text-sm text-muted">Loading catalog…</div>}
 
         <Section title="Built in" hint="Ships with syrup">
           <div className="grid gap-2 sm:grid-cols-2">
@@ -106,6 +106,8 @@ export default function ProvidersPage() {
             />
           </div>
         </Section>
+
+        {!providers && !error && <CatalogSkeleton />}
 
         {connected.length > 0 && (
           <Section title="Connected" hint={`${connected.length} provider${connected.length === 1 ? "" : "s"}`}>
@@ -231,7 +233,7 @@ function ProviderCard({
   const c = p.curated
 
   return (
-    <div className={`rounded-xl border bg-surface shadow-card transition ${authFailed ? "border-err/40" : p.connected ? "border-ok/40" : "border-line"}`}>
+    <div className={`rise rounded-xl border bg-surface shadow-card transition ${authFailed ? "border-err/40" : p.connected ? "border-ok/40" : "border-line"}`}>
       <button type="button" onClick={() => setOpen((v) => !v)} className="flex w-full items-center gap-3 px-4 py-3 text-left">
         <span className={`h-2 w-2 shrink-0 rounded-full ${authFailed ? "bg-err" : p.connected ? "bg-ok" : "bg-line-2"}`} />
         <div className="min-w-0 flex-1">
@@ -305,9 +307,9 @@ function ProviderCard({
               type="button"
               onClick={() => void add()}
               disabled={!key.trim() || !!busy}
-              className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-accent-ink transition disabled:opacity-40"
+              className={`rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-accent-ink transition ${busy === "add" ? "" : "disabled:opacity-40"}`}
             >
-              {busy === "add" ? "Saving…" : "Add key"}
+              {busy === "add" ? <Brew mood="save" tone="inherit" timerAfter={0} /> : "Add key"}
             </button>
           </div>
 
@@ -325,6 +327,32 @@ function ProviderCard({
         </div>
       )}
     </div>
+  )
+}
+
+/** "Add next" at its real size while the catalog loads, so the page does not grow under the cursor. */
+function CatalogSkeleton() {
+  return (
+    <section aria-busy className="skel-in mt-8">
+      <div className="mb-3 flex items-center gap-2">
+        <Skel className="h-3.5 w-16" />
+        <Skel className="h-3 w-44" />
+      </div>
+      <div className="space-y-2">
+        {["w-24", "w-32", "w-20"].map((w) => (
+          <div key={w} className="flex items-center gap-3 rounded-xl border border-line bg-surface px-4 py-3 shadow-card">
+            <Skel className="h-2 w-2 shrink-0 rounded-full" />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <Skel className={`h-3.5 ${w}`} />
+                <Skel className="h-3 w-12" />
+              </div>
+              <Skel className="mt-2 h-3.5 w-[76%]" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
   )
 }
 

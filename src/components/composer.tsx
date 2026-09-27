@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react"
+import { Drip } from "./brew"
 import { ModelPicker } from "./model-picker"
 
 export type Attachment = { name: string; mime: string; url: string; size: number }
@@ -135,11 +136,15 @@ export function Composer({ onSend, onStop, busy, autoFocus, placeholder }: Props
             onClick={() => void submit()}
             disabled={(!text.trim() && files.length === 0) || sending}
             aria-label="Send"
-            className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent text-accent-ink transition disabled:opacity-30"
+            className={`flex h-8 w-8 items-center justify-center rounded-lg bg-accent text-accent-ink transition ${sending ? "" : "disabled:opacity-30"}`}
           >
-            <svg width="14" height="14" viewBox="0 0 14 14">
-              <path d="M7 12V2M3 6l4-4 4 4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+            {sending ? (
+              <Drip size={14} className="text-current" />
+            ) : (
+              <svg width="14" height="14" viewBox="0 0 14 14">
+                <path d="M7 12V2M3 6l4-4 4 4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            )}
           </button>
         )}
       </div>

@@ -3,6 +3,7 @@
 import { useState } from "react"
 import type { Part, ToolPart } from "@/lib/oc"
 import { fmtCost, fmtDuration, fmtTokens } from "@/lib/format"
+import { Brew, Elapsed } from "./brew"
 import { FileLink } from "./file-link"
 import { Markdown } from "./markdown"
 
@@ -12,9 +13,9 @@ export function PartView({ part, streaming }: { part: Part; streaming: boolean }
     case "text":
       return part.text ? <Markdown text={part.text} /> : null
     case "reasoning":
-      return <Reasoning text={part.text} done={!!part.time.end} />
+      return <Reasoning text={part.text} done={!!part.time.end || !streaming} ms={part.time.end ? part.time.end - part.time.start : null} />
     case "tool":
-      return <Tool part={part} />
+      return <Tool part={part} live={streaming} />
     case "step-finish":
       return (
         <div className="mt-1 text-[11px] text-muted">
@@ -44,19 +45,18 @@ export function PartView({ part, streaming }: { part: Part; streaming: boolean }
     case "compaction":
       return <div className="my-2 border-t border-dashed border-line pt-2 text-center text-[11px] text-muted">Context compacted</div>
     default:
-      void streaming
       return null
   }
 }
 
-function Reasoning({ text, done }: { text: string; done: boolean }) {
+function Reasoning({ text, done, ms }: { text: string; done: boolean; ms: number | null }) {
   const [open, setOpen] = useState(false)
   if (!text) return null
   return (
     <div className="my-1">
       <button type="button" onClick={() => setOpen((v) => !v)} className="flex items-center gap-1.5 text-xs text-muted transition hover:text-ink-2">
         <Chevron open={open} />
-        {done ? "Thought" : <span className="pulse">Thinking…</span>}
+        {done ? (ms != null && ms >= 1000 ? `Thought for ${fmtDuration(ms)}` : "Thought") : <Brew mood="think" timerAfter={0} />}
       </button>
       {open && <div className="mt-1.5 border-l-2 border-line pl-3 text-[13px] leading-relaxed text-ink-2 whitespace-pre-wrap">{text}</div>}
     </div>
@@ -79,6 +79,23 @@ const TOOL_LABEL: Record<string, string> = {
   question: "Question",
 }
 
+/** What a running tool is doing, as a real step name. */
+const TOOL_VERB: Record<string, string> = {
+  read: "Reading",
+  write: "Writing",
+  edit: "Editing",
+  bash: "Running",
+  glob: "Finding files",
+  grep: "Searching",
+  list: "Looking around",
+  webfetch: "Fetching",
+  todowrite: "Planning",
+  todoread: "Checking the plan",
+  task: "Handing off",
+  skill: "Opening the recipe",
+  question: "Asking",
+}
+
 const FILE_TOOLS = new Set(["read", "write", "edit", "list"])
 
 /** The file or folder a read/write/edit/list call works on. */
@@ -97,23 +114,33 @@ function toolSummary(part: ToolPart): string {
   return typeof first === "string" ? first : ""
 }
 
-function Tool({ part }: { part: ToolPart }) {
+function Tool({ part, live }: { part: ToolPart; live: boolean }) {
   const [open, setOpen] = useState(false)
   const st = part.state
+  // A row seen mid-run gets a small ripple when it lands; rows loaded from history stay still.
+  const [sawRun] = useState(st.status === "pending" || st.status === "running")
   const label = TOOL_LABEL[part.tool] ?? part.tool
   const summary = toolSummary(part)
   const file = toolPath(part)
-  const dot =
-    st.status === "completed" ? "bg-ok" : st.status === "error" ? "bg-err" : st.status === "running" ? "bg-accent pulse" : "bg-muted pulse"
+  const finished = st.status === "completed" || st.status === "error"
+  // Only animate while the message is still streaming; a row left running by an aborted turn goes quiet.
+  const working = !finished && live
+  const dot = st.status === "completed" ? "bg-ok" : st.status === "error" ? "bg-err" : "bg-line-2"
   const dur = "time" in st && "end" in st.time && st.time.end ? fmtDuration(st.time.end - st.time.start) : null
 
   return (
-    <div className="my-1.5 overflow-hidden rounded-xl border border-line bg-surface/70 text-[13px]">
+    <div className="rise my-1.5 overflow-hidden rounded-xl border border-line bg-surface/70 text-[13px]">
       {/* The whole row toggles; the button gives keyboard access and leaves the file link its own control. */}
       <div onClick={() => setOpen((v) => !v)} className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left transition hover:bg-surface-2/60">
         <button type="button" aria-expanded={open} className="flex shrink-0 items-center gap-2 rounded-sm focus-visible:outline-1 focus-visible:outline-accent">
-          <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
-          <span className="font-medium text-ink">{label}</span>
+          {working ? (
+            <Brew label={TOOL_VERB[part.tool] ?? label} timerAfter={0} className="font-medium" />
+          ) : (
+            <>
+              <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot} ${sawRun && finished ? "brew-pop" : ""}`} />
+              <span className="font-medium text-ink">{label}</span>
+            </>
+          )}
         </button>
         <span className="min-w-0 flex-1 truncate font-mono text-xs text-ink-2">
           {file ? (
@@ -125,6 +152,7 @@ function Tool({ part }: { part: ToolPart }) {
           )}
         </span>
         {dur && <span className="shrink-0 text-[11px] text-muted">{dur}</span>}
+        {working && <Elapsed since={st.status === "running" ? st.time.start : undefined} className="shrink-0 text-[11px] text-muted" />}
         <Chevron open={open} />
       </div>
       {open && (

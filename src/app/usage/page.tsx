@@ -2,6 +2,7 @@
 
 import Link from "next/link"
 import { useEffect, useState } from "react"
+import { Skel } from "@/components/brew"
 import { useEngine } from "@/lib/engine-store"
 import { fmtCost, fmtRelative, fmtTokens } from "@/lib/format"
 
@@ -47,6 +48,9 @@ export default function UsagePage() {
   // Engine-reported cost plus what the router actually spent on syrup/* requests.
   const spent = (t?.cost ?? 0) + (rt?.cost ?? 0)
   const maxDay = data ? Math.max(1, ...data.byDay.map((d) => d.input + d.output + d.reasoning)) : 1
+  const loading = !data
+  // Switching the window keeps the old numbers on screen, dimmed, until the new ones land.
+  const stale = !!data && data.days !== days
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
@@ -65,93 +69,99 @@ export default function UsagePage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <Stat label="Spent" value={fmtCost(spent)} hint={data && spent === 0 ? "all free so far" : rt && rt.cost > 0 ? `${fmtCost(rt.cost)} via router` : undefined} accent />
-          <Stat label="Tokens" value={fmtTokens(allTokens)} hint={t ? `${fmtTokens(t.input)} in · ${fmtTokens(t.output)} out` : undefined} />
-          <Stat label="Free tokens" value={fmtTokens(t?.freeTokens)} hint={allTokens ? `${Math.round(((t?.freeTokens ?? 0) / allTokens) * 100)}% of total` : undefined} />
-          <Stat label="Messages" value={String(t?.messages ?? 0)} hint={t ? `${fmtTokens(t.cacheRead)} cached reads` : undefined} />
-        </div>
-
-        <Section title="By day">
-          {data && data.byDay.length === 0 && <Empty />}
-          <div className="flex h-28 items-end gap-1">
-            {data?.byDay.map((d) => {
-              const v = d.input + d.output + d.reasoning
-              return (
-                <div key={d.day} className="group relative flex h-full flex-1 items-end">
-                  <div className="w-full rounded-t-sm bg-accent/70 transition group-hover:bg-accent" style={{ height: `${Math.max(3, (v / maxDay) * 100)}%` }} />
-                  <div className="pointer-events-none absolute bottom-full left-1/2 mb-1 -translate-x-1/2 rounded bg-ink px-1.5 py-0.5 text-[10px] whitespace-nowrap text-bg opacity-0 transition group-hover:opacity-100">
-                    {d.day} · {fmtTokens(v)} · {fmtCost(d.cost)}
-                  </div>
-                </div>
-              )
-            })}
+        <div className={`transition-opacity duration-200 ${stale ? "opacity-50" : ""}`}>
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            <Stat loading={loading} label="Spent" value={fmtCost(spent)} hint={data && spent === 0 ? "all free so far" : rt && rt.cost > 0 ? `${fmtCost(rt.cost)} via router` : undefined} accent />
+            <Stat loading={loading} label="Tokens" value={fmtTokens(allTokens)} hint={t ? `${fmtTokens(t.input)} in · ${fmtTokens(t.output)} out` : undefined} />
+            <Stat loading={loading} label="Free tokens" value={fmtTokens(t?.freeTokens)} hint={allTokens ? `${Math.round(((t?.freeTokens ?? 0) / allTokens) * 100)}% of total` : undefined} />
+            <Stat loading={loading} label="Messages" value={String(t?.messages ?? 0)} hint={t ? `${fmtTokens(t.cacheRead)} cached reads` : undefined} />
           </div>
-        </Section>
 
-        <Section title="By model">
-          {data && data.byModel.length === 0 && <Empty />}
-          <Table
-            head={["Model", "Provider", "Messages", "In", "Out", "Cost"]}
-            rows={(data?.byModel ?? []).map((m) => [
-              <span key="m" className="flex items-center gap-1.5">
-                {m.modelId}
-                {m.free === 1 && <span className="rounded bg-accent-soft px-1 text-[10px] font-medium text-accent">free</span>}
-              </span>,
-              m.providerId,
-              String(m.messages),
-              fmtTokens(m.input),
-              fmtTokens(m.output),
-              fmtCost(m.cost),
-            ])}
-          />
-        </Section>
-
-        <Section title="Routed via syrup">
-          {data && data.routed.byBackend.length === 0 && <Empty />}
-          {rt && rt.requests > 0 && (
-            <div className="mb-3 text-xs text-muted">
-              {rt.requests} requests · {rt.ok} ok · {rt.rateLimited} rate limited · {rt.errors} errors{rt.timeouts > 0 ? ` · ${rt.timeouts} timeouts` : ""} · {Math.round(rt.avgLatency)}ms avg
-              {rt.avgTtft != null ? ` · ${fmtSeconds(rt.avgTtft)} to first token` : ""}
+          <Section title="By day">
+            {data && data.byDay.length === 0 && <Empty />}
+            <div className="flex h-28 items-end gap-1">
+              {loading && <DaySkeleton />}
+              {data?.byDay.map((d) => {
+                const v = d.input + d.output + d.reasoning
+                return (
+                  <div key={d.day} className="group relative flex h-full flex-1 items-end">
+                    <div className="w-full rounded-t-sm bg-accent/70 transition group-hover:bg-accent" style={{ height: `${Math.max(3, (v / maxDay) * 100)}%` }} />
+                    <div className="pointer-events-none absolute bottom-full left-1/2 mb-1 -translate-x-1/2 rounded bg-ink px-1.5 py-0.5 text-[10px] whitespace-nowrap text-bg opacity-0 transition group-hover:opacity-100">
+                      {d.day} · {fmtTokens(v)} · {fmtCost(d.cost)}
+                    </div>
+                  </div>
+                )
+              })}
             </div>
-          )}
-          <Table
-            head={["Backend", "Alias", "Tier", "Requests", "Rate limited", "Timeouts", "First token", "In", "Out", "Cost"]}
-            rows={(data?.routed.byBackend ?? []).map((b) => [
-              <span key="b">
-                <span className="text-muted">{b.providerId}/</span>
-                {b.modelId}
-              </span>,
-              b.alias,
-              <span key="t" className={`rounded px-1 text-[10px] font-medium ${b.tier === "free" ? "bg-accent-soft text-accent" : "bg-surface-2 text-ink-2"}`}>
-                {b.tier}
-              </span>,
-              String(b.requests),
-              String(b.rateLimited),
-              String(b.timeouts),
-              b.avgTtft != null ? fmtSeconds(b.avgTtft) : <span key="f" className="text-muted">—</span>,
-              fmtTokens(b.input),
-              fmtTokens(b.output),
-              fmtCost(b.cost),
-            ])}
-          />
-        </Section>
+          </Section>
 
-        <Section title="By session">
-          {data && data.bySession.length === 0 && <Empty />}
-          <Table
-            head={["Session", "Last active", "Messages", "Tokens", "Cost"]}
-            rows={(data?.bySession ?? []).map((s) => [
-              <Link key="s" href={`/s/${s.sessionId}`} className="text-ink hover:underline">
-                {sessions[s.sessionId]?.title || s.sessionId}
-              </Link>,
-              fmtRelative(s.last),
-              String(s.messages),
-              fmtTokens(s.input + s.output + s.reasoning),
-              fmtCost(s.cost),
-            ])}
-          />
-        </Section>
+          <Section title="By model">
+            {loading && <TableSkeleton />}
+            {data && data.byModel.length === 0 && <Empty />}
+            <Table
+              head={["Model", "Provider", "Messages", "In", "Out", "Cost"]}
+              rows={(data?.byModel ?? []).map((m) => [
+                <span key="m" className="flex items-center gap-1.5">
+                  {m.modelId}
+                  {m.free === 1 && <span className="rounded bg-accent-soft px-1 text-[10px] font-medium text-accent">free</span>}
+                </span>,
+                m.providerId,
+                String(m.messages),
+                fmtTokens(m.input),
+                fmtTokens(m.output),
+                fmtCost(m.cost),
+              ])}
+            />
+          </Section>
+
+          <Section title="Routed via syrup">
+            {loading && <TableSkeleton />}
+            {data && data.routed.byBackend.length === 0 && <Empty />}
+            {rt && rt.requests > 0 && (
+              <div className="mb-3 text-xs text-muted">
+                {rt.requests} requests · {rt.ok} ok · {rt.rateLimited} rate limited · {rt.errors} errors{rt.timeouts > 0 ? ` · ${rt.timeouts} timeouts` : ""} · {Math.round(rt.avgLatency)}ms avg
+                {rt.avgTtft != null ? ` · ${fmtSeconds(rt.avgTtft)} to first token` : ""}
+              </div>
+            )}
+            <Table
+              head={["Backend", "Alias", "Tier", "Requests", "Rate limited", "Timeouts", "First token", "In", "Out", "Cost"]}
+              rows={(data?.routed.byBackend ?? []).map((b) => [
+                <span key="b">
+                  <span className="text-muted">{b.providerId}/</span>
+                  {b.modelId}
+                </span>,
+                b.alias,
+                <span key="t" className={`rounded px-1 text-[10px] font-medium ${b.tier === "free" ? "bg-accent-soft text-accent" : "bg-surface-2 text-ink-2"}`}>
+                  {b.tier}
+                </span>,
+                String(b.requests),
+                String(b.rateLimited),
+                String(b.timeouts),
+                b.avgTtft != null ? fmtSeconds(b.avgTtft) : <span key="f" className="text-muted">—</span>,
+                fmtTokens(b.input),
+                fmtTokens(b.output),
+                fmtCost(b.cost),
+              ])}
+            />
+          </Section>
+
+          <Section title="By session">
+            {loading && <TableSkeleton />}
+            {data && data.bySession.length === 0 && <Empty />}
+            <Table
+              head={["Session", "Last active", "Messages", "Tokens", "Cost"]}
+              rows={(data?.bySession ?? []).map((s) => [
+                <Link key="s" href={`/s/${s.sessionId}`} className="text-ink hover:underline">
+                  {sessions[s.sessionId]?.title || s.sessionId}
+                </Link>,
+                fmtRelative(s.last),
+                String(s.messages),
+                fmtTokens(s.input + s.output + s.reasoning),
+                fmtCost(s.cost),
+              ])}
+            />
+          </Section>
+        </div>
       </div>
     </div>
   )
@@ -161,12 +171,51 @@ function fmtSeconds(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`
 }
 
-function Stat({ label, value, hint, accent }: { label: string; value: string; hint?: string; accent?: boolean }) {
+function Stat({ label, value, hint, accent, loading }: { label: string; value: string; hint?: string; accent?: boolean; loading?: boolean }) {
   return (
     <div className="rounded-xl border border-line bg-surface p-4 shadow-card">
       <div className="text-[11px] font-medium uppercase tracking-wider text-muted">{label}</div>
-      <div className={`mt-1 font-serif text-[1.6rem] font-medium tracking-tight ${accent ? "text-accent" : "text-ink"}`}>{value}</div>
-      {hint && <div className="mt-0.5 text-xs text-muted">{hint}</div>}
+      {loading ? (
+        <div aria-busy className="skel-in">
+          <div className="mt-1 flex h-[2.4rem] items-center">
+            <Skel className="h-7 w-20" />
+          </div>
+          <Skel className="mt-1.5 h-3 w-24" />
+        </div>
+      ) : (
+        <>
+          <div className={`rise mt-1 font-serif text-[1.6rem] font-medium tracking-tight ${accent ? "text-accent" : "text-ink"}`}>{value}</div>
+          {hint && <div className="mt-0.5 text-xs text-muted">{hint}</div>}
+        </>
+      )}
+    </div>
+  )
+}
+
+/** Bars of made-up but fixed heights, so the chart has a shape while it loads. */
+function DaySkeleton() {
+  return (
+    <div aria-busy className="skel-in flex h-full flex-1 items-end gap-1">
+      {Array.from({ length: 30 }, (_, i) => (
+        <Skel key={i} className="flex-1 rounded-b-none rounded-t-sm" style={{ height: `${22 + Math.round(38 * (0.5 + 0.5 * Math.sin(i * 0.7)) + 18 * (0.5 + 0.5 * Math.sin(i * 2.3)))}%` }} />
+      ))}
+    </div>
+  )
+}
+
+function TableSkeleton() {
+  return (
+    <div aria-busy className="skel-in">
+      <Skel className="mb-3 h-2.5 w-2/5" />
+      {["w-44", "w-36", "w-52"].map((w) => (
+        <div key={w} className="flex items-center gap-6 border-t border-line py-[11px]">
+          <Skel className={`h-3.5 ${w}`} />
+          <span className="flex-1" />
+          <Skel className="h-3.5 w-10" />
+          <Skel className="h-3.5 w-12" />
+          <Skel className="h-3.5 w-12" />
+        </div>
+      ))}
     </div>
   )
 }

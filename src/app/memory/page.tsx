@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
+import { Brew, Skel } from "@/components/brew"
 import { fmtRelative } from "@/lib/format"
 
 type Memory = {
@@ -65,7 +66,7 @@ export default function MemoryPage() {
           className="mt-6 w-full rounded-xl border border-line bg-surface px-4 py-2.5 text-sm outline-none placeholder:text-muted focus:border-line-2"
         />
 
-        {!rows && <div className="mt-6 text-sm text-muted">Loading…</div>}
+        {!rows && <MemorySkeleton />}
         {rows && rows.length === 0 && (
           <div className="mt-6 rounded-xl border border-dashed border-line p-8 text-center text-sm text-muted">
             {q ? "Nothing matches." : "Nothing saved yet. The agent will start remembering as you work, or add something yourself."}
@@ -88,7 +89,7 @@ function MemoryCard({ m, onChange }: { m: Memory; onChange(): Promise<void> }) {
   if (editing) return <Editor initial={m} onDone={async () => (setEditing(false), await onChange())} onCancel={() => setEditing(false)} />
   const long = m.content.length > 260
   return (
-    <li className="rounded-xl border border-line bg-surface p-4 shadow-card">
+    <li className="rise rounded-xl border border-line bg-surface p-4 shadow-card transition-colors hover:border-line-2">
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
@@ -158,7 +159,7 @@ function Editor({ initial, onDone, onCancel }: { initial?: Memory; onDone(): Pro
   }
 
   return (
-    <div className="mt-4 rounded-xl border border-line-2 bg-surface p-4 shadow-card">
+    <div className="rise mt-4 rounded-xl border border-line-2 bg-surface p-4 shadow-card">
       <div className="flex gap-2">
         <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" className="flex-1 rounded-lg border border-line bg-bg px-3 py-1.5 text-sm outline-none focus:border-line-2" />
         <select value={kind} onChange={(e) => setKind(e.target.value)} className="rounded-lg border border-line bg-bg px-2 py-1.5 text-sm outline-none">
@@ -181,11 +182,35 @@ function Editor({ initial, onDone, onCancel }: { initial?: Memory; onDone(): Pro
             Cancel
           </button>
         )}
-        <button type="button" onClick={() => void save()} disabled={busy || !title.trim() || !content.trim()} className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-accent-ink disabled:opacity-40">
-          {busy ? "Saving…" : initial ? "Save" : "Add"}
+        <button
+          type="button"
+          onClick={() => void save()}
+          disabled={busy || !title.trim() || !content.trim()}
+          className={`flex min-w-[64px] justify-center rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-accent-ink ${busy ? "" : "disabled:opacity-40"}`}
+        >
+          {busy ? <Brew mood="save" tone="inherit" timerAfter={0} /> : initial ? "Save" : "Add"}
         </button>
       </div>
       {err && <div className="mt-2 text-xs text-err">{err}</div>}
     </div>
+  )
+}
+
+/** Three cards at the height of a short memory, so the list does not jump in. */
+function MemorySkeleton() {
+  return (
+    <ul aria-busy className="skel-in mt-4 space-y-2">
+      {["w-40", "w-56", "w-32"].map((w) => (
+        <li key={w} className="rounded-xl border border-line bg-surface p-4 shadow-card">
+          <div className="flex items-center gap-1.5">
+            <Skel className={`h-4 ${w}`} />
+            <Skel className="h-3.5 w-12" />
+          </div>
+          <Skel className="mt-2.5 h-3.5 w-full" />
+          <Skel className="mt-1.5 h-3.5 w-[72%]" />
+          <Skel className="mt-3 h-3 w-36" />
+        </li>
+      ))}
+    </ul>
   )
 }

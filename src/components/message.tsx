@@ -2,10 +2,12 @@
 
 import { useEffect, useState } from "react"
 import type { MessageEntry } from "@/lib/engine-store"
+import type { Part } from "@/lib/oc"
 import { fmtCost, fmtTokens } from "@/lib/format"
 import { displayName, providerName } from "@/lib/model-registry"
 import type { Answer } from "@/lib/router-status"
 import { answersFor, routerSwitch, useSessionAnswers } from "@/lib/use-session-answers"
+import { Brew, DripLand } from "./brew"
 import { PartView } from "./parts"
 
 /** "kimi-k3" → "Kimi K3" when the id is all we have. */
@@ -27,6 +29,14 @@ function listNames(names: string[]): string {
   return names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`
 }
 
+/** A finished step with nothing streaming after it yet: the agent is between steps, so the wait needs a face. */
+function settled(p: Part | undefined): boolean {
+  if (!p) return false
+  if (p.type === "tool") return p.state.status === "completed" || p.state.status === "error"
+  if (p.type === "reasoning") return !!p.time.end
+  return p.type === "patch"
+}
+
 function backendLabel(a: Answer): string {
   return `${modelLabel(a.modelId)} (${providerName(a.providerId)})`
 }
@@ -41,7 +51,7 @@ function switchNote(mine: Answer[], all: Answer[], created: number): string | nu
   return `${backendLabel(s.to)} answered after ${s.to.attempts} tries — the first pick was busy`
 }
 
-export function MessageView({ entry, streaming }: { entry: MessageEntry; streaming: boolean }) {
+export function MessageView({ entry, streaming, landed = false }: { entry: MessageEntry; streaming: boolean; landed?: boolean }) {
   const { info, parts } = entry
 
   // Auto/Fast: ask the router which real model(s) answered. Cloud and local share this path.
@@ -66,7 +76,7 @@ export function MessageView({ entry, streaming }: { entry: MessageEntry; streami
       .join("\n")
     const files = parts.filter((p) => p.type === "file")
     return (
-      <div className="flex justify-end">
+      <div className="rise flex justify-end">
         <div className="max-w-[85%] rounded-2xl rounded-br-md bg-surface-2 px-4 py-2.5 text-[15px] leading-6 text-ink whitespace-pre-wrap">
           {text}
           {files.length > 0 && (
@@ -108,14 +118,20 @@ export function MessageView({ entry, streaming }: { entry: MessageEntry; streami
     : null
 
   return (
-    <div className="group">
+    <div className="rise group relative">
+      {landed && !err && <DripLand className="absolute -bottom-4 left-0" />}
       <div className="space-y-1">
         {visible.map((p) => (
           <PartView key={p.id} part={p} streaming={streaming} />
         ))}
         {streaming && visible.length === 0 && (
-          <div className="flex items-center gap-1.5 py-2 text-sm text-muted">
-            <span className="h-1.5 w-1.5 rounded-full bg-accent pulse" /> Working…
+          <div className="py-2">
+            <Brew mood="think" since={info.time.created} size="md" />
+          </div>
+        )}
+        {streaming && settled(visible[visible.length - 1]) && (
+          <div className="py-1.5">
+            <Brew mood="work" />
           </div>
         )}
         {err && (
