@@ -6,12 +6,18 @@ import { fmtCost, fmtDuration, fmtTokens } from "@/lib/format"
 import { Brew, Elapsed } from "./brew"
 import { FileLink } from "./file-link"
 import { Markdown } from "./markdown"
+import { useTypewriter } from "@/lib/use-typewriter"
+
+/** Streamed answer text types out; the typewriter is its arrival animation, so it gets no fade. */
+function TypedText({ text, live, end }: { text: string; live: boolean; end?: number }) {
+  return <Markdown text={useTypewriter(text, live, end)} />
+}
 
 /** Renders one message part. Unknown/structural parts render nothing. */
 export function PartView({ part, streaming }: { part: Part; streaming: boolean }) {
   switch (part.type) {
     case "text":
-      return part.text ? <Markdown text={part.text} /> : null
+      return part.text ? <TypedText text={part.text} live={streaming} end={part.time?.end} /> : null
     case "reasoning":
       return <Reasoning text={part.text} done={!!part.time.end || !streaming} ms={part.time.end ? part.time.end - part.time.start : null} />
     case "tool":

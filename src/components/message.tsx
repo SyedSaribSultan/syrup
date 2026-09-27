@@ -118,7 +118,7 @@ export function MessageView({ entry, streaming, landed = false }: { entry: Messa
     : null
 
   return (
-    <div className="rise group relative">
+    <div className="group relative">
       {landed && !err && <DripLand className="absolute -bottom-4 left-0" />}
       <div className="space-y-1">
         {visible.map((p) => (

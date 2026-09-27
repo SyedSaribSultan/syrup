@@ -180,8 +180,9 @@ function Panel({ onClose, up, maxHeight, sessionId }: { onClose(): void; up: boo
 
   return (
     <div
-      className={`pop absolute left-0 z-30 flex w-[420px] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-card ${up ? "bottom-full mb-2" : "top-full mt-2"}`}
-      style={{ maxHeight }}
+      className={`pop absolute left-0 z-30 flex w-[420px] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-card ${up ? "" : "top-full mt-2"}`}
+      // Fixed height, positioned by its top edge: switching rows or filtering never moves the rows under the cursor.
+      style={up ? { height: maxHeight, top: -(maxHeight + 8) } : { height: maxHeight }}
     >
       <div className="flex shrink-0 items-center gap-2 border-b border-line px-3.5">
         <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" className="shrink-0 text-muted">
@@ -241,7 +242,7 @@ function Panel({ onClose, up, maxHeight, sessionId }: { onClose(): void; up: boo
         )}
       </div>
 
-      <div className="min-h-[62px] shrink-0 space-y-0.5 border-t border-line bg-surface-2/40 px-3.5 py-2">
+      <div className="h-[84px] shrink-0 space-y-0.5 overflow-hidden border-t border-line bg-surface-2/40 px-3.5 py-2">
         {notice ? (
           <div role="status" className="text-[11px] text-warn">
             {notice}
