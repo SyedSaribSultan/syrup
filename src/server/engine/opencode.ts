@@ -103,6 +103,8 @@ async function start(): Promise<Engine> {
   }
   // ~/.claude/CLAUDE.md holds the user's instructions for Claude Code, not for syrup's agent.
   process.env.OPENCODE_DISABLE_CLAUDE_CODE_PROMPT = "1"
+  // Web search (Exa's free public endpoint); off by default in OpenCode, so the agent could only fetch known URLs.
+  process.env.OPENCODE_ENABLE_EXA = "1"
   const t0 = Date.now()
   let server: Awaited<ReturnType<typeof createOpencodeServer>>
   try {

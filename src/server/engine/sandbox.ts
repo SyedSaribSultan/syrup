@@ -157,7 +157,8 @@ async function startEngine(sb: Sandbox, ws: Workspace, userId: string, password:
     args: ["-lc", `exec "$HOME/.opencode/bin/opencode" serve --hostname 0.0.0.0 --port ${PORT} ${cors.map((c) => `--cors ${JSON.stringify(c)}`).join(" ")}`],
     cwd: workDir(ws),
     detached: true,
-    env: { OPENCODE_SERVER_PASSWORD: password, OPENCODE_CONFIG_CONTENT: engineConfig(secret), HOME },
+    // OPENCODE_ENABLE_EXA: web search, off by default in OpenCode.
+    env: { OPENCODE_SERVER_PASSWORD: password, OPENCODE_CONFIG_CONTENT: engineConfig(secret), HOME, OPENCODE_ENABLE_EXA: "1" },
   })
 }
 

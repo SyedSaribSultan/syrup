@@ -20,6 +20,7 @@ const PRIVATE_SUBNETS = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.2
 /** Hosts every workspace needs to boot and to run the agent at all. */
 const BASE_HOSTS = [
   "opencode.ai",
+  "mcp.exa.ai",
   "models.dev",
   "github.com",
   "api.github.com",
