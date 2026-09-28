@@ -24,7 +24,10 @@ export function AppShell({ sidebar, pageBar, children }: { sidebar: ReactNode; p
   }, [open])
 
   return (
-    <div className="flex h-full min-h-0 flex-1">
+    // min-w-0: in a cloud workspace this is a flex item (cloud-frame.tsx). Without it, its minimum width is the
+    // chat's widest unbreakable line (a code line, a tool command, the routed-model line), and the whole app,
+    // header and composer included, grows wider than a phone screen.
+    <div className="flex h-full min-h-0 min-w-0 flex-1">
       {open && <div aria-hidden onClick={nav?.closeDrawer} className="fixed inset-0 z-40 bg-black/40 expanded:hidden" />}
       <div
         ref={drawer}

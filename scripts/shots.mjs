@@ -92,7 +92,9 @@ try {
       const file = path.join(outDir, `${slug(route)}@${d.name}.png`)
       await page.screenshot({ path: file })
       count++
-      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
+      // Against the device width, not innerWidth: mobile Chrome widens the layout viewport to fit a too-wide page,
+      // so innerWidth grows with it and the overflow reads as 0.
+      const overflow = (await page.evaluate(() => Math.max(document.documentElement.scrollWidth, document.querySelector("main")?.getBoundingClientRect().right ?? 0))) - d.width
       if (overflow > 1) wide.push(`${route} @ ${d.name}: ${overflow}px too wide`)
     }
     await context.close()
