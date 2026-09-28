@@ -89,7 +89,7 @@ function MemoryCard({ m, onChange }: { m: Memory; onChange(): Promise<void> }) {
   if (editing) return <Editor initial={m} onDone={async () => (setEditing(false), await onChange())} onCancel={() => setEditing(false)} />
   const long = m.content.length > 260
   return (
-    <li className="rise rounded-xl border border-line bg-surface p-4 shadow-card transition-colors hover:border-line-2">
+    <li className="rounded-xl border border-line bg-surface p-4 shadow-card transition-colors hover:border-line-2">
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
@@ -159,7 +159,7 @@ function Editor({ initial, onDone, onCancel }: { initial?: Memory; onDone(): Pro
   }
 
   return (
-    <div className="rise mt-4 rounded-xl border border-line-2 bg-surface p-4 shadow-card">
+    <div className="mt-4 rounded-xl border border-line-2 bg-surface p-4 shadow-card">
       <div className="flex gap-2">
         <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" className="flex-1 rounded-lg border border-line bg-bg px-3 py-1.5 text-sm outline-none focus:border-line-2" />
         <select value={kind} onChange={(e) => setKind(e.target.value)} className="rounded-lg border border-line bg-bg px-2 py-1.5 text-sm outline-none">

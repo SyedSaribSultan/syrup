@@ -187,7 +187,7 @@ function Stat({ label, value, hint, accent, loading }: { label: string; value: s
         </div>
       ) : (
         <>
-          <div className={`rise mt-1 font-serif text-[1.6rem] font-medium tracking-tight ${accent ? "text-accent" : "text-ink"}`}>{value}</div>
+          <div className={`mt-1 font-serif text-[1.6rem] font-medium tracking-tight ${accent ? "text-accent" : "text-ink"}`}>{value}</div>
           {hint && <div className="mt-0.5 text-xs text-muted">{hint}</div>}
         </>
       )}

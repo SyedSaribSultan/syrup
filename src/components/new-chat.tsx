@@ -46,7 +46,7 @@ export function NewChat({ hrefFor, noKeys, error, onRetry }: Props) {
       <div className="w-full max-w-[720px]">
         {pending ? (
           <div className="mb-6 space-y-4">
-            <div className="rise flex justify-end">
+            <div className="flex justify-end">
               <div className="max-w-[85%] rounded-2xl rounded-br-md bg-surface-2 px-4 py-2.5 text-[15px] leading-6 whitespace-pre-wrap text-ink opacity-70">
                 {pending.text}
                 {pending.files.length > 0 && (

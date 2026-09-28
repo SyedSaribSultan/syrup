@@ -213,7 +213,7 @@ export function FilePreview({ target, rel }: { target: Target; rel: string }) {
 
 function GuiNote({ name, onDownload }: { name: string; onDownload(): void }) {
   return (
-    <div className="rise mx-3 mt-3 shrink-0 rounded-xl border border-accent/30 bg-accent-soft/40 px-3.5 py-3 text-[13px] leading-relaxed text-ink-2">
+    <div className="mx-3 mt-3 shrink-0 rounded-xl border border-accent/30 bg-accent-soft/40 px-3.5 py-3 text-[13px] leading-relaxed text-ink-2">
       <div className="font-medium text-ink">This one opens a desktop window.</div>
       <div>
         {name} is a desktop app, and your cloud workspace has no screen to show it on. Download it and run it on your computer, or ask for a version that runs in the browser.

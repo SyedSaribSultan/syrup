@@ -238,7 +238,7 @@ export function Menu({ at, title, items, onClose }: { at: { x: number; y: number
   }
 
   return (
-    <div ref={ref} data-layer role="menu" aria-label={title} onKeyDown={onKeyDown} onContextMenu={(e) => e.preventDefault()} style={{ left: at.x, top: at.y }} className="pop fixed z-[60] w-[232px] overflow-hidden rounded-xl border border-line bg-surface p-1 shadow-card">
+    <div ref={ref} data-layer role="menu" aria-label={title} onKeyDown={onKeyDown} onContextMenu={(e) => e.preventDefault()} style={{ left: at.x, top: at.y }} className="fixed z-[60] w-[232px] overflow-hidden rounded-xl border border-line bg-surface p-1 shadow-card">
       <div className="truncate px-2.5 pt-1 pb-1.5 font-mono text-[11px] text-muted" title={title}>
         {title}
       </div>
@@ -272,7 +272,7 @@ function Viewer({ file, body, onDownload, onClose }: { file: WorkspaceFile; body
   const clipped = text && text.length > 200_000 ? `${text.slice(0, 200_000)}\n… (truncated, download for the full file)` : text
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-bg/70 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={file.rel}>
-      <div ref={ref} data-layer className="rise flex max-h-[85vh] w-[min(880px,100%)] flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-card">
+      <div ref={ref} data-layer className="flex max-h-[85vh] w-[min(880px,100%)] flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-card">
         <div className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-2">
           <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-ink-2" title={file.abs}>
             {file.rel}

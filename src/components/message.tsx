@@ -7,7 +7,7 @@ import { fmtCost, fmtTokens } from "@/lib/format"
 import { modelLabel, switchNote } from "@/lib/model-label"
 import { providerName } from "@/lib/model-registry"
 import { answersFor, useSessionAnswers } from "@/lib/use-session-answers"
-import { Brew, DripLand } from "./brew"
+import { Brew } from "./brew"
 import { PartView } from "./parts"
 import { useReadOnly } from "./read-only"
 
@@ -23,7 +23,7 @@ function settled(p: Part | undefined): boolean {
   return p.type === "patch"
 }
 
-export function MessageView({ entry, streaming, landed = false }: { entry: MessageEntry; streaming: boolean; landed?: boolean }) {
+export function MessageView({ entry, streaming }: { entry: MessageEntry; streaming: boolean }) {
   const { info, parts } = entry
   // A shared snapshot: its router answers come with it, nothing is fetched and no timer runs.
   const ro = useReadOnly()
@@ -51,7 +51,7 @@ export function MessageView({ entry, streaming, landed = false }: { entry: Messa
       .join("\n")
     const files = parts.filter((p) => p.type === "file")
     return (
-      <div className="rise flex justify-end">
+      <div className="flex justify-end">
         <div className="max-w-[85%] rounded-2xl rounded-br-md bg-surface-2 px-4 py-2.5 text-[15px] leading-6 text-ink-2 whitespace-pre-wrap">
           {text}
           {files.length > 0 && (
@@ -94,7 +94,6 @@ export function MessageView({ entry, streaming, landed = false }: { entry: Messa
 
   return (
     <div className="group relative">
-      {landed && !err && <DripLand className="absolute -bottom-4 left-0" />}
       <div className="space-y-1">
         {visible.map((p) => (
           <PartView key={p.id} part={p} streaming={streaming} />

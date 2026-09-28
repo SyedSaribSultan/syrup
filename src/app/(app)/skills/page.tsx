@@ -283,7 +283,7 @@ function SkillCard({ s, onChange, onToggle }: { s: Skill; onChange(): Promise<vo
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   return (
-    <li className="rise rounded-xl border border-line bg-surface shadow-card transition-colors hover:border-line-2">
+    <li className="rounded-xl border border-line bg-surface shadow-card transition-colors hover:border-line-2">
       <div className="flex items-start gap-3 pr-4">
         <button type="button" onClick={() => setOpen((v) => !v)} className="flex min-w-0 flex-1 items-start gap-3 py-3 pl-4 text-left">
           <div className="min-w-0 flex-1">

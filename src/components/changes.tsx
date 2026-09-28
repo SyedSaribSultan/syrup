@@ -68,7 +68,7 @@ export function Changes({ sessionID }: { sessionID: string }) {
       </button>
 
       {open && (
-        <div className="pop absolute top-full right-0 z-20 mt-2 flex max-h-[70vh] w-[min(760px,80vw)] overflow-hidden rounded-xl border border-line bg-surface shadow-card">
+        <div className="absolute top-full right-0 z-20 mt-2 flex max-h-[70vh] w-[min(760px,80vw)] overflow-hidden rounded-xl border border-line bg-surface shadow-card">
           <div className="w-[240px] shrink-0 overflow-y-auto border-r border-line py-1">
             {!diffs && (
               <div className="px-3 py-2">

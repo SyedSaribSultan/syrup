@@ -153,8 +153,6 @@ function toolSummary(part: ToolPart): string {
 function Tool({ part, live, ro = false }: { part: ToolPart; live: boolean; ro?: boolean }) {
   const [open, setOpen] = useState(false)
   const st = part.state
-  // A row seen mid-run gets a small ripple when it lands; rows loaded from history stay still.
-  const [sawRun] = useState(st.status === "pending" || st.status === "running")
   const label = TOOL_LABEL[part.tool] ?? part.tool
   const summary = toolSummary(part)
   const file = toolPath(part)
@@ -174,7 +172,7 @@ function Tool({ part, live, ro = false }: { part: ToolPart; live: boolean; ro?: 
   // Read-only (shared snapshot, HTML export): a native disclosure that opens without JavaScript; file mentions are plain text.
   if (ro)
     return (
-      <details className="group/tool rise my-1.5 overflow-hidden rounded-xl border border-line bg-surface/70 text-[13px]">
+      <details className="group/tool my-1.5 overflow-hidden rounded-xl border border-line bg-surface/70 text-[13px]">
         <summary className="flex w-full cursor-pointer list-none items-center gap-2 px-3 py-2 text-left transition hover:bg-surface-2/60 [&::-webkit-details-marker]:hidden">
           <span className="flex shrink-0 items-center gap-2">
             <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
@@ -189,7 +187,7 @@ function Tool({ part, live, ro = false }: { part: ToolPart; live: boolean; ro?: 
     )
 
   return (
-    <div className="rise my-1.5 overflow-hidden rounded-xl border border-line bg-surface/70 text-[13px]">
+    <div className="my-1.5 overflow-hidden rounded-xl border border-line bg-surface/70 text-[13px]">
       {/* The whole row toggles; the button gives keyboard access and leaves the file link its own control. */}
       <div onClick={() => setOpen((v) => !v)} className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left transition hover:bg-surface-2/60">
         <button type="button" aria-expanded={open} className="flex shrink-0 items-center gap-2 rounded-sm focus-visible:outline-1 focus-visible:outline-accent">
@@ -197,7 +195,7 @@ function Tool({ part, live, ro = false }: { part: ToolPart; live: boolean; ro?: 
             <Brew label={TOOL_VERB[part.tool] ?? label} timerAfter={0} className="font-medium" />
           ) : (
             <>
-              <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot} ${sawRun && finished ? "brew-pop" : ""}`} />
+              <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
               <span className="font-medium text-ink">{label}</span>
             </>
           )}

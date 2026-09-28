@@ -180,7 +180,7 @@ function Panel({ onClose, up, maxHeight, sessionId }: { onClose(): void; up: boo
 
   return (
     <div
-      className={`pop absolute left-0 z-30 flex w-[420px] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-card ${up ? "" : "top-full mt-2"}`}
+      className={`absolute left-0 z-30 flex w-[420px] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-card ${up ? "" : "top-full mt-2"}`}
       // Fixed height, positioned by its top edge: switching rows or filtering never moves the rows under the cursor.
       style={up ? { height: maxHeight, top: -(maxHeight + 8) } : { height: maxHeight }}
     >

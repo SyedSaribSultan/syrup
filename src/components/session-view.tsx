@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef } from "react"
 import { Brew, Skel } from "@/components/brew"
 import { Changes } from "@/components/changes"
 import { Composer } from "@/components/composer"
@@ -31,14 +31,6 @@ export function SessionView({ id }: { id: string }) {
   const lastRole = entries[entries.length - 1]?.info.role
   // Sent, but the engine has not opened the answer yet.
   const awaiting = busy && lastRole === "user"
-
-  // When a turn finishes in front of the user, its last message gets the landing drip. Switching chats never counts.
-  const [prev, setPrev] = useState({ id, busy })
-  const [landedID, setLandedID] = useState<string | null>(null)
-  if (prev.id !== id || prev.busy !== busy) {
-    setPrev({ id, busy })
-    if (prev.id === id && !busy && lastRole === "assistant") setLandedID(lastID ?? null)
-  }
 
   // Follow the stream unless the user has scrolled up.
   useEffect(() => {
@@ -88,7 +80,7 @@ export function SessionView({ id }: { id: string }) {
         <div className="mx-auto w-full max-w-[720px] space-y-6 px-6 pt-6 pb-40">
           {!sm?.loaded && entries.length === 0 && <ChatSkeleton />}
           {entries.map((e) => (
-            <MessageView key={e.info.id} entry={e} streaming={busy && e.info.id === lastID && e.info.role === "assistant"} landed={e.info.id === landedID} />
+            <MessageView key={e.info.id} entry={e} streaming={busy && e.info.id === lastID && e.info.role === "assistant"} />
           ))}
           {awaiting && (
             <div className="py-2">

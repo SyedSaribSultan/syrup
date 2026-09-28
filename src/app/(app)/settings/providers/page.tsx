@@ -233,7 +233,7 @@ function ProviderCard({
   const c = p.curated
 
   return (
-    <div className={`rise rounded-xl border bg-surface shadow-card transition ${authFailed ? "border-err/40" : p.connected ? "border-ok/40" : "border-line"}`}>
+    <div className={`rounded-xl border bg-surface shadow-card transition ${authFailed ? "border-err/40" : p.connected ? "border-ok/40" : "border-line"}`}>
       <button type="button" onClick={() => setOpen((v) => !v)} className="flex w-full items-center gap-3 px-4 py-3 text-left">
         <span className={`h-2 w-2 shrink-0 rounded-full ${authFailed ? "bg-err" : p.connected ? "bg-ok" : "bg-line-2"}`} />
         <div className="min-w-0 flex-1">

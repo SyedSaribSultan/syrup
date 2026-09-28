@@ -164,7 +164,7 @@ function SharePanel({ sessionId }: { sessionId: string }) {
     })
 
   return (
-    <div role="dialog" aria-label="Share chat" className="pop absolute top-full right-0 z-30 mt-2 w-[min(440px,92vw)] rounded-xl border border-line bg-surface p-4 text-left shadow-card">
+    <div role="dialog" aria-label="Share chat" className="absolute top-full right-0 z-30 mt-2 w-[min(440px,92vw)] rounded-xl border border-line bg-surface p-4 text-left shadow-card">
       {share === undefined ? (
         <div className="space-y-2">
           <Skel className="h-4 w-32" />
