@@ -9,6 +9,7 @@ import { engine, engineAuthHeader } from "./engine/opencode"
 import { env } from "./env"
 import { slog } from "./log"
 import { forgetSaribScans, knownDirectories } from "./sarib"
+import { parseFrontmatter, promptTokens, skillConfigJson, validSkillName as validName } from "./skills-core"
 
 const run = promisify(execFile)
 
@@ -38,18 +39,6 @@ export function skillsDir() {
   return path.join(os.homedir(), ".config", "opencode", "skills")
 }
 
-/** Minimal YAML frontmatter reader: only `name` and `description` matter. */
-export function parseFrontmatter(md: string): { name?: string; description?: string } {
-  const m = md.match(/^---\r?\n([\s\S]*?)\r?\n---/)
-  if (!m) return {}
-  const out: Record<string, string> = {}
-  for (const line of m[1].split(/\r?\n/)) {
-    const kv = line.match(/^([A-Za-z_-]+):\s*(.*)$/)
-    if (kv) out[kv[1]] = kv[2].trim().replace(/^["']|["']$/g, "")
-  }
-  return { name: out.name, description: out.description }
-}
-
 function under(file: string, root: string) {
   return path.resolve(file).toLowerCase().startsWith(path.resolve(root).toLowerCase() + path.sep)
 }
@@ -60,11 +49,6 @@ function sourceOf(location: string, managed: boolean): SkillSource {
   if (under(location, path.join(os.homedir(), ".claude"))) return "claude"
   if (under(location, path.join(os.homedir(), ".agents"))) return "agents"
   return "project"
-}
-
-/** Each listed skill is its name, description and file URL wrapped in a few tags. */
-function promptTokens(name: string, description: string, location: string) {
-  return Math.round((name.length + description.length + location.length) / 3.6) + 30
 }
 
 export async function listSkills(): Promise<SkillInfo[]> {
@@ -149,12 +133,7 @@ export function skillConfigPath() {
   return path.join(env.configDir, "engine-skills.json")
 }
 
-/**
- * Writes `permission.skill` so OpenCode lists only enabled skills. It hides
- * a skill whose permission evaluates to deny, and the last matching rule
- * wins, so the catch-all deny goes first. With nothing allowed, the skill
- * tool is dropped as well.
- */
+/** Writes `permission.skill` (skills-core.ts skillPermission) so OpenCode lists only enabled skills. */
 export async function writeSkillConfig(): Promise<string> {
   const toggles = await readToggles()
   const on = new Set(managedNames())
@@ -162,11 +141,9 @@ export async function writeSkillConfig(): Promise<string> {
     if (enabled) on.add(name)
     else on.delete(name)
   }
-  const skill: Record<string, "allow" | "deny"> = { "*": "deny" }
-  for (const name of [...on].sort()) skill[name] = "allow"
   const file = skillConfigPath()
   fs.mkdirSync(path.dirname(file), { recursive: true })
-  fs.writeFileSync(file, JSON.stringify({ $schema: "https://opencode.ai/config.json", permission: { skill } }, null, 2), "utf8")
+  fs.writeFileSync(file, skillConfigJson(on), "utf8")
   return file
 }
 
@@ -207,13 +184,6 @@ async function reloadWhenIdle() {
   if (!res.ok) throw new Error(`engine: could not reload (${res.status})`)
   forgetSaribScans()
   slog("engine", "instance.reloaded", { reason: "skills toggled", all: true })
-}
-
-const NAME_RE = /^[a-z0-9][a-z0-9-]{0,63}$/
-
-function validName(name: string) {
-  if (!NAME_RE.test(name)) throw new Error("Skill name must be lowercase letters, digits and hyphens (1–64 chars)")
-  return name
 }
 
 /** A fresh install starts on and a removed skill forgets its choice, so both reset the stored choice. */

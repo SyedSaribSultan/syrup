@@ -317,3 +317,23 @@ export const memories = pgTable("memories", {
   updatedAt: ts("updated_at").notNull().defaultNow(),
   deletedAt: ts("deleted_at"),
 }, (t) => [index("memories_user_idx").on(t.userId, t.updatedAt)])
+
+/** Skills (cloud): SKILL.md folders per user, written into every workspace sandbox (engine/sandbox.ts). */
+export const userSkills = pgTable("user_skills", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  /** GitHub source as given, or "pasted". */
+  source: text("source").notNull(),
+  description: text("description").notNull().default(""),
+  /** SKILL.md text, kept apart from `files` for listing. */
+  content: text("content").notNull(),
+  /** Every file in the folder, SKILL.md included: path relative to the folder, base64 data. */
+  files: jsonb("files").$type<{ path: string; data: string }[]>().notNull(),
+  bytes: integer("bytes").notNull().default(0),
+  enabled: boolean("enabled").notNull().default(true),
+  createdAt: ts("created_at").notNull().defaultNow(),
+  updatedAt: ts("updated_at").notNull().defaultNow(),
+}, (t) => [uniqueIndex("user_skills_user_name_idx").on(t.userId, t.name)])

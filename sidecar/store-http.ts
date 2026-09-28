@@ -173,4 +173,10 @@ export class HttpMemoryStore implements MemoryStore {
   async delete(id: string) {
     await this.call("delete", { id })
   }
+  /** A stamp that changes whenever the user's memories do. Cheap: one indexed aggregate on the app side. */
+  async version() {
+    const r = await ingest<{ version?: unknown }>(this.cfg, "/api/ingest/memory/version", undefined, { method: "GET" })
+    if (typeof r.version !== "string") throw new Error("memory version: bad response")
+    return r.version
+  }
 }

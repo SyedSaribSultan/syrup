@@ -111,24 +111,18 @@ function BottomNav() {
   return (
     <>
       <div className="space-y-0.5 border-t border-line p-2">
-        {mode === "local" && (
-          <>
-            <NavLink href="/memory" active={p === "/memory"} icon="memory">
-              Memory
-            </NavLink>
-            <NavLink href="/skills" active={p === "/skills"} icon="skill">
-              Skills
-            </NavLink>
-          </>
-        )}
+        <NavLink href="/memory" active={p === "/memory"} icon="memory">
+          Memory
+        </NavLink>
+        <NavLink href="/skills" active={p === "/skills"} icon="skill">
+          Skills
+        </NavLink>
         <NavLink href="/settings/providers" active={p.startsWith("/settings/providers")} icon="key">
           Providers
         </NavLink>
-        {mode === "local" && (
-          <NavLink href="/usage" active={p === "/usage"} icon="chart">
-            Usage & cost
-          </NavLink>
-        )}
+        <NavLink href="/usage" active={p === "/usage"} icon="chart">
+          Usage & cost
+        </NavLink>
         {mode === "cloud" && (
           <NavLink href="/settings" active={p === "/settings"} icon="settings">
             Account & privacy

@@ -2,12 +2,14 @@ import crypto from "node:crypto"
 import fs from "node:fs"
 import path from "node:path"
 import { Sandbox } from "@vercel/sandbox"
-import { eq } from "drizzle-orm"
+import { and, eq, isNull } from "drizzle-orm"
 import { track } from "../analytics"
 import { openWith, sealWith, userDek } from "../cloud/crypto"
 import { mintIngestToken } from "../cloud/ingest"
 import { githubToken } from "../cloud/github"
 import { activeKeyDetails } from "../cloud/keys"
+import { skillBundle, type SkillBundle } from "../cloud/skills"
+import { skillConfigJson } from "../skills-core"
 import { egressPolicy } from "./egress"
 import { syrupEngineConfig } from "./opencode"
 import { getWorkspace, touchWorkspace, type SandboxRow, type Workspace } from "../cloud/workspaces"
@@ -73,12 +75,35 @@ function sidecarBundle(): { js: Buffer; hash: string } {
   return { js, hash: meta.hash }
 }
 
-/** Uploads the sidecar and starts it with the user's keys in process env, then waits for it to answer on loopback. */
-async function startSidecar(sb: Sandbox, userId: string, workspaceId: string, password: string, secret: string) {
+/** Skill permissions for the engine (OPENCODE_CONFIG). Re-read whenever an instance boots, so a reload applies changes without a restart. */
+const SKILLS_CONFIG = `${SIDECAR_DIR}/engine-skills.json`
+
+/**
+ * The user's enabled skills as files for one writeFiles batch, into a fresh
+ * staging folder, plus the shell step that swaps it in as the skills folder.
+ * The swap holds a lock and skips a bundle older than the one already in
+ * place, so overlapping pushes cannot interleave.
+ */
+function skillFiles(bundle: SkillBundle): { files: { path: string; content: Buffer }[]; apply: string } {
+  const stamp = Date.now()
+  const stage = `${SIDECAR_DIR}/skills-stage-${stamp}-${crypto.randomBytes(4).toString("hex")}`
+  const files = [{ path: `${stage}.json`, content: Buffer.from(skillConfigJson(bundle.enabled)) }, ...bundle.files.map((f) => ({ path: `${stage}/${f.path}`, content: f.content }))]
+  const dest = `${HOME}/.config/opencode/skills`
+  const apply = [
+    "exec 9>/tmp/syrup-skills.lock; flock -w 30 9 2>/dev/null",
+    `if [ "$(cat ${SIDECAR_DIR}/skills.stamp 2>/dev/null || echo 0)" -gt ${stamp} ]; then rm -rf ${stage} ${stage}.json; exit 0; fi`,
+    `mkdir -p ${stage} ${HOME}/.config/opencode && mv -f ${stage}.json ${SKILLS_CONFIG} && rm -rf ${dest} && mv ${stage} ${dest} && echo ${stamp} > ${SIDECAR_DIR}/skills.stamp`,
+    `find ${SIDECAR_DIR} -maxdepth 1 -name 'skills-stage-*' -mmin +10 -exec rm -rf {} + 2>/dev/null; true`,
+  ].join("\n")
+  return { files, apply }
+}
+
+/** Uploads the sidecar (and any extra files in the same batch) and starts it with the user's keys in process env, then waits for it to answer on loopback. */
+async function startSidecar(sb: Sandbox, userId: string, workspaceId: string, password: string, secret: string, extra: { path: string; content: Buffer }[] = []) {
   const t0 = Date.now()
   const { js, hash } = sidecarBundle()
   await sb.runCommand({ cmd: "mkdir", args: ["-p", SIDECAR_DIR] })
-  await sb.writeFiles([{ path: `${SIDECAR_DIR}/sidecar.js`, content: js }])
+  await sb.writeFiles([{ path: `${SIDECAR_DIR}/sidecar.js`, content: js }, ...extra])
   const keys = await activeKeyDetails(userId)
   await sb.runCommand({
     cmd: "node",
@@ -147,18 +172,19 @@ async function installEngine(sb: Sandbox, ws: Workspace, userId: string) {
   slog("engine", "sandbox.installed", { workspaceId: ws.id, ms: Date.now() - t0, version: OPENCODE_VERSION }, { directory: ws.id })
 }
 
-/** Starts the sidecar, then OpenCode pointed at it. Both get a fresh per-start secret and password. */
+/** Starts the sidecar, then OpenCode pointed at it with the user's skills in place. Both get a fresh per-start secret and password. */
 async function startEngine(sb: Sandbox, ws: Workspace, userId: string, password: string) {
   const secret = crypto.randomBytes(24).toString("base64url")
-  await startSidecar(sb, userId, ws.id, password, secret)
+  const skills = skillFiles(await skillBundle(userId))
+  await startSidecar(sb, userId, ws.id, password, secret, skills.files)
   const cors = [env.appUrl, process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : ""].filter(Boolean)
   await sb.runCommand({
     cmd: "bash",
-    args: ["-lc", `exec "$HOME/.opencode/bin/opencode" serve --hostname 0.0.0.0 --port ${PORT} ${cors.map((c) => `--cors ${JSON.stringify(c)}`).join(" ")}`],
+    args: ["-lc", `(${skills.apply})\nexec "$HOME/.opencode/bin/opencode" serve --hostname 0.0.0.0 --port ${PORT} ${cors.map((c) => `--cors ${JSON.stringify(c)}`).join(" ")}`],
     cwd: workDir(ws),
     detached: true,
     // OPENCODE_ENABLE_EXA: web search, off by default in OpenCode.
-    env: { OPENCODE_SERVER_PASSWORD: password, OPENCODE_CONFIG_CONTENT: engineConfig(secret), HOME, OPENCODE_ENABLE_EXA: "1" },
+    env: { OPENCODE_SERVER_PASSWORD: password, OPENCODE_CONFIG_CONTENT: engineConfig(secret), OPENCODE_CONFIG: SKILLS_CONFIG, HOME, OPENCODE_ENABLE_EXA: "1" },
   })
 }
 
@@ -361,6 +387,62 @@ export async function applyEgress(userId: string, workspaceId: string): Promise<
   } catch (err) {
     slog("engine", "sandbox.egress_update_failed", { workspaceId, err }, { level: "warn", directory: workspaceId })
   }
+}
+
+/**
+ * Pushes the user's current skills to every running sandbox of theirs: files
+ * and permissions are swapped in right away, then the engine reloads once no
+ * session is busy (disposing an instance stops its running turns). A sandbox
+ * still busy after a minute keeps its old skill list until its next start.
+ */
+export async function syncSkills(userId: string): Promise<void> {
+  let rows: { ws: Workspace; sb: SandboxRow }[]
+  let bundle: SkillBundle
+  try {
+    rows = await withUser(userId, (tx) =>
+      tx
+        .select({ ws: pgSchema.workspaces, sb: pgSchema.sandboxes })
+        .from(pgSchema.sandboxes)
+        .innerJoin(pgSchema.workspaces, eq(pgSchema.workspaces.id, pgSchema.sandboxes.workspaceId))
+        .where(and(eq(pgSchema.sandboxes.userId, userId), eq(pgSchema.sandboxes.status, "running"), isNull(pgSchema.workspaces.deletedAt))),
+    )
+    if (rows.length === 0) return
+    bundle = await skillBundle(userId)
+  } catch (err) {
+    return slog("engine", "skills.sync_failed", { err }, { level: "warn" })
+  }
+  await Promise.all(
+    rows.map(async ({ ws, sb: row }) => {
+      try {
+        const sb = await Sandbox.get({ name: row.vercelName, resume: false })
+        if (sb.status !== "running") return
+        const { files, apply } = skillFiles(bundle)
+        await sb.writeFiles(files)
+        const r = await sb.runCommand({ cmd: "bash", args: ["-lc", apply] })
+        if (r.exitCode !== 0) throw new Error(`skills swap failed (exit ${r.exitCode}): ${(await r.stderr()).slice(-500)}`)
+        const password = await storedPassword(userId, row)
+        if (password) await reloadWhenIdle(sb.domain(PORT), password, workDir(ws), ws.id)
+      } catch (err) {
+        slog("engine", "skills.sync_failed", { workspaceId: ws.id, err }, { level: "warn", directory: ws.id })
+      }
+    }),
+  )
+}
+
+async function reloadWhenIdle(baseUrl: string, password: string, directory: string, workspaceId: string) {
+  const headers = { authorization: basic(password) }
+  const until = Date.now() + 60_000
+  for (;;) {
+    const res = await fetch(`${baseUrl}/session/status?directory=${encodeURIComponent(directory)}`, { headers, cache: "no-store", signal: AbortSignal.timeout(5000) })
+    if (!res.ok) throw new Error(`engine: session status ${res.status}`)
+    const status = (await res.json()) as Record<string, { type: string }>
+    if (!Object.values(status).some((st) => st.type !== "idle")) break
+    if (Date.now() > until) return slog("engine", "reload.deferred", { reason: "skills changed", workspaceId }, { directory: workspaceId })
+    await new Promise((r) => setTimeout(r, 5000))
+  }
+  const res = await fetch(`${baseUrl}/global/dispose`, { method: "POST", headers, signal: AbortSignal.timeout(10_000) })
+  if (!res.ok) throw new Error(`engine: could not reload (${res.status})`)
+  slog("engine", "instance.reloaded", { reason: "skills changed", workspaceId }, { directory: workspaceId })
 }
 
 /** Removes the VM and its snapshots. Used when a workspace is deleted. */

@@ -71,6 +71,13 @@
       "when": 1790551130504,
       "tag": "0009_workspace_home",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790563395091,
+      "tag": "0010_user_skills",
+      "breakpoints": true
     }
   ]
 }

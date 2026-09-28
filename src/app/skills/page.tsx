@@ -54,7 +54,7 @@ export default function SkillsPage() {
       })
       const j = await r.json()
       if (!r.ok) throw new Error(j.error ?? "Install failed")
-      setMsg(`Installed: ${j.installed.join(", ")}`)
+      setMsg(`Installed: ${j.installed.join(", ")}${j.skipped?.length ? `. Skipped: ${j.skipped.join(", ")}` : ""}`)
       setSource("")
       setContent("")
       await load()
@@ -206,7 +206,7 @@ export default function SkillsPage() {
 
 type SaribStatus = { python: string[] | null; command: string[] | null; installing: boolean; log: string; error: string | null }
 
-/** Optional .sarib tools: status and a one-click install. */
+/** Optional .sarib tools: status and a one-click install. Shown once the server answers, so it stays hidden where there is no .sarib support (the hosted version). */
 function SaribCard() {
   const [st, setSt] = useState<SaribStatus | null>(null)
   const [showLog, setShowLog] = useState(false)
@@ -234,6 +234,7 @@ function SaribCard() {
   }
 
   const installed = !!st?.command
+  if (!st) return null
   return (
     <div className="mt-6 rounded-xl border border-line bg-surface p-4 shadow-card">
       <div className="flex items-start gap-3">

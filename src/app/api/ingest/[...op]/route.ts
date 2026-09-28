@@ -14,6 +14,7 @@ export const dynamic = "force-dynamic"
  *   POST /api/ingest/events          { events: EngineEvent[] }   (OpenCode session/message/part events)
  *   POST /api/ingest/memory/<op>     search | list | get | save | update | delete
  *   GET  /api/ingest/keys?have=a,b   the user's active routable keys (same shape as SYRUP_KEYS)
+ *   GET  /api/ingest/memory/version  { version } that changes whenever the user's memories do
  * The token binds every call to one user and one workspace; RLS does the rest.
  * (/api/ingest/logs has its own route.)
  */
@@ -83,6 +84,13 @@ export async function GET(req: Request, ctx: { params: Promise<{ op: string[] }>
   const claims = verifyIngestToken(req.headers.get("authorization")?.replace(/^Bearer /, ""))
   if (!claims) return Response.json({ error: "invalid ingest token" }, { status: 401 })
   const { op } = await ctx.params
+  if (op.join("/") === "memory/version") {
+    try {
+      return Response.json({ version: await pgMemoryStore(claims.u).version() }, { headers: { "cache-control": "no-store" } })
+    } catch (err) {
+      return Response.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 })
+    }
+  }
   if (op.join("/") !== "keys") return Response.json({ error: `unknown ingest op ${op.join("/")}` }, { status: 404 })
   try {
     const keys = Object.fromEntries(Object.entries(await activeKeyDetails(claims.u)).filter(([providerId]) => BASE_URL[providerId]))

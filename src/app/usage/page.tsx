@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { useEffect, useState } from "react"
 import { Skel } from "@/components/brew"
-import { useEngine } from "@/lib/engine-store"
+import { useOptionalEngine } from "@/lib/engine-store"
 import { fmtCost, fmtRelative, fmtTokens } from "@/lib/format"
 
 type Sums = {
@@ -23,20 +23,23 @@ type Usage = {
   totals: Sums
   byModel: (Sums & { providerId: string; modelId: string; free: number })[]
   byDay: (Sums & { day: string })[]
-  bySession: (Sums & { sessionId: string; last: number })[]
+  /** Cloud rows carry the workspace (chat URLs are per workspace) and the stored title. */
+  bySession: (Sums & { sessionId: string; last: number; workspaceId?: string; title?: string | null })[]
   routed: { totals: RSums; byBackend: (RSums & { alias: string; providerId: string; modelId: string; tier: string })[] }
 }
 
 export default function UsagePage() {
   const [days, setDays] = useState(30)
   const [data, setData] = useState<Usage | null>(null)
-  const { sessions } = useEngine()
+  const sessions = useOptionalEngine()?.sessions
 
   useEffect(() => {
     let alive = true
     void fetch(`/api/usage?days=${days}`)
-      .then((r) => r.json())
-      .then((d: Usage) => alive && setData(d))
+      .then((r) => (r.ok ? (r.json() as Promise<Usage>) : null))
+      .then((d) => {
+        if (alive && d) setData(d)
+      })
     return () => {
       alive = false
     }
@@ -151,8 +154,8 @@ export default function UsagePage() {
             <Table
               head={["Session", "Last active", "Messages", "Tokens", "Cost"]}
               rows={(data?.bySession ?? []).map((s) => [
-                <Link key="s" href={`/s/${s.sessionId}`} className="text-ink hover:underline">
-                  {sessions[s.sessionId]?.title || s.sessionId}
+                <Link key="s" href={s.workspaceId ? `/w/${s.workspaceId}/s/${s.sessionId}` : `/s/${s.sessionId}`} className="text-ink hover:underline">
+                  {s.title || sessions?.[s.sessionId]?.title || s.sessionId}
                 </Link>,
                 fmtRelative(s.last),
                 String(s.messages),

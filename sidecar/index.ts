@@ -25,19 +25,48 @@ const router = createRouter({ store: new HttpRouterStore(cfg, log.fn), log: log.
 
 /** MEMORY.md that OpenCode loads as instructions (engine/sandbox.ts engineConfig). Rewritten after every change. */
 const INDEX_PATH = process.env.SYRUP_MEMORY_INDEX ?? "/vercel/.syrup/MEMORY.md"
+/** How often to ask the syrup app whether the user's memories changed elsewhere (the Memory page, another workspace). */
+const INDEX_POLL_MS = Number(process.env.SYRUP_MEMORY_POLL_MS ?? 30_000)
 
-/** Memory store that keeps the on-disk index in step with the remote store. */
+/**
+ * Memory store that keeps the on-disk index in step with the remote store:
+ * rewritten after the agent's own changes, and whenever the app's cheap
+ * version stamp moves because memories changed outside this sandbox.
+ */
 class IndexedMemoryStore implements MemoryStore {
-  constructor(private inner: MemoryStore) {}
+  private seen: string | undefined
+  private wrote = false
+  private pollFailing = false
+  constructor(private inner: HttpMemoryStore) {}
   async writeIndex() {
     let rows: Awaited<ReturnType<MemoryStore["list"]>> = []
     try {
       rows = await this.inner.list(150)
     } catch (err) {
       log.fn("sidecar", "memory_index.failed", err, { level: "warn" })
+      if (this.wrote) return
     }
     mkdirSync(INDEX_PATH.slice(0, INDEX_PATH.lastIndexOf("/")), { recursive: true })
     writeFileSync(INDEX_PATH, renderMemoryIndex(rows), "utf8")
+    this.wrote = true
+  }
+  /** Rewrites the index when the version stamp moved. At start it always writes, so OpenCode has a file to load. */
+  async refresh(start = false) {
+    let v: string | undefined
+    try {
+      v = await this.inner.version()
+      this.pollFailing = false
+    } catch (err) {
+      if (!this.pollFailing) log.fn("sidecar", "memory_version.failed", err, { level: "warn" })
+      this.pollFailing = true
+      if (!start) return
+    }
+    if (!start && v === this.seen) return
+    await this.writeIndex()
+    if (v !== undefined) this.seen = v
+  }
+  watch(ms: number) {
+    setInterval(() => void this.refresh(), ms).unref()
   }
   search = (q: string, limit: number) => this.inner.search(q, limit)
   list = (limit: number) => this.inner.list(limit)
@@ -59,7 +88,8 @@ class IndexedMemoryStore implements MemoryStore {
 }
 
 const memory = new IndexedMemoryStore(new HttpMemoryStore(cfg))
-await memory.writeIndex()
+await memory.refresh(true)
+memory.watch(INDEX_POLL_MS)
 const tap = startEventTap(cfg, log.fn)
 
 const server = http.createServer((req, res) => {

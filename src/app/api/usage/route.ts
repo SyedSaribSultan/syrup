@@ -1,14 +1,33 @@
 import { desc, sql } from "drizzle-orm"
+import { handler, requireUser } from "@/server/cloud/session"
+import { cloudUsage } from "@/server/cloud/usage"
 import { db, dbReady, schema } from "@/server/db"
+import { env } from "@/server/env"
 
 export const dynamic = "force-dynamic"
 
 const u = schema.usageEvents
 
-/** Aggregates for the cost dashboard. Everything comes from usage_events. */
+function windowDays(req: Request): number {
+  return Math.max(1, Math.min(365, Number(new URL(req.url).searchParams.get("days") ?? 30)))
+}
+
+/** Cloud: the signed-in user's messages and router_events from Postgres, same shape; ?workspace= narrows to one workspace. */
+const cloudGET = handler(async (req: Request) => {
+  const me = await requireUser()
+  const workspace = new URL(req.url).searchParams.get("workspace")
+  const days = windowDays(req)
+  return Response.json(await cloudUsage(me.id, Number.isFinite(days) ? days : 30, workspace), { headers: { "cache-control": "no-store" } })
+})
+
 export async function GET(req: Request) {
+  return env.isCloud ? cloudGET(req) : localGET(req)
+}
+
+/** Aggregates for the cost dashboard. Everything comes from usage_events. */
+async function localGET(req: Request) {
   await dbReady()
-  const days = Math.max(1, Math.min(365, Number(new URL(req.url).searchParams.get("days") ?? 30)))
+  const days = windowDays(req)
   const since = Date.now() - days * 86_400_000
   const d = db()
 

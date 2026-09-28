@@ -47,9 +47,9 @@ function localGuard(req: NextRequest): NextResponse {
   return NextResponse.next()
 }
 
-/** Local-engine features that have no cloud implementation yet (Phase 2/3). */
-const LOCAL_ONLY_API = /^\/api\/(oc|memory|skills|usage|workspace|sarib)(\/|$)/
-const LOCAL_ONLY_PAGE = /^\/(memory|skills|usage|s)(\/|$)/
+/** Local-only by design: the local engine proxy, local folder routes and local chat URLs. The cloud has its own equivalents. */
+const LOCAL_ONLY_API = /^\/api\/(oc|workspace)(\/|$)/
+const LOCAL_ONLY_PAGE = /^\/s(\/|$)/
 
 const PUBLIC = [/^\/signin(\/|$)/, /^\/legal(\/|$)/, /^\/api\/auth(\/|$)/, /^\/api\/health$/, /^\/ingest(\/|$)/]
 
