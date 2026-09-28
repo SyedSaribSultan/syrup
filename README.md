@@ -117,7 +117,7 @@ A Google AI Studio key is still worth adding for its quality, but it runs out qu
 
 ## Sharing chats
 
-Press **Share** in a chat's header to get a link to a read-only snapshot of it. Anyone with the link can open it without an account; later messages stay private until you **Update link**, and **Stop sharing** kills it immediately. Snapshots include everything (messages, tool steps with inputs and outputs, reasoning, small attachments); things that look like secrets are redacted and file paths are shortened. Shared pages are never indexed by search engines.
+Press **Share** in a chat's header to get a link to a read-only snapshot of it. Anyone with the link can open it without an account; later messages stay private until you **Update link**, and **Stop sharing** takes it down within seconds. Snapshots include everything (messages, tool steps with inputs and outputs, reasoning, small attachments); things that look like secrets are redacted and file paths are shortened. Shared pages are never indexed by search engines.
 
 Every link also has machine-readable versions, handy for debugging with other tools and agents:
 

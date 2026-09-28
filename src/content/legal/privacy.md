@@ -56,7 +56,7 @@ When you press **Share** on a chat, we store a **snapshot** of that chat and giv
 - Before a snapshot is stored we automatically **redact** things that look like secrets (API keys, tokens, passwords in URLs) and shorten file paths. Redaction is best-effort: review a chat before sharing it.
 - Shared pages ask search engines **not to index** them, set **no cookies** and load **no analytics**. We store a view count; your browser keeps one local-storage entry (`syrup.viewed.<id>`) so a view is counted once per day.
 - A **debug link** (optional, for troubleshooting) also includes the router's record of which model answered and any errors. It expires after 24 hours.
-- You can **stop sharing** at any time; the link stops working immediately. Deleting the chat, its workspace or your account removes the snapshot.
+- You can **stop sharing** at any time; the link stops working within seconds. Deleting the chat, its workspace or your account removes the snapshot.
 
 Legal basis: your request (Art. 6(1)(b)).
 

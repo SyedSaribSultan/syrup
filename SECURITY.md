@@ -32,7 +32,7 @@ syrup runs a coding agent that reads, writes and executes code. Two modes exist:
 - Links use unguessable ids (22 base62 characters, about 131 bits from a secure random source). Anyone holding a link can read that snapshot; treat links like passwords.
 - Snapshots are sanitized before storage: only listed fields are copied (never the system prompt, memory index, keys or absolute paths), secret-looking strings and every key the server knows are redacted, and paths become workspace-relative. Redaction is best-effort.
 - In the cloud, public reads go through one SECURITY DEFINER function that returns a single non-revoked share by id; the rest of the database stays behind row-level security.
-- Debug links are HMAC-signed with an expiry of at most 24 hours. Revoking a share, or deleting its chat, workspace or account, takes it down immediately, including cached copies.
+- Debug links are HMAC-signed with an expiry of at most 24 hours. Revoking a share, or deleting its chat, workspace or account, takes it down within seconds, including cached copies (the edge cache is purged by tag; in practice about 2 seconds).
 - Shared pages send `X-Robots-Tag: noindex`, set no cookies and load no analytics.
 
 Out of scope: vulnerabilities in the model providers you connect, in OpenCode itself (report those to https://github.com/sst/opencode), or attacks that require an already-compromised machine.
