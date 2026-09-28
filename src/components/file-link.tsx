@@ -6,6 +6,7 @@ import { useEngine } from "@/lib/engine-store"
 import {
   cloudExists,
   cloudRead,
+  copyText,
   download,
   hostOS,
   isExecutable,
@@ -17,13 +18,14 @@ import {
   type LocalAction,
   type WorkspaceFile,
 } from "@/lib/file-actions"
+import { usePanel } from "@/lib/panel"
 import { useDismiss } from "@/lib/use-dismiss"
 import { Brew } from "./brew"
 
 /**
  * A file mention: click reveals it (local: a new File Explorer window with the
- * file selected; cloud: its contents), right-click opens a menu of actions.
- * Paths outside the workspace render as plain text.
+ * file selected; cloud: opens it in the Files panel), right-click opens a menu
+ * of actions. Paths outside the workspace render as plain text.
  */
 export function FileLink({ path, children, className = "" }: { path: string; children?: ReactNode; className?: string }) {
   const fm = useFileMenu(path)
@@ -33,7 +35,7 @@ export function FileLink({ path, children, className = "" }: { path: string; chi
       <button
         type="button"
         {...fm.bind}
-        title={`${fm.file.abs}\n${fm.cloud ? "Click to view" : "Click to show in folder"} · right-click for more`}
+        title={`${fm.file.abs}\n${fm.cloud ? "Click to open in the panel" : "Click to show in folder"} · right-click for more`}
         className={`cursor-pointer text-left underline decoration-muted/40 decoration-dotted underline-offset-[3px] transition hover:text-accent hover:decoration-accent focus-visible:rounded-sm focus-visible:outline-1 focus-visible:outline-accent ${className}`}
       >
         {children ?? (fm.file.rel === "." ? fm.file.name : fm.file.rel)}
@@ -50,11 +52,13 @@ const anchorOf = (el: HTMLElement): Anchor => {
 }
 
 type Toast = { text: string; tone?: "warn"; at: number }
-type Item = { label: string; hint?: string; run(): void } | "sep"
+export type MenuItem = { label: string; hint?: string; run(): void } | "sep"
+type Item = MenuItem
 
 /** The behavior behind FileLink, for elements that already have their own click (e.g. a diff row): spread `bind.onContextMenu`, render `ui`. */
 export function useFileMenu(path: string) {
   const { directory, connection } = useEngine()
+  const panel = usePanel()
   const file = useMemo(() => resolveFile(directory, path), [directory, path])
   const cloud = !!connection
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
@@ -105,15 +109,7 @@ export function useFileMenu(path: string) {
 
   const copy = useCallback(
     async (text: string, what: string) => {
-      try {
-        await navigator.clipboard.writeText(text)
-      } catch {
-        const ta = Object.assign(document.createElement("textarea"), { value: text })
-        document.body.appendChild(ta)
-        ta.select()
-        document.execCommand("copy")
-        ta.remove()
-      }
+      await copyText(text)
       flash(`Copied ${what}`)
     },
     [flash],
@@ -124,7 +120,8 @@ export function useFileMenu(path: string) {
       e.stopPropagation()
       trigger.current = e.currentTarget
       setAnchor(anchorOf(e.currentTarget))
-      void (cloud ? view() : local("reveal"))
+      if (cloud && panel) panel.openFile(path)
+      else void (cloud ? view() : local("reveal"))
     },
     onContextMenu(e: MouseEvent<HTMLElement>) {
       if (!file) return
@@ -141,13 +138,12 @@ export function useFileMenu(path: string) {
   let ui: ReactNode = null
   if (file && (menu || toast || viewing)) {
     const os = hostOS()
+    const inPanel: Item[] = panel ? [{ label: "Open in panel", run: () => panel.openFile(path) }] : []
     const items: Item[] = cloud
-      ? [
-          { label: "View file", run: () => void view() },
-          { label: "Download", run: () => void save() },
-        ]
+      ? [...(panel ? inPanel : [{ label: "View file", run: () => void view() }]), { label: "Download", run: () => void save() }]
       : [
           { label: revealLabel(os), run: () => void local("reveal") },
+          ...inPanel,
           { label: "Open", hint: isExecutable(file.name, isWindowsPath(directory)) ? "runs it" : undefined, run: () => void local("open") },
           { label: "Open containing folder", run: () => void local("folder") },
         ]
@@ -193,7 +189,7 @@ function ToastView({ toast, anchor, onDone }: { toast: Toast; anchor: Anchor | n
   )
 }
 
-function Menu({ at, title, items, onClose }: { at: { x: number; y: number }; title: string; items: Item[]; onClose(refocus?: boolean): void }) {
+export function Menu({ at, title, items, onClose }: { at: { x: number; y: number }; title: string; items: Item[]; onClose(refocus?: boolean): void }) {
   const ref = useRef<HTMLDivElement>(null)
   const dismiss = useCallback(() => onClose(false), [onClose])
   useDismiss(ref, true, dismiss)

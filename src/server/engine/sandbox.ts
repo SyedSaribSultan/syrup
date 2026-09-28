@@ -376,3 +376,17 @@ export async function destroyWorkspaceSandbox(userId: string, workspaceId: strin
     slog("engine", "sandbox.delete_skipped", { workspaceId, err }, { level: "warn", directory: workspaceId })
   }
 }
+
+/** Files panel (cloud): the running sandbox of a workspace the user owns, and the folder the agent works in. Thrown Responses for route handlers. */
+export async function workspaceFiles(userId: string, workspaceId: string): Promise<{ sb: Sandbox; root: string }> {
+  const ws = await getWorkspace(userId, workspaceId)
+  if (!ws?.sandbox) throw Response.json({ error: "not found" }, { status: 404 })
+  let sb: Sandbox
+  try {
+    sb = await Sandbox.get({ name: ws.sandbox.vercelName, resume: false })
+  } catch {
+    throw Response.json({ error: "This workspace hasn't started yet." }, { status: 409 })
+  }
+  if (sb.status !== "running") throw Response.json({ error: "This workspace is asleep. Send a message to wake it." }, { status: 409 })
+  return { sb, root: workDir(ws) }
+}

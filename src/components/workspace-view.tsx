@@ -4,11 +4,13 @@ import { useParams, useRouter } from "next/navigation"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { EngineProvider, useEngine, type EngineConnection } from "@/lib/engine-store"
 import { openSandbox } from "@/lib/home"
+import { PanelProvider } from "@/lib/panel"
 import { useNow } from "@/lib/use-now"
 import { Brew } from "./brew"
 import { EgressEditor } from "./egress-editor"
 import { NewChat } from "./new-chat"
 import { SessionView } from "./session-view"
+import { Workbench } from "./side-panel"
 import { Sidebar } from "./sidebar"
 
 /**
@@ -93,16 +95,18 @@ export function WorkspaceView({ workspaceId, egressAllow, hasKeys }: { workspace
 
   return (
     <EngineProvider connection={conn} remote>
-      <ConnectionWatch onLost={() => void open("reopen")} />
-      <AbortOnUnload />
-      <div className="flex h-full min-h-0 flex-1">
-        <Sidebar status={<SandboxStatus ready={ready} start={start} beat={beat} reopening={reopening} failed={!!error} />} footer={<SandboxControls workspaceId={workspaceId} egressAllow={egressAllow} />} />
-        <main className="relative flex min-w-0 flex-1 flex-col">
-          <SessionCapNotice beat={beat} />
-          {error && sessionId && <OpenError error={error} onRetry={retry} />}
-          {sessionId ? <SessionView id={sessionId} /> : <NewChat hrefFor={(id) => `/w/${workspaceId}/s/${id}`} noKeys={!hasKeys} error={error} onRetry={retry} />}
-        </main>
-      </div>
+      <PanelProvider workspaceId={workspaceId}>
+        <ConnectionWatch onLost={() => void open("reopen")} />
+        <AbortOnUnload />
+        <div className="flex h-full min-h-0 flex-1">
+          <Sidebar status={<SandboxStatus ready={ready} start={start} beat={beat} reopening={reopening} failed={!!error} />} footer={<SandboxControls workspaceId={workspaceId} egressAllow={egressAllow} />} />
+          <main className="relative flex min-w-0 flex-1 flex-col">
+            <SessionCapNotice beat={beat} />
+            {error && sessionId && <OpenError error={error} onRetry={retry} />}
+            <Workbench>{sessionId ? <SessionView id={sessionId} /> : <NewChat hrefFor={(id) => `/w/${workspaceId}/s/${id}`} noKeys={!hasKeys} error={error} onRetry={retry} />}</Workbench>
+          </main>
+        </div>
+      </PanelProvider>
     </EngineProvider>
   )
 }

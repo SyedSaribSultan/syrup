@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { useState } from "react"
 import { Brew } from "@/components/brew"
 import { Composer, type Attachment } from "@/components/composer"
+import { PanelToggle } from "@/components/side-panel"
 import { useEngine } from "@/lib/engine-store"
 
 type Props = {
@@ -41,6 +42,7 @@ export function NewChat({ hrefFor, noKeys, error, onRetry }: Props) {
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center px-6 pb-24">
+      <PanelToggle className="absolute top-3 right-4" />
       <div className="w-full max-w-[720px]">
         {pending ? (
           <div className="mb-6 space-y-4">

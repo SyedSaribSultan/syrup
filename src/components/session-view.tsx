@@ -7,6 +7,7 @@ import { Composer } from "@/components/composer"
 import { useLogs } from "@/components/logs-modal"
 import { MessageView } from "@/components/message"
 import { Prompts } from "@/components/prompts"
+import { PanelToggle } from "@/components/side-panel"
 import { useEngine } from "@/lib/engine-store"
 import { fmtCost, fmtTokens } from "@/lib/format"
 
@@ -77,6 +78,7 @@ export function SessionView({ id }: { id: string }) {
           <button type="button" onClick={openLogs} className="rounded-lg px-2 py-1 text-xs text-ink-2 transition hover:bg-surface-2 hover:text-ink">
             Logs
           </button>
+          <PanelToggle />
         </div>
       </header>
 

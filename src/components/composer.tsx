@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react"
+import { PREFILL_EVENT } from "@/lib/panel"
 import { Drip } from "./brew"
 import { ModelPicker } from "./model-picker"
 
@@ -32,6 +33,23 @@ export function Composer({ onSend, onStop, busy, autoFocus, placeholder }: Props
   const [warn, setWarn] = useState<string | null>(null)
   const ta = useRef<HTMLTextAreaElement>(null)
   const picker = useRef<HTMLInputElement>(null)
+
+  // Text handed over from elsewhere (the Files panel's "ask for a web version").
+  useEffect(() => {
+    const onPrefill = (e: Event) => {
+      const t = (e as CustomEvent<string>).detail
+      if (typeof t !== "string") return
+      setText(t)
+      requestAnimationFrame(() => {
+        const el = ta.current
+        if (!el) return
+        el.focus()
+        el.setSelectionRange(t.length, t.length)
+      })
+    }
+    window.addEventListener(PREFILL_EVENT, onPrefill)
+    return () => window.removeEventListener(PREFILL_EVENT, onPrefill)
+  }, [])
 
   // Grow with content, up to a cap.
   useEffect(() => {

@@ -206,6 +206,8 @@ type Ctx = State & {
   hasKeys: boolean
   /** Booted with a workspace directory. createSession and send wait for this, so a message typed early is kept, not lost. */
   ready: boolean
+  /** Called (often, in bursts) when the agent may have changed workspace files. Returns an unsubscribe. */
+  onFilesChanged(cb: () => void): () => void
 }
 
 const EngineContext = createContext<Ctx | null>(null)
@@ -279,6 +281,12 @@ export function EngineProvider({ children, connection, remote }: { children: Rea
   // Event stream for the current workspace. Reconnects on drop.
   const reconnects = useRef(0)
   const loadedSessions = useRef(new Set<string>())
+  // A listener set, not state: file events come in bursts and only the Files panel cares.
+  const fileListeners = useRef(new Set<() => void>())
+  const onFilesChanged = useCallback((cb: () => void) => {
+    fileListeners.current.add(cb)
+    return () => void fileListeners.current.delete(cb)
+  }, [])
   useEffect(() => {
     if (!dir) return
     const ctrl = new AbortController()
@@ -340,6 +348,9 @@ export function EngineProvider({ children, connection, remote }: { children: Rea
 
     function handle(ev: RawEvent) {
       const p = ev.properties
+      if (ev.type === "file.edited" || ev.type === "file.watcher.updated" || ev.type === "session.idle" || (ev.type === "message.part.updated" && (p.part as Part | undefined)?.type === "patch")) {
+        for (const cb of fileListeners.current) cb()
+      }
       switch (ev.type) {
         case "session.created":
         case "session.updated":
@@ -604,6 +615,7 @@ export function EngineProvider({ children, connection, remote }: { children: Rea
     models,
     hasKeys,
     ready,
+    onFilesChanged,
   }
   return <EngineContext.Provider value={value}>{children}</EngineContext.Provider>
 }

@@ -1,6 +1,6 @@
 "use client"
 
-import { oc, type Connection } from "./oc"
+import { oc, type Connection, type FileContent } from "./oc"
 
 /**
  * File mentions in chats: what counts as a path, how it resolves against the
@@ -151,8 +151,11 @@ export async function cloudRead(dir: string, conn: Connection | null, f: Workspa
   const r = await oc(dir, conn)
     .file.read({ query: { path: f.rel } })
     .catch(() => null)
-  const d = r?.data
-  if (!d) return null
+  return r?.data ? bodyOf(r.data) : null
+}
+
+/** An engine file read as text or bytes. The engine trims text files, so text is not byte-exact. */
+export function bodyOf(d: FileContent): FileBody {
   if (d.type === "text" && d.encoding !== "base64") return { kind: "text", text: d.content }
   const bin = atob(d.content)
   const bytes = new Uint8Array(bin.length)
@@ -161,7 +164,22 @@ export async function cloudRead(dir: string, conn: Connection | null, f: Workspa
 }
 
 export function download(name: string, body: FileBody) {
-  const blob = body.kind === "text" ? new Blob([body.text], { type: "text/plain;charset=utf-8" }) : new Blob([body.bytes], { type: body.mime || "application/octet-stream" })
+  saveBlob(name, body.kind === "text" ? new Blob([body.text], { type: "text/plain;charset=utf-8" }) : new Blob([body.bytes], { type: body.mime || "application/octet-stream" }))
+}
+
+export async function copyText(text: string) {
+  try {
+    await navigator.clipboard.writeText(text)
+  } catch {
+    const ta = Object.assign(document.createElement("textarea"), { value: text })
+    document.body.appendChild(ta)
+    ta.select()
+    document.execCommand("copy")
+    ta.remove()
+  }
+}
+
+export function saveBlob(name: string, blob: Blob) {
   const url = URL.createObjectURL(blob)
   const a = document.createElement("a")
   a.href = url
