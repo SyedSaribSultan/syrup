@@ -50,6 +50,13 @@
       "when": 1790565250270,
       "tag": "0006_shared_chats",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1790570485536,
+      "tag": "0007_message_feedback",
+      "breakpoints": true
     }
   ]
 }

@@ -1,8 +1,9 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
+import { Insights } from "@/components/admin-insights"
 
-type User = { id: string; email: string; name: string | null; createdAt: string; lastSeenAt: string | null; analyticsOptOut: boolean; keys: number; research: boolean }
+type User = { id: string; email: string; name: string | null; createdAt: string; lastSeenAt: string | null; blockedAt: string | null; analyticsOptOut: boolean; keys: number; research: boolean }
 type Req = { id: string; user_id: string; type: string; status: string; requested_at: string }
 type Box = { workspaceId: string; workspace: string; email: string; status: string; region: string; engineVersion: string | null; lastSessionStartedAt: string | null; totalSessionSeconds: number; totalCpuMs: number; lastError: string | null }
 type Pool = { sandboxes: Box[]; running: number; totalCpuMs: number; totalSessionSeconds: number; cpuBudgetMs: number }
@@ -31,6 +32,13 @@ export default function AdminPage() {
     return () => clearTimeout(t)
   }, [load])
 
+  async function setBlocked(u: User, blocked: boolean) {
+    if (blocked && !window.confirm(`Block ${u.email}? They can't sign in or use syrup until you unblock them, and their running sandboxes stop now.`)) return
+    const r = await fetch("/api/admin/users", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ userId: u.id, blocked }) })
+    if (!r.ok) window.alert((await r.json().catch(() => null))?.error ?? "That didn't work.")
+    await load()
+  }
+
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto w-full max-w-[960px] px-6 py-8">
@@ -38,6 +46,8 @@ export default function AdminPage() {
         <p className="mt-1 text-sm text-muted">
           Anyone with a verified Google account can sign in. Admins: <span className="font-mono text-ink-2">{admins.join(", ") || "—"}</span>
         </p>
+
+        <Insights />
 
         <section className="mt-6 rounded-xl border border-line bg-surface p-4 shadow-card">
           <h2 className="text-sm font-medium text-ink">
@@ -52,6 +62,7 @@ export default function AdminPage() {
                 <th className="py-1 font-medium">Keys</th>
                 <th className="py-1 font-medium">Analytics</th>
                 <th className="py-1 font-medium">Research</th>
+                <th className="py-1 font-medium" />
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
@@ -63,6 +74,19 @@ export default function AdminPage() {
                   <td className="py-2 text-ink-2">{u.keys}</td>
                   <td className="py-2 text-ink-2">{u.analyticsOptOut ? "opted out" : "on"}</td>
                   <td className="py-2 text-ink-2">{u.research ? "consented" : "—"}</td>
+                  <td className="py-2 text-right">
+                    {admins.includes(u.email) ? (
+                      <span className="text-[11px] text-muted">admin</span>
+                    ) : u.blockedAt ? (
+                      <button type="button" onClick={() => void setBlocked(u, false)} className="text-xs text-err hover:text-ink" title={`Blocked ${fmt(u.blockedAt)}`}>
+                        Blocked · Unblock
+                      </button>
+                    ) : (
+                      <button type="button" onClick={() => void setBlocked(u, true)} className="text-xs text-muted hover:text-err">
+                        Block
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

@@ -11,6 +11,7 @@ import { ShareButton } from "@/components/share-dialog"
 import { PanelToggle } from "@/components/side-panel"
 import { useEngine } from "@/lib/engine-store"
 import { fmtCost, fmtTokens } from "@/lib/format"
+import { useFeedback } from "@/lib/use-feedback"
 
 /** One chat session: header, message list, prompts, composer. Works against whatever engine the EngineProvider is connected to. */
 export function SessionView({ id }: { id: string }) {
@@ -27,6 +28,9 @@ export function SessionView({ id }: { id: string }) {
   }, [id, loadMessages])
 
   const entries = useMemo(() => (sm ? sm.order.map((mid) => sm.byId[mid]).filter(Boolean) : []), [sm])
+  const { ratings, rate } = useFeedback(id)
+  // Thumbs go on the last reply of each turn: an assistant message followed by the user's next message, or by nothing.
+  const turnEnds = useMemo(() => new Set(entries.filter((e, i) => e.info.role === "assistant" && entries[i + 1]?.info.role !== "assistant").map((e) => e.info.id)), [entries])
   const lastID = entries[entries.length - 1]?.info.id
   const lastRole = entries[entries.length - 1]?.info.role
   // Sent, but the engine has not opened the answer yet.
@@ -80,7 +84,13 @@ export function SessionView({ id }: { id: string }) {
         <div className="mx-auto w-full max-w-[720px] space-y-6 px-6 pt-6 pb-40">
           {!sm?.loaded && entries.length === 0 && <ChatSkeleton />}
           {entries.map((e) => (
-            <MessageView key={e.info.id} entry={e} streaming={busy && e.info.id === lastID && e.info.role === "assistant"} />
+            <MessageView
+              key={e.info.id}
+              entry={e}
+              streaming={busy && e.info.id === lastID && e.info.role === "assistant"}
+              rating={ratings[e.info.id] ?? null}
+              onRate={turnEnds.has(e.info.id) ? (r, model) => rate(e.info.id, r, model) : undefined}
+            />
           ))}
           {awaiting && (
             <div className="py-2">

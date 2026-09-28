@@ -240,6 +240,18 @@ async function cloudSnapshot(owner: Extract<Owner, { mode: "cloud" }>, sessionId
   return { transcript, sessionId: data.sess.id, workspaceId: data.sess.workspaceId, paths: CLOUD_PATHS, secrets }
 }
 
+/**
+ * One cloud chat as the admin research export sees it (src/app/api/admin/research-export): the same sanitized
+ * transcript a share link gets, built in that user's scope. Null when the chat is gone or too large.
+ */
+export async function researchTranscript(user: { id: string; email: string }, sessionId: string): Promise<Transcript | null> {
+  try {
+    return (await cloudSnapshot({ mode: "cloud", userId: user.id, email: user.email }, sessionId)).transcript
+  } catch {
+    return null
+  }
+}
+
 function build(input: Parameters<typeof buildTranscript>[0]): Transcript {
   try {
     return buildTranscript(input)

@@ -1,4 +1,4 @@
-> **Draft, version 2026-09-28.** Not yet reviewed by a lawyer. Items in [brackets] are placeholders. This policy explains what syrup.syedsarib.com collects and why, in plain language. We wrote it to be read.
+> **Draft, version 2026-09-28.2.** Not yet reviewed by a lawyer. Items in [brackets] are placeholders. This policy explains what syrup.syedsarib.com collects and why, in plain language. We wrote it to be read.
 
 ## 1. Controller
 
@@ -23,6 +23,7 @@
 | Attachments you add to chats | Same | Same |
 | Provider API keys, **encrypted** | Making the model requests you start | Until you remove them |
 | Usage and cost records per message | The usage dashboard, failover decisions | Raw records 13 months, then aggregated |
+| Thumbs up/down you give a reply, with the model that wrote it | Measuring which models answer well, so Auto picks better ones | Life of the account, or until you clear the rating |
 | Memory the agent saves and skills you install | The features you asked for | Life of the account, or until you delete them |
 | Consent records (which version you accepted, when, a hashed IP, browser string) | Proving what you agreed to | 6 years after withdrawal or account deletion |
 | Audit log (key added or removed, sign-in, export, deletion, consent changes) | Security and accountability | 2 years |
@@ -40,7 +41,7 @@ Legal basis: legitimate interest in improving the product (Art. 6(1)(f)). **You 
 
 ### 3c. Research data (only with your consent)
 
-If you turn on **Research Data Consent** in Settings, we may use the **content** of your conversations with the agent (prompts, replies, tool calls, results, and whether you accepted or reverted the agent's changes) to:
+If you turn on **Research Data Consent** in Settings, we may use the **content** of your conversations with the agent (prompts, replies, tool calls, results, how you rated replies, and whether you accepted or reverted the agent's changes) to:
 
 - evaluate and improve routing, prompts, and the agent's behavior;
 - build anonymized datasets and publish aggregate findings.

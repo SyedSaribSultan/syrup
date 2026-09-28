@@ -42,6 +42,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth(async () => {
         if (!email) return "/signin?error=email"
         // Google reports whether it verified the address; refuse unverified ones.
         if (profile && "email_verified" in profile && profile.email_verified === false) return "/signin?error=unverified"
+        const [existing] = await pg().select({ blockedAt: pgSchema.users.blockedAt }).from(pgSchema.users).where(eq(pgSchema.users.email, email))
+        if (existing?.blockedAt) return "/signin?error=blocked"
         return true
       },
     },

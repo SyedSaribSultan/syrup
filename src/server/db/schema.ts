@@ -138,3 +138,17 @@ export const sharedChats = sqliteTable("shared_chats", {
   updatedAt: integer("updated_at").notNull(),
   revokedAt: integer("revoked_at"),
 }, (t) => [index("shared_chats_session_idx").on(t.sessionId), index("shared_chats_created_idx").on(t.createdAt)])
+
+/** Thumbs up/down on an agent reply (src/server/feedback.ts). Stays on this machine. Clearing a rating deletes the row. */
+export const messageFeedback = sqliteTable("message_feedback", {
+  messageId: text("message_id").primaryKey(),
+  sessionId: text("session_id").notNull(),
+  /** 1 = good, -1 = bad. */
+  rating: integer("rating").notNull(),
+  /** "auto" / "fast" when the router picked the model, else null. */
+  alias: text("alias"),
+  providerId: text("provider_id"),
+  modelId: text("model_id"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (t) => [index("message_feedback_session_idx").on(t.sessionId)])

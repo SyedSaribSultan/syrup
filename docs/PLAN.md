@@ -137,6 +137,8 @@ Three layers, each with a different legal basis. This is what makes "store every
 
 **Layer C — Research data (train, evaluate, publish).** Use of message content, tool calls and outcomes for improving the router, prompts, or models, and for anonymized research. Basis: **explicit, unbundled consent**, a separate toggle at first run and in Settings, off by default, revocable (GDPR Art. 7(4): consent cannot be a condition of using the service). Consent is recorded in `consents`; the research pipeline filters on it at query time, so revoking excludes the data going forward and triggers deletion from research sets.
 
+**Signals and where to see them.** Thumbs up/down on the last reply of each turn go to `message_feedback` (both modes; local rows never leave the machine), stored with the model that really answered. Stopped turns and denied permissions are counted from the stored transcripts, so they need no extra tracking. The admin page's **Insights** section shows growth, where people drop off, answer quality and per-model reliability; its research export (`/api/admin/research-export`) downloads consenting users' chats as sanitized, pseudonymous JSON Lines. Admins can block an account (`users.blocked_at`): sign-in and API calls are refused and its sandboxes stop.
+
 Rights and plumbing (needed under GDPR/UK GDPR/CCPA regardless of where the company is):
 - **Export**: `POST /api/data-requests` → job builds a zip (JSON per table + attachments) to R2 → signed link emailed, 7-day expiry.
 - **Delete**: same route; account soft-deleted at once, sandbox and snapshots deleted at once, rows hard-deleted after 30 days, PostHog person deleted via API.

@@ -29,6 +29,8 @@ export const users = pgTable("users", {
   createdAt: ts("created_at").notNull().defaultNow(),
   lastSeenAt: ts("last_seen_at"),
   deletedAt: ts("deleted_at"),
+  /** Set by an admin: sign-in and every API call are refused, running sandboxes are stopped. */
+  blockedAt: ts("blocked_at"),
 })
 
 export const accounts = pgTable(
@@ -355,3 +357,26 @@ export const sharedChats = pgTable("shared_chats", {
   updatedAt: ts("updated_at").notNull().defaultNow(),
   revokedAt: ts("revoked_at"),
 }, (t) => [index("shared_chats_user_idx").on(t.userId, t.createdAt), index("shared_chats_session_idx").on(t.userId, t.sessionId)])
+
+// ---------------------------------------------------------------- feedback
+
+/**
+ * Thumbs up/down on an agent reply (src/server/feedback.ts). One row per rated
+ * message; clearing a rating deletes it. The model is the one that really
+ * answered (the router's pick for Auto/Fast), resolved in the browser.
+ */
+export const messageFeedback = pgTable("message_feedback", {
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  messageId: text("message_id").notNull(),
+  sessionId: text("session_id").notNull(),
+  /** 1 = good, -1 = bad. */
+  rating: smallint("rating").notNull(),
+  /** "auto" / "fast" when the router picked the model, else null. */
+  alias: text("alias"),
+  providerId: text("provider_id"),
+  modelId: text("model_id"),
+  createdAt: ts("created_at").notNull().defaultNow(),
+  updatedAt: ts("updated_at").notNull().defaultNow(),
+}, (t) => [primaryKey({ columns: [t.userId, t.messageId] }), index("message_feedback_session_idx").on(t.userId, t.sessionId)])

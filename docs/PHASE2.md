@@ -95,7 +95,7 @@ src/app/(app)/w/[id]/…       # workspace pages (chat lives here in cloud)
 ### S7 — Hardening and observability ✅ — data exports queue for an admin until R2 + Resend are configured
 - Egress allow-list from providers + git/package hosts + workspace extras; blocked-host tool errors offer one-click allow via `sandbox.update`.
 - Ingest token rotation every 45 min via heartbeat; password rotated on stop as well as start.
-- PostHog: workspace_created, sandbox_started/stopped (with CPU ms), message_sent (tokens bucket), sandbox_error, egress_blocked. Admin: sandbox pool view against the 5 CPU-hour budget. Kill switch `SYRUP_AGENT_ENABLED` + PostHog flag.
+- PostHog: workspace_created, sandbox_started/stopped (with CPU ms), message_sent (size bucket), sandbox_error. Admin: sandbox pool view against the 5 CPU-hour budget. Kill switch `SYRUP_AGENT_ENABLED` + PostHog flag.
 - Data-rights jobs (nightly cron): exports to R2 + Resend email, deletions after 30 days, log pruning. Needs R2 + Resend accounts.
 - Docs: ARCHITECTURE cloud runtime, PHASE2 numbers, SECURITY sandbox model, README hosted section.
 - **Gate:** a second account completes the whole flow; rows invisible under the admin's scope.

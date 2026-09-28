@@ -6,6 +6,7 @@ import type { Part } from "@/lib/oc"
 import { fmtCost, fmtTokens } from "@/lib/format"
 import { modelLabel, switchNote } from "@/lib/model-label"
 import { providerName } from "@/lib/model-registry"
+import type { RatedModel, Rating } from "@/lib/use-feedback"
 import { answersFor, useSessionAnswers } from "@/lib/use-session-answers"
 import { Brew } from "./brew"
 import { PartView } from "./parts"
@@ -23,7 +24,16 @@ function settled(p: Part | undefined): boolean {
   return p.type === "patch"
 }
 
-export function MessageView({ entry, streaming }: { entry: MessageEntry; streaming: boolean }) {
+type Props = {
+  entry: MessageEntry
+  streaming: boolean
+  /** The thumb given to this reply, if any. */
+  rating?: Rating | null
+  /** Set only on the last reply of a turn, which is the one that gets thumbs. */
+  onRate?: (rating: Rating | 0, model: RatedModel) => void
+}
+
+export function MessageView({ entry, streaming, rating = null, onRate }: Props) {
   const { info, parts } = entry
   // A shared snapshot: its router answers come with it, nothing is fetched and no timer runs.
   const ro = useReadOnly()
@@ -92,6 +102,12 @@ export function MessageView({ entry, streaming }: { entry: MessageEntry; streami
         .join(" · ")
     : null
 
+  const meta = routedLine ?? (tokens > 0 || info.cost > 0 ? `${info.modelID} · ${fmtTokens(tokens)} tokens · ${fmtCost(info.cost)}` : null)
+  const rateable = !!onRate && !ro && !streaming
+  const answeredBy: RatedModel = routed
+    ? { alias: info.modelID, providerId: final?.providerId ?? null, modelId: final?.modelId ?? null }
+    : { alias: null, providerId: info.providerID, modelId: info.modelID }
+
   return (
     <div className="group relative">
       <div className="space-y-1">
@@ -115,13 +131,34 @@ export function MessageView({ entry, streaming }: { entry: MessageEntry; streami
         )}
       </div>
       {note && <div className="mt-1.5 text-[11px] text-muted">{note}</div>}
-      {/* Hover-only in the app; a shared snapshot shows it always (touch screens have no hover). */}
-      {!streaming && routedLine && <div className={`mt-1.5 text-[11px] text-muted ${ro ? "" : "opacity-0 transition group-hover:opacity-100"}`}>{routedLine}</div>}
-      {!streaming && !routedLine && (tokens > 0 || info.cost > 0) && (
-        <div className={`mt-1.5 text-[11px] text-muted ${ro ? "" : "opacity-0 transition group-hover:opacity-100"}`}>
-          {info.modelID} · {fmtTokens(tokens)} tokens · {fmtCost(info.cost)}
+      {!streaming && (meta || rateable) && (
+        <div className="mt-1.5 flex items-center gap-2 text-[11px] text-muted">
+          {rateable && <Thumbs value={rating} onRate={(r) => onRate(r, answeredBy)} />}
+          {/* Hover-only in the app; a shared snapshot shows it always (touch screens have no hover). */}
+          {meta && <span className={ro ? "" : "opacity-0 transition group-hover:opacity-100"}>{meta}</span>}
         </div>
       )}
     </div>
+  )
+}
+
+// Lucide thumbs-up / thumbs-down (ISC).
+const THUMB_UP = "M7 10v12M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"
+const THUMB_DOWN = "M17 14V2M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z"
+
+/** Thumbs on a finished reply. Hover-only until one is chosen; clicking the chosen thumb again clears it. */
+function Thumbs({ value, onRate }: { value: Rating | null; onRate: (r: Rating | 0) => void }) {
+  const thumb = (r: Rating, label: string, d: string) => (
+    <button type="button" title={label} aria-label={label} aria-pressed={value === r} onClick={() => onRate(value === r ? 0 : r)} className={`rounded p-0.5 transition hover:text-ink ${value === r ? "text-ink" : ""}`}>
+      <svg width="13" height="13" viewBox="0 0 24 24" fill={value === r ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <path d={d} />
+      </svg>
+    </button>
+  )
+  return (
+    <span className={`flex items-center gap-0.5 ${value ? "" : "opacity-0 transition group-hover:opacity-100 focus-within:opacity-100"}`}>
+      {thumb(1, "Good reply", THUMB_UP)}
+      {thumb(-1, "Bad reply", THUMB_DOWN)}
+    </span>
   )
 }

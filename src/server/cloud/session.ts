@@ -26,11 +26,33 @@ async function opsViewer(): Promise<Viewer | null> {
   return u ? { id: u.id, email, name: u.name, admin: true } : null
 }
 
-/** The signed-in user, or a thrown 401 Response for route handlers to return. */
+// Blocked accounts (users.blocked_at). Sessions are JWTs, so the check is a DB read, cached per instance for a minute.
+const BLOCK_TTL_MS = 60_000
+const blockCache = new Map<string, { blocked: boolean; at: number }>()
+
+async function isBlocked(userId: string): Promise<boolean> {
+  const hit = blockCache.get(userId)
+  if (hit && Date.now() - hit.at < BLOCK_TTL_MS) return hit.blocked
+  await pgReady()
+  const [u] = await pg().select({ blockedAt: pgSchema.users.blockedAt }).from(pgSchema.users).where(eq(pgSchema.users.id, userId))
+  const blocked = !!u?.blockedAt
+  blockCache.set(userId, { blocked, at: Date.now() })
+  return blocked
+}
+
+/** Forget the cached answer so a block or unblock applies at once on this instance (others catch up within a minute). */
+export function forgetBlocked(userId: string) {
+  blockCache.delete(userId)
+}
+
+/** The signed-in user, or a thrown 401 Response for route handlers to return. Blocked accounts get a 403. */
 export async function requireUser(): Promise<Viewer> {
   const session = await auth()
   const u = session?.user
-  if (u?.id && u.email) return { id: u.id, email: u.email, name: u.name ?? null, admin: !!u.admin || isAdmin(u.email) }
+  if (u?.id && u.email) {
+    if (await isBlocked(u.id)) throw Response.json({ error: "this account is suspended" }, { status: 403 })
+    return { id: u.id, email: u.email, name: u.name ?? null, admin: !!u.admin || isAdmin(u.email) }
+  }
   const ops = await opsViewer()
   if (ops) return ops
   throw Response.json({ error: "sign in required" }, { status: 401 })
