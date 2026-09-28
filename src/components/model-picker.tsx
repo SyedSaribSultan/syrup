@@ -78,7 +78,8 @@ export function ModelPicker({ variant = "composer" }: { variant?: "composer" | "
   const badge = !current || isAlias ? null : current.free ? "free" : keyAccess(current, tiers) === "free-tier" ? "free tier" : null
 
   return (
-    <div ref={ref} className="relative">
+    // In the top bar the picker must be able to shrink (min-w-0), or a long model name pushes past the icons.
+    <div ref={ref} className={variant === "bar" ? "relative min-w-0 max-w-full" : "relative"}>
       <button
         ref={trigger}
         type="button"
@@ -110,7 +111,7 @@ export function ModelPicker({ variant = "composer" }: { variant?: "composer" | "
           </span>
         )}
         {badge && <span className="shrink-0 rounded bg-accent-soft px-1 text-[10px] font-medium text-accent">{badge}</span>}
-        <svg width="10" height="10" viewBox="0 0 10 10" className="opacity-60">
+        <svg width="10" height="10" viewBox="0 0 10 10" className="shrink-0 opacity-60">
           <path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" strokeWidth="1.3" />
         </svg>
       </button>

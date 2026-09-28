@@ -123,7 +123,7 @@ export function ShareDocument({ transcript: t, id, homeHref }: { transcript: Tra
       </header>
 
       {/* Long words wrap; code and tables scroll inside themselves (Markdown wraps them), never the page. */}
-      <main className="mx-auto w-full max-w-[720px] min-w-0 px-4 pt-6 pb-12 break-words medium:px-6 medium:pt-8">
+      <main className="chat-log mx-auto w-full max-w-[720px] min-w-0 px-4 pt-6 pb-12 medium:px-6 medium:pt-8">
         <ReadOnlyProvider answers={t.answers}>
           <div className="space-y-6">
             {entries.map((e) => (

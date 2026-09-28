@@ -190,6 +190,19 @@ body {
   scrollbar-color: var(--line-2) transparent;
 }
 
+/*
+ * Chat transcripts (the live chat, the share page). A URL, path, hash or key is one unbreakable "word";
+ * without this it pushes the column wider than a phone and the whole chat pans sideways. `anywhere`
+ * breaks such a word only when it can't fit, and also lets flex/max-width boxes shrink around it.
+ * Code blocks keep their lines and scroll inside themselves instead.
+ */
+.chat-log {
+  overflow-wrap: anywhere;
+}
+.chat-log pre {
+  overflow-wrap: normal;
+}
+
 /* Markdown body */
 /* Chat messages read in the softer ink; headings and bold keep full ink for hierarchy. */
 .chat-text {

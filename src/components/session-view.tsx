@@ -118,8 +118,9 @@ export function SessionView({ id }: { id: string }) {
         </div>
       </header>
 
-      <div ref={scroller} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-[720px] space-y-6 px-4 pt-5 pb-40 medium:px-6 medium:pt-6">
+      {/* overflow-x-hidden: a guard, so nothing that still overflows can make the chat pan sideways on a phone. */}
+      <div ref={scroller} onScroll={onScroll} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
+        <div className="chat-log mx-auto w-full max-w-[720px] space-y-6 px-4 pt-5 pb-40 medium:px-6 medium:pt-6">
           {!sm?.loaded && entries.length === 0 && <ChatSkeleton />}
           {entries.map((e) => (
             <MessageView
@@ -164,7 +165,7 @@ export function SessionView({ id }: { id: string }) {
           )}
           {/* On phones a permission or question waits right above the composer, where it can't scroll out of sight. */}
           {narrow && (
-            <div className="pointer-events-auto mb-2 max-h-[45dvh] overflow-y-auto overscroll-contain">
+            <div className="chat-log pointer-events-auto mb-2 max-h-[45dvh] overflow-y-auto overscroll-contain rounded-xl bg-bg shadow-card empty:hidden">
               <Prompts sessionID={id} />
             </div>
           )}

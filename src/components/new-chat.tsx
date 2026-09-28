@@ -73,7 +73,7 @@ export function NewChat({ hrefFor, noKeys, error, onRetry }: Props) {
             {pending ? (
               <div className="mb-6 space-y-4">
                 <div className="flex justify-end">
-                  <div className="max-w-[85%] rounded-2xl rounded-br-md bg-surface-2 px-4 py-2.5 text-[15px] leading-6 whitespace-pre-wrap text-ink opacity-70">
+                  <div className="max-w-[85%] rounded-2xl rounded-br-md bg-surface-2 px-4 py-2.5 text-[15px] leading-6 whitespace-pre-wrap text-ink opacity-70 [overflow-wrap:anywhere]">
                     {pending.text}
                     {pending.files.length > 0 && (
                       <div className={`flex flex-wrap gap-1.5 ${pending.text ? "mt-2" : ""}`}>
