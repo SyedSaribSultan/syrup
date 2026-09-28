@@ -77,7 +77,7 @@ export function MessageView({ entry, streaming, landed = false }: { entry: Messa
     const files = parts.filter((p) => p.type === "file")
     return (
       <div className="rise flex justify-end">
-        <div className="max-w-[85%] rounded-2xl rounded-br-md bg-surface-2 px-4 py-2.5 text-[15px] leading-6 text-ink whitespace-pre-wrap">
+        <div className="max-w-[85%] rounded-2xl rounded-br-md bg-surface-2 px-4 py-2.5 text-[15px] leading-6 text-ink-2 whitespace-pre-wrap">
           {text}
           {files.length > 0 && (
             <div className={`flex flex-wrap gap-1.5 ${text ? "mt-2" : ""}`}>

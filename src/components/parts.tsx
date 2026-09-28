@@ -10,7 +10,11 @@ import { useTypewriter } from "@/lib/use-typewriter"
 
 /** Streamed answer text types out; the typewriter is its arrival animation, so it gets no fade. */
 function TypedText({ text, live, end }: { text: string; live: boolean; end?: number }) {
-  return <Markdown text={useTypewriter(text, live, end)} />
+  return (
+    <div className="chat-text">
+      <Markdown text={useTypewriter(text, live, end)} />
+    </div>
+  )
 }
 
 /** Renders one message part. Unknown/structural parts render nothing. */

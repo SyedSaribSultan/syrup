@@ -123,6 +123,14 @@ body {
 }
 
 /* Markdown body */
+/* Chat messages read in the softer ink; headings and bold keep full ink for hierarchy. */
+.chat-text {
+  color: var(--ink-2);
+}
+.chat-text :is(h1, h2, h3, h4, strong) {
+  color: var(--ink);
+}
+
 .md {
   line-height: 1.65;
   font-size: 0.975rem;
