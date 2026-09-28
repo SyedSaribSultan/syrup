@@ -12,7 +12,9 @@
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",
     "sidecar:build": "node sidecar/build.mjs",
-    "test:router": "node scripts/test-router.mjs"
+    "test:router": "node scripts/test-router.mjs",
+    "test:transcript": "node scripts/test-transcript.mjs",
+    "chat:export": "node scripts/chat-export.mjs"
   },
   "dependencies": {
     "@auth/drizzle-adapter": "^1.11.3",

@@ -121,6 +121,12 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO sy
 
 Then set `DATABASE_URL` to the **pooled** connection string with `syrup_app` and its password in place of the owner's (same host and database). If the Vercel integration injected `DATABASE_URL`, override it in Part 8. Check it with `SELECT rolbypassrls FROM pg_roles WHERE rolname = 'syrup_app';` — it must return `false`.
 
+Create the role **before the first deploy**: migration `0011_shared_chats` grants the public share-reading functions to `syrup_app` only if the role already exists. If you create it later, run this once as the owner:
+
+```sql
+GRANT EXECUTE ON FUNCTION get_shared_chat(text), bump_shared_chat_views(text) TO syrup_app;
+```
+
 ## Part 5 — PostHog (EU)
 
 1. https://eu.posthog.com/signup (EU region; the URL matters). Create an organization and a project.
@@ -167,7 +173,7 @@ Project → **Settings** → **Environment Variables** → **Add New**. For each
 | `SYRUP_INVITES` | first invitees' emails | Part 6 | Optional once the admin page manages invites. |
 | `NEXT_PUBLIC_POSTHOG_KEY` | `phc_…` | Part 5 | Public by design. Optional. |
 | `NEXT_PUBLIC_POSTHOG_HOST` | `https://eu.i.posthog.com` | Part 5 | |
-| `NEXT_PUBLIC_APP_URL` | `https://<your-domain>` | — | Preview deployments override automatically via `VERCEL_URL`. |
+| `NEXT_PUBLIC_APP_URL` | `https://<your-domain>` | — | Preview deployments override automatically via `VERCEL_URL`. Set it in production so shared-chat links and their preview cards use your public domain. |
 | `CRON_SECRET` | 32 random bytes | `openssl rand -base64 32` | Vercel sends it to the nightly job in `vercel.json` (`/api/cron/daily`: log retention, account deletions). Without it the job refuses to run. |
 
 Optional:

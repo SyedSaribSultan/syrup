@@ -1,4 +1,4 @@
-> **Draft, version 2026-09-23.** Not yet reviewed by a lawyer. Items in [brackets] are placeholders. This policy explains what syrup.syedsarib.com collects and why, in plain language. We wrote it to be read.
+> **Draft, version 2026-09-28.** Not yet reviewed by a lawyer. Items in [brackets] are placeholders. This policy explains what syrup.syedsarib.com collects and why, in plain language. We wrote it to be read.
 
 ## 1. Controller
 
@@ -48,6 +48,17 @@ If you turn on **Research Data Consent** in Settings, we may use the **content**
 Before research use we remove secrets, emails and IP-like strings, and we never publish anything that identifies you or your code. This consent is **off by default**, is **not** a condition of using syrup, and can be **withdrawn** at any time in Settings. Withdrawal stops future use and removes your content from research datasets we control.
 
 Legal basis: consent (Art. 6(1)(a)). See the Research Data Consent document for the exact wording you agree to.
+
+### 3d. Shared chat links (only when you share)
+
+When you press **Share** on a chat, we store a **snapshot** of that chat and give you a link. **Anyone with the link can read the snapshot without an account.** It includes the messages, the agent's tool steps (inputs and outputs), its visible reasoning, and attachments up to 1 MB each. Messages sent after sharing stay private unless you update the link.
+
+- Before a snapshot is stored we automatically **redact** things that look like secrets (API keys, tokens, passwords in URLs) and shorten file paths. Redaction is best-effort: review a chat before sharing it.
+- Shared pages ask search engines **not to index** them, set **no cookies** and load **no analytics**. We store a view count; your browser keeps one local-storage entry (`syrup.viewed.<id>`) so a view is counted once per day.
+- A **debug link** (optional, for troubleshooting) also includes the router's record of which model answered and any errors. It expires after 24 hours.
+- You can **stop sharing** at any time; the link stops working immediately. Deleting the chat, its workspace or your account removes the snapshot.
+
+Legal basis: your request (Art. 6(1)(b)).
 
 ## 4. Who else sees your data (subprocessors)
 

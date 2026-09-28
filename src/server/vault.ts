@@ -60,3 +60,8 @@ export function open(sealed: string): string {
 export function hint(plain: string): string {
   return plain.length > 8 ? `…${plain.slice(-4)}` : "••••"
 }
+
+/** A purpose-bound key derived from the vault master key (HMAC-SHA256), e.g. for signing expiring links. Stable across restarts. */
+export function deriveKey(label: string): Buffer {
+  return crypto.createHmac("sha256", masterKey()).update(label).digest()
+}

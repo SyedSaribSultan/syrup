@@ -112,3 +112,29 @@ export const settings = sqliteTable("settings", {
   key: text("key").primaryKey(),
   value: text("value").notNull(),
 })
+
+/**
+ * Public share links (src/server/shares.ts). `snapshot` is the sanitized
+ * transcript (src/lib/transcript.ts) frozen at share time; later messages
+ * stay private until the owner updates the link. A revoked row is kept (so
+ * the id is never reused) but is never served again.
+ */
+export const sharedChats = sqliteTable("shared_chats", {
+  /** 22-char base62, 131 bits of randomness. */
+  id: text("id").primaryKey(),
+  /** Workspace folder the chat belongs to. Never published. */
+  directory: text("directory").notNull(),
+  sessionId: text("session_id").notNull(),
+  title: text("title").notNull().default(""),
+  /** JSON Transcript. */
+  snapshot: text("snapshot").notNull(),
+  /** JSON array of model labels. */
+  models: text("models").notNull().default("[]"),
+  messageCount: integer("message_count").notNull().default(0),
+  bytes: integer("bytes").notNull().default(0),
+  redactions: integer("redactions").notNull().default(0),
+  views: integer("views").notNull().default(0),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+  revokedAt: integer("revoked_at"),
+}, (t) => [index("shared_chats_session_idx").on(t.sessionId), index("shared_chats_created_idx").on(t.createdAt)])

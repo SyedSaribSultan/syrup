@@ -7,7 +7,9 @@ import posthog from "posthog-js"
  * prompt, code or key ever reaches a recording.
  */
 const key = process.env.NEXT_PUBLIC_POSTHOG_KEY
-if (key && typeof window !== "undefined") {
+// Shared chats (/c/…) load no analytics: their URL is the only key to a private chat, so it must not reach a third party.
+const sharePage = typeof window !== "undefined" && /^\/c(\/|$)/.test(window.location.pathname)
+if (key && typeof window !== "undefined" && !sharePage) {
   try {
     const dnt = navigator.doNotTrack === "1" || (window as unknown as { doNotTrack?: string }).doNotTrack === "1"
     posthog.init(key, {
@@ -35,6 +37,6 @@ if (key && typeof window !== "undefined") {
 
 export function onRouterTransitionStart(url: string) {
   try {
-    posthog.capture("$pageview_start", { url })
+    if (posthog.__loaded && !/^\/c(\/|$)/.test(new URL(url, window.location.origin).pathname)) posthog.capture("$pageview_start", { url })
   } catch {}
 }

@@ -78,6 +78,13 @@
       "when": 1790563395091,
       "tag": "0010_user_skills",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1790565248636,
+      "tag": "0011_shared_chats",
+      "breakpoints": true
     }
   ]
 }

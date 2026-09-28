@@ -337,3 +337,34 @@ export const userSkills = pgTable("user_skills", {
   createdAt: ts("created_at").notNull().defaultNow(),
   updatedAt: ts("updated_at").notNull().defaultNow(),
 }, (t) => [uniqueIndex("user_skills_user_name_idx").on(t.userId, t.name)])
+
+// ---------------------------------------------------------------- sharing
+
+/**
+ * Public share links (src/server/shares.ts). Tenant-scoped by RLS like every
+ * other table; the public viewer reads one row only through the
+ * get_shared_chat() SECURITY DEFINER function (drizzle-pg/0011_shared_chats.sql),
+ * which returns nothing for revoked rows or deleted accounts.
+ */
+export const sharedChats = pgTable("shared_chats", {
+  /** 22-char base62, 131 bits of randomness. */
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  workspaceId: text("workspace_id")
+    .notNull()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  sessionId: text("session_id").notNull(),
+  title: text("title").notNull().default(""),
+  /** The sanitized transcript (src/lib/transcript.ts), frozen at share time. */
+  snapshot: jsonb("snapshot").notNull(),
+  models: text("models").array().notNull().default([]),
+  messageCount: integer("message_count").notNull().default(0),
+  bytes: integer("bytes").notNull().default(0),
+  redactions: integer("redactions").notNull().default(0),
+  views: integer("views").notNull().default(0),
+  createdAt: ts("created_at").notNull().defaultNow(),
+  updatedAt: ts("updated_at").notNull().defaultNow(),
+  revokedAt: ts("revoked_at"),
+}, (t) => [index("shared_chats_user_idx").on(t.userId, t.createdAt), index("shared_chats_session_idx").on(t.userId, t.sessionId)])

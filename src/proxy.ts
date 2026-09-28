@@ -11,8 +11,8 @@ import { authConfig } from "./auth.config"
  * loopback Origin.
  *
  * Cloud mode: everything except sign-in, legal pages, the auth endpoints, the
- * health check and the analytics proxy requires a session. /admin requires an
- * admin session.
+ * health check, the analytics proxy and shared chats (/c/…) requires a
+ * session. /admin requires an admin session.
  */
 
 const MODE = process.env.SYRUP_MODE === "cloud" || process.env.SYRUP_MODE === "local" ? process.env.SYRUP_MODE : process.env.VERCEL ? "cloud" : "local"
@@ -51,7 +51,46 @@ function localGuard(req: NextRequest): NextResponse {
 const LOCAL_ONLY_API = /^\/api\/(oc|workspace)(\/|$)/
 const LOCAL_ONLY_PAGE = /^\/s(\/|$)/
 
-const PUBLIC = [/^\/signin(\/|$)/, /^\/legal(\/|$)/, /^\/api\/auth(\/|$)/, /^\/api\/health$/, /^\/ingest(\/|$)/]
+/** Shared chats (/c/<id> and its /md, /json, /debug, /view, preview image) are readable without an account; ids are unguessable. */
+const PUBLIC = [/^\/signin(\/|$)/, /^\/legal(\/|$)/, /^\/api\/auth(\/|$)/, /^\/api\/health$/, /^\/ingest(\/|$)/, /^\/c(\/|$)/]
+
+const SHARE_PAGE = /^\/c\/([0-9A-Za-z]{22})(\.md|\.json)?$/
+
+/** q-value of one media type in an Accept header (exact type only; 0 when absent). */
+function acceptQ(accept: string, type: string): number {
+  for (const part of accept.toLowerCase().split(",")) {
+    const [t, ...params] = part.trim().split(";")
+    if (t.trim() !== type) continue
+    const q = params.map((p) => p.trim()).find((p) => p.startsWith("q="))
+    return q ? Number(q.slice(2)) || 0 : 1
+  }
+  return 0
+}
+
+/**
+ * Machine-readable shares for tools: /c/<id>.md and /c/<id>.json, or /c/<id>
+ * with Accept: text/markdown (preferred over HTML) or application/json, serve
+ * the /md and /json variants. Browsers never ask for those, so they get the page.
+ */
+function shareVariant(req: NextRequest): NextResponse | null {
+  const m = req.nextUrl.pathname.match(SHARE_PAGE)
+  if (!m || (req.method !== "GET" && req.method !== "HEAD")) return null
+  let fmt = m[2] === ".md" ? "md" : m[2] === ".json" ? "json" : null
+  if (!fmt) {
+    const accept = req.headers.get("accept") ?? ""
+    const html = acceptQ(accept, "text/html")
+    const md = acceptQ(accept, "text/markdown")
+    const json = acceptQ(accept, "application/json")
+    if (md > 0 && md >= html) fmt = "md"
+    else if (json > 0 && json > html) fmt = "json"
+  }
+  if (!fmt) return null
+  const url = req.nextUrl.clone()
+  url.pathname = `/c/${m[1]}/${fmt}`
+  const res = NextResponse.rewrite(url)
+  res.headers.set("Vary", "Accept")
+  return res
+}
 
 const { auth } = NextAuth(authConfig)
 
@@ -77,6 +116,8 @@ const cloudGuard = auth((req) => {
 })
 
 export default function proxy(req: NextRequest, event: Parameters<typeof cloudGuard>[1]) {
+  const variant = shareVariant(req)
+  if (variant) return variant
   if (MODE === "local") return localGuard(req)
   return cloudGuard(req, event)
 }

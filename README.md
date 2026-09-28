@@ -115,6 +115,19 @@ OpenCode Zen works with no key, so you can start right away by picking one of it
 
 A Google AI Studio key is still worth adding for its quality, but it runs out quickly on the free tier. The Providers page shows the same guidance next to each provider, and you can tag each key free or paid so the router knows what it costs.
 
+## Sharing chats
+
+Press **Share** in a chat's header to get a link to a read-only snapshot of it. Anyone with the link can open it without an account; later messages stay private until you **Update link**, and **Stop sharing** kills it immediately. Snapshots include everything (messages, tool steps with inputs and outputs, reasoning, small attachments); things that look like secrets are redacted and file paths are shortened. Shared pages are never indexed by search engines.
+
+Every link also has machine-readable versions, handy for debugging with other tools and agents:
+
+- `/c/<id>/md` (or `/c/<id>.md`): a clean Markdown transcript
+- `/c/<id>/json` (or `/c/<id>.json`): the structured `syrup.transcript` v1 format (see `src/lib/transcript.ts`)
+- `/c/<id>` with `Accept: text/markdown` or `application/json` returns the same
+- **Copy debug link** (owner only, expires after 24 hours) adds the router's record of each step: which model answered, retries, errors and timings
+
+Locally, a link only opens on your machine, so the Share panel also exports Markdown, JSON or a self-contained HTML file. From a terminal, `pnpm chat:export <sessionId|latest> [--json] [--debug]` prints a local chat the same way.
+
 ## Hosted version
 
 The same codebase runs as a hosted product at https://syrup.syedsarib.com (invite-only early access): Google sign-in, per-user encrypted keys, and each workspace's agent in its own isolated sandbox. Design and roadmap: [docs/PLAN.md](docs/PLAN.md), [docs/PHASE2.md](docs/PHASE2.md). To run your own hosted instance, follow [docs/DEPLOY.md](docs/DEPLOY.md).

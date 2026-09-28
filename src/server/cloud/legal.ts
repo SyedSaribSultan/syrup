@@ -16,10 +16,10 @@ import { audit } from "./audit"
 export type LegalKind = "terms" | "privacy" | "research" | "cookies"
 
 export const LEGAL: Record<LegalKind, { title: string; version: string; file: string }> = {
-  terms: { title: "Terms of Service", version: "2026-09-23", file: "terms.md" },
-  privacy: { title: "Privacy Policy", version: "2026-09-23", file: "privacy.md" },
+  terms: { title: "Terms of Service", version: "2026-09-28", file: "terms.md" },
+  privacy: { title: "Privacy Policy", version: "2026-09-28", file: "privacy.md" },
   research: { title: "Research Data Consent", version: "2026-09-23", file: "research.md" },
-  cookies: { title: "Cookie Notice", version: "2026-09-23", file: "cookies.md" },
+  cookies: { title: "Cookie Notice", version: "2026-09-28", file: "cookies.md" },
 }
 
 const dir = path.join(process.cwd(), "src", "content", "legal")

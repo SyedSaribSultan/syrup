@@ -57,3 +57,8 @@ export function ipHash(ip: string | null | undefined): string | null {
   if (!ip) return null
   return crypto.createHmac("sha256", master()).update(ip).digest("base64url").slice(0, 24)
 }
+
+/** A purpose-bound key derived from SYRUP_MASTER_KEY (HMAC-SHA256), e.g. for signing expiring links. Never the master key itself. */
+export function deriveKey(label: string): Buffer {
+  return crypto.createHmac("sha256", master()).update(label).digest()
+}

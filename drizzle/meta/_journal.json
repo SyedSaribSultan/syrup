@@ -43,6 +43,13 @@
       "when": 1790470192883,
       "tag": "0005_router_events_routing",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1790565250270,
+      "tag": "0006_shared_chats",
+      "breakpoints": true
     }
   ]
 }

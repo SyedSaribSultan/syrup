@@ -1,4 +1,4 @@
-> **Version 2026-09-23.**
+> **Version 2026-09-28.**
 
 syrup uses very few cookies and no advertising or cross-site tracking. Because of that, we do not show a cookie banner.
 
@@ -9,6 +9,7 @@ syrup uses very few cookies and no advertising or cross-site tracking. Because o
 | `authjs.session-token` (or `__Secure-authjs.session-token`) | Keeps you signed in | 30 days |
 | `authjs.csrf-token`, `authjs.callback-url` | Protects the sign-in flow against forgery | Session |
 | `syrup.theme`, `syrup.ui` (local storage) | Remembers interface preferences on this device | Until cleared |
+| `syrup.viewed.<id>` (local storage, shared chat pages only) | Counts a view of a shared chat once per day; shared pages set no cookies | Until cleared |
 
 ## Analytics (can be turned off)
 

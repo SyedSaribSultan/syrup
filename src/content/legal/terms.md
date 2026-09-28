@@ -1,4 +1,4 @@
-> **Draft, version 2026-09-23.** This text has not yet been reviewed by a lawyer. Items in [brackets] are placeholders. It applies to the hosted service at syrup.syedsarib.com, not to the open-source code, which is under the MIT license.
+> **Draft, version 2026-09-28.** This text has not yet been reviewed by a lawyer. Items in [brackets] are placeholders. It applies to the hosted service at syrup.syedsarib.com, not to the open-source code, which is under the MIT license.
 
 ## 1. Who we are
 
@@ -19,6 +19,7 @@ syrup is a hosted coding agent. You sign in with a Google account, connect API k
 
 - **Your code, prompts, files and outputs are yours.** You grant us only the rights needed to run the service for you: to store, process, transmit and display them to you and to the model providers you connected.
 - **Provider API keys** you add are encrypted and used only to make requests you initiate through syrup. Your use of each provider is also governed by that provider's own terms and pricing. **You pay the providers directly**; syrup does not bill you for model usage.
+- **Shared links:** when you share a chat, you make its snapshot readable by anyone with the link. You are responsible for what you share; do not share content you don't have the right to share or that contains other people's personal data. We may disable a shared link that breaks these Terms.
 - **Research use** of your conversation content is **never** part of these Terms. It happens only if you separately turn on the Research Data Consent in Settings, and you can turn it off at any time. See the Privacy Policy.
 
 ## 5. Acceptable use

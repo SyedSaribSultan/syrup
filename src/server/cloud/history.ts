@@ -1,6 +1,7 @@
 import { and, desc, eq, isNull, sql } from "drizzle-orm"
 import { pgSchema, withUser } from "../db/pg"
 import type { RouterEvent } from "../router/store"
+import { invalidateShare } from "../share-cache"
 
 /**
  * Chat history in cloud mode. The sandbox sidecar taps OpenCode's event bus
@@ -30,6 +31,8 @@ const ms = (n?: number) => (n ? new Date(n) : undefined)
 
 export async function applyEvents(userId: string, workspaceId: string, events: EngineEvent[]): Promise<{ applied: number }> {
   let applied = 0
+  // Share links of chats deleted in this batch; their cached pages are expired after the commit.
+  const revokedShares: string[] = []
   await withUser(userId, async (tx) => {
     for (const ev of events) {
       const p = ev.properties ?? {}
@@ -50,6 +53,10 @@ export async function applyEvents(userId: string, workspaceId: string, events: E
           const info = p.info as SessionInfo | undefined
           if (!info?.id) break
           await tx.update(pgSchema.chatSessions).set({ deletedAt: new Date() }).where(and(eq(pgSchema.chatSessions.id, info.id), eq(pgSchema.chatSessions.userId, userId)))
+          // Deleting a chat takes its share link down too.
+          const sc = pgSchema.sharedChats
+          const gone = await tx.update(sc).set({ revokedAt: new Date() }).where(and(eq(sc.sessionId, info.id), eq(sc.userId, userId), isNull(sc.revokedAt))).returning({ id: sc.id })
+          revokedShares.push(...gone.map((g) => g.id))
           applied++
           break
         }
@@ -117,6 +124,7 @@ export async function applyEvents(userId: string, workspaceId: string, events: E
       }
     }
   })
+  for (const id of revokedShares) invalidateShare(id)
   return { applied }
 }
 

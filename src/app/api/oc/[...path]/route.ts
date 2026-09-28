@@ -1,5 +1,6 @@
 import { engine, engineAuthHeader } from "@/server/engine/opencode"
 import { ensureSarib } from "@/server/sarib"
+import { revokeLocalSessionShares } from "@/server/shares"
 
 /**
  * Transparent proxy to the embedded OpenCode server. The browser uses the
@@ -47,6 +48,9 @@ async function proxy(req: Request, ctx: { params: Promise<{ path: string[] }> })
   }
 
   const upstream = await fetch(target, init)
+  // Deleting a chat takes its share links down too.
+  const deleted = req.method === "DELETE" && upstream.ok ? /^session\/([^/]+)$/.exec(path.join("/"))?.[1] : undefined
+  if (deleted) await revokeLocalSessionShares(deleted).catch(() => {})
   const out = new Headers(upstream.headers)
   out.delete("content-encoding")
   out.delete("content-length")

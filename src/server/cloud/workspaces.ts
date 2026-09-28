@@ -2,6 +2,7 @@ import { and, desc, eq, isNull } from "drizzle-orm"
 import { ulid } from "ulid"
 import { LIMIT_MESSAGE, MAX_WORKSPACES, nextColor } from "@/lib/workspace-limits"
 import { pgSchema, withUser } from "../db/pg"
+import { invalidateShare } from "../share-cache"
 import { audit } from "./audit"
 import { githubToken, inspectGithubRepo } from "./github"
 
@@ -114,10 +115,15 @@ export async function renameWorkspace(userId: string, id: string, name: string):
 
 /** Soft-deletes the row; Home is never deleted. The caller destroys the sandbox first (engine/sandbox.ts destroyWorkspaceSandbox). */
 export async function deleteWorkspace(userId: string, id: string): Promise<void> {
-  await withUser(userId, async (tx) => {
-    await tx.update(pgSchema.workspaces).set({ deletedAt: new Date() }).where(and(eq(pgSchema.workspaces.id, id), eq(pgSchema.workspaces.userId, userId), eq(pgSchema.workspaces.isHome, false)))
+  const revoked = await withUser(userId, async (tx) => {
+    const del = await tx.update(pgSchema.workspaces).set({ deletedAt: new Date() }).where(and(eq(pgSchema.workspaces.id, id), eq(pgSchema.workspaces.userId, userId), eq(pgSchema.workspaces.isHome, false))).returning({ id: pgSchema.workspaces.id })
     await audit(tx, { userId, actor: "user", action: "workspace.delete", target: id })
+    if (!del.length) return []
+    // The workspace's chats go with it, and so do their share links.
+    const sc = pgSchema.sharedChats
+    return tx.update(sc).set({ revokedAt: new Date() }).where(and(eq(sc.workspaceId, id), eq(sc.userId, userId), isNull(sc.revokedAt))).returning({ id: sc.id })
   })
+  for (const s of revoked) invalidateShare(s.id)
 }
 
 export async function setEgress(userId: string, id: string, hosts: string[]): Promise<void> {

@@ -21,13 +21,20 @@ import {
 import { usePanel } from "@/lib/panel"
 import { useDismiss } from "@/lib/use-dismiss"
 import { Brew } from "./brew"
+import { useReadOnly } from "./read-only"
 
 /**
  * A file mention: click reveals it (local: a new File Explorer window with the
  * file selected; cloud: opens it in the Files panel), right-click opens a menu
  * of actions. Paths outside the workspace render as plain text.
  */
-export function FileLink({ path, children, className = "" }: { path: string; children?: ReactNode; className?: string }) {
+export function FileLink(props: { path: string; children?: ReactNode; className?: string }) {
+  // A shared snapshot has no engine and no files: the mention is plain text.
+  if (useReadOnly()) return <span className={props.className}>{props.children ?? props.path}</span>
+  return <LiveFileLink {...props} />
+}
+
+function LiveFileLink({ path, children, className = "" }: { path: string; children?: ReactNode; className?: string }) {
   const fm = useFileMenu(path)
   if (!fm.file) return <>{children ?? path}</>
   return (

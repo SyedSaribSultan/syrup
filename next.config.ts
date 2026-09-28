@@ -15,6 +15,19 @@ const nextConfig: NextConfig = {
     ]
   },
   skipTrailingSlashRedirect: true,
+  // Shared chats: public to anyone with the link, never indexed or archived, and never leaking the link through Referer.
+  async headers() {
+    return [
+      {
+        source: "/c/:path*",
+        headers: [
+          { key: "X-Robots-Tag", value: "noindex, nofollow, noarchive, nosnippet" },
+          { key: "Referrer-Policy", value: "no-referrer" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+        ],
+      },
+    ]
+  },
 }
 
 export default nextConfig

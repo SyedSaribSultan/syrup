@@ -52,7 +52,7 @@ src/server/cloud/workspaces.ts
 src/server/cloud/ingest.ts   # token mint/verify + writers
 src/app/api/workspaces/…     # REST
 src/app/api/ingest/route.ts
-src/app/w/[id]/…             # workspace pages (chat lives here in cloud)
+src/app/(app)/w/[id]/…       # workspace pages (chat lives here in cloud)
 ```
 
 ## 3. Slices
