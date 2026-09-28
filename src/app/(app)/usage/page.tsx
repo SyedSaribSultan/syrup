@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect, useState } from "react"
+import { useEffect, useState, type ReactNode } from "react"
 import { Skel } from "@/components/brew"
 import { useOptionalEngine } from "@/lib/engine-store"
 import { fmtCost, fmtRelative, fmtTokens } from "@/lib/format"
@@ -31,6 +31,8 @@ type Usage = {
 export default function UsagePage() {
   const [days, setDays] = useState(30)
   const [data, setData] = useState<Usage | null>(null)
+  // The bar tapped last: touch screens have no hover, so a tap shows the day's numbers.
+  const [picked, setPicked] = useState<string | null>(null)
   const sessions = useOptionalEngine()?.sessions
 
   useEffect(() => {
@@ -54,18 +56,21 @@ export default function UsagePage() {
   const loading = !data
   // Switching the window keeps the old numbers on screen, dimmed, until the new ones land.
   const stale = !!data && data.days !== days
+  const pickedDay = data?.byDay.find((d) => d.day === picked)
+  const dayCount = data?.byDay.length ?? 0
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto w-full max-w-[880px] px-6 py-8">
-        <div className="mb-6 flex items-end justify-between">
-          <div>
+      <div className="mx-auto w-full max-w-[880px] px-4 py-8 medium:px-6">
+        {/* On phones the range control sits under the title. */}
+        <div className="mb-6 flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
+          <div className="w-full medium:w-auto medium:min-w-0 medium:flex-1">
             <h1 className="font-serif text-[1.75rem] font-medium tracking-tight text-ink">Usage & cost</h1>
             <p className="mt-1 text-sm text-muted">Every token the agent used, as reported by the engine. Free-tier usage is shown separately from paid spend.</p>
           </div>
           <div className="flex rounded-lg border border-line bg-surface p-0.5 text-xs">
             {[7, 30, 90].map((d) => (
-              <button key={d} type="button" onClick={() => setDays(d)} className={`rounded-md px-2.5 py-1 transition ${days === d ? "bg-surface-2 text-ink" : "text-muted hover:text-ink"}`}>
+              <button key={d} type="button" onClick={() => setDays(d)} className={`rounded-md px-2.5 py-1 transition pointer-coarse:min-h-10 pointer-coarse:px-3.5 ${days === d ? "bg-surface-2 text-ink" : "text-muted hover:text-ink"}`}>
                 {d}d
               </button>
             ))}
@@ -82,17 +87,39 @@ export default function UsagePage() {
 
           <Section title="By day">
             {data && data.byDay.length === 0 && <Empty />}
-            <div className="flex h-28 items-end gap-1">
+            {/* Touch: the tapped bar's numbers, in a line of their own (a floating tip would run off a phone's edge). */}
+            {dayCount > 0 && (
+              <div className="mb-2 h-4 truncate text-[11px] tabular-nums text-muted pointer-fine:hidden">
+                {pickedDay ? (
+                  <span className="text-ink-2">
+                    {pickedDay.day} · {fmtTokens(pickedDay.input + pickedDay.output + pickedDay.reasoning)} · {fmtCost(pickedDay.cost)}
+                  </span>
+                ) : (
+                  "Tap a bar to see its day."
+                )}
+              </div>
+            )}
+            <div className={`flex h-28 items-end ${dayCount > 40 ? "gap-px" : "gap-0.5 medium:gap-1"}`}>
               {loading && <DaySkeleton />}
-              {data?.byDay.map((d) => {
+              {data?.byDay.map((d, i) => {
                 const v = d.input + d.output + d.reasoning
+                const on = picked === d.day
+                // Keep the hover tip inside the card at either end of the chart.
+                const edge = i < dayCount * 0.15 ? "left-0" : i >= dayCount * 0.85 ? "right-0" : "left-1/2 -translate-x-1/2"
                 return (
-                  <div key={d.day} className="group relative flex h-full flex-1 items-end">
-                    <div className="w-full rounded-t-sm bg-accent/70 transition group-hover:bg-accent" style={{ height: `${Math.max(3, (v / maxDay) * 100)}%` }} />
-                    <div className="pointer-events-none absolute bottom-full left-1/2 mb-1 -translate-x-1/2 rounded bg-ink px-1.5 py-0.5 text-[10px] whitespace-nowrap text-bg opacity-0 transition group-hover:opacity-100">
+                  <button
+                    key={d.day}
+                    type="button"
+                    aria-label={`${d.day}: ${fmtTokens(v)} tokens, ${fmtCost(d.cost)}`}
+                    aria-pressed={on}
+                    onClick={() => setPicked(on ? null : d.day)}
+                    className="group relative flex h-full min-w-0 flex-1 items-end"
+                  >
+                    <div className={`w-full rounded-t-sm transition group-hover:bg-accent ${on ? "bg-accent" : "bg-accent/70"}`} style={{ height: `${Math.max(3, (v / maxDay) * 100)}%` }} />
+                    <div className={`pointer-events-none absolute bottom-full mb-1 hidden rounded bg-ink px-1.5 py-0.5 text-[10px] whitespace-nowrap text-bg opacity-0 transition pointer-fine:block pointer-fine:group-hover:opacity-100 ${edge}`}>
                       {d.day} · {fmtTokens(v)} · {fmtCost(d.cost)}
                     </div>
-                  </div>
+                  </button>
                 )
               })}
             </div>
@@ -114,6 +141,21 @@ export default function UsagePage() {
                 fmtTokens(m.output),
                 fmtCost(m.cost),
               ])}
+              cards={(data?.byModel ?? []).map((m) => ({
+                title: (
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <span className="truncate">{m.modelId}</span>
+                    {m.free === 1 && <span className="shrink-0 rounded bg-accent-soft px-1 text-[10px] font-medium text-accent">free</span>}
+                  </span>
+                ),
+                sub: m.providerId,
+                value: fmtCost(m.cost),
+                fields: [
+                  ["Messages", String(m.messages)],
+                  ["In", fmtTokens(m.input)],
+                  ["Out", fmtTokens(m.output)],
+                ],
+              }))}
             />
           </Section>
 
@@ -145,6 +187,29 @@ export default function UsagePage() {
                 fmtTokens(b.output),
                 fmtCost(b.cost),
               ])}
+              cards={(data?.routed.byBackend ?? []).map((b) => ({
+                title: (
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <span className="truncate">
+                      <span className="text-muted">{b.providerId}/</span>
+                      {b.modelId}
+                    </span>
+                    <span className={`shrink-0 rounded px-1 text-[10px] font-medium ${b.tier === "free" ? "bg-accent-soft text-accent" : "bg-surface-2 text-ink-2"}`}>{b.tier}</span>
+                  </span>
+                ),
+                value: fmtCost(b.cost),
+                fields: [
+                  ["Requests", String(b.requests)],
+                  ["Rate limited", String(b.rateLimited)],
+                  ["First token", b.avgTtft != null ? fmtSeconds(b.avgTtft) : "—"],
+                ],
+                more: [
+                  ["Alias", b.alias],
+                  ["Timeouts", String(b.timeouts)],
+                  ["In", fmtTokens(b.input)],
+                  ["Out", fmtTokens(b.output)],
+                ],
+              }))}
             />
           </Section>
 
@@ -162,6 +227,19 @@ export default function UsagePage() {
                 fmtTokens(s.input + s.output + s.reasoning),
                 fmtCost(s.cost),
               ])}
+              cards={(data?.bySession ?? []).map((s) => ({
+                title: (
+                  <Link href={s.workspaceId ? `/w/${s.workspaceId}/s/${s.sessionId}` : `/s/${s.sessionId}`} className="block truncate text-ink hover:underline">
+                    {s.title || sessions?.[s.sessionId]?.title || s.sessionId}
+                  </Link>
+                ),
+                value: fmtCost(s.cost),
+                fields: [
+                  ["Last active", fmtRelative(s.last)],
+                  ["Messages", String(s.messages)],
+                  ["Tokens", fmtTokens(s.input + s.output + s.reasoning)],
+                ],
+              }))}
             />
           </Section>
         </div>
@@ -227,7 +305,8 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   return (
     <section className="mt-8">
       <h2 className="mb-3 text-sm font-medium text-ink">{title}</h2>
-      <div className="rounded-xl border border-line bg-surface p-4 shadow-card">{children}</div>
+      {/* A container, so the tables can switch to cards by the card's own width (the sidebar changes it too). */}
+      <div className="@container rounded-xl border border-line bg-surface p-4 shadow-card">{children}</div>
     </section>
   )
 }
@@ -236,14 +315,64 @@ function Empty() {
   return <div className="py-6 text-center text-sm text-muted">Nothing yet in this window.</div>
 }
 
-function Table({ head, rows }: { head: string[]; rows: React.ReactNode[][] }) {
+type Card = { title: ReactNode; sub?: string; value: string; fields: [string, string][]; more?: [string, string][] }
+
+/**
+ * A table from a medium-sized card up, scrolling sideways inside the card if it
+ * still doesn't fit; below that, one card per row: name and cost first, the
+ * other numbers in a small grid, and the rest behind "More".
+ */
+function Table({ head, rows, cards }: { head: string[]; rows: ReactNode[][]; cards: Card[] }) {
   if (rows.length === 0) return null
+  return (
+    <>
+      <ul className="divide-y divide-line @[500px]:hidden">
+        {cards.map((c, i) => (
+          <RowCard key={i} c={c} />
+        ))}
+      </ul>
+      <div className="hidden overflow-x-auto @[500px]:block">
+        <TableView head={head} rows={rows} />
+      </div>
+    </>
+  )
+}
+
+function RowCard({ c }: { c: Card }) {
+  const cell = ([label, value]: [string, string]) => (
+    <div key={label} className="min-w-0">
+      <dt className="truncate text-[11px] text-muted">{label}</dt>
+      <dd className="truncate tabular-nums text-ink-2">{value}</dd>
+    </div>
+  )
+  return (
+    <li className="py-2.5 text-sm first:pt-0 last:pb-0">
+      <div className="flex items-baseline gap-3">
+        <div className="min-w-0 flex-1 text-ink">{c.title}</div>
+        <div className="shrink-0 tabular-nums text-ink">{c.value}</div>
+      </div>
+      {c.sub && <div className="truncate text-[12px] text-muted">{c.sub}</div>}
+      <dl className="mt-1.5 grid grid-cols-3 gap-x-3 gap-y-1.5">{c.fields.map(cell)}</dl>
+      {c.more && (
+        <details className="group mt-1">
+          <summary className="inline-flex cursor-pointer list-none items-center gap-1 text-[12px] text-muted hover:text-ink pointer-coarse:min-h-11 [&::-webkit-details-marker]:hidden">
+            <span className="group-open:hidden">More</span>
+            <span className="hidden group-open:inline">Less</span>
+          </summary>
+          <dl className="mt-1 grid grid-cols-3 gap-x-3 gap-y-1.5">{c.more.map(cell)}</dl>
+        </details>
+      )}
+    </li>
+  )
+}
+
+function TableView({ head, rows }: { head: string[]; rows: ReactNode[][] }) {
   return (
     <table className="w-full text-sm">
       <thead>
         <tr className="text-left text-[11px] font-medium uppercase tracking-wider text-muted">
           {head.map((h) => (
-            <th key={h} className="pb-2 font-medium">
+            <th key={h}className="pb-2 pr-3 font-medium whitespace-nowrap last:pr-0">
               {h}
             </th>
           ))}
@@ -253,7 +382,7 @@ function Table({ head, rows }: { head: string[]; rows: React.ReactNode[][] }) {
         {rows.map((r, i) => (
           <tr key={i} className="border-t border-line text-ink-2">
             {r.map((c, j) => (
-              <td key={j} className={`py-2 ${j === 0 ? "text-ink" : ""} ${j >= 2 ? "tabular-nums" : ""}`}>
+              <td key={j} className={`py-2 pr-3 last:pr-0 ${j === 0 ? "text-ink" : "whitespace-nowrap"} ${j >= 2 ? "tabular-nums" : ""}`}>
                 {c}
               </td>
             ))}

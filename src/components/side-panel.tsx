@@ -1,37 +1,78 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState, type DragEvent, type MouseEvent as ReactMouseEvent, type PointerEvent, type ReactNode } from "react"
+import { useCallback, useEffect, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent, type ReactNode } from "react"
 import { createPortal } from "react-dom"
 import { useEngine } from "@/lib/engine-store"
 import { copyText, hostOS, localFileAction, revealLabel } from "@/lib/file-actions"
 import { fmtBytes, joinRel, parentRel } from "@/lib/fs-rules"
-import { PANEL_MIN, PANEL_SHORTCUT, PANEL_WIDE, usePanel } from "@/lib/panel"
+import { useNav } from "@/lib/nav"
+import { PANEL_MIN, PANEL_SHORTCUT, PANEL_WIDE, usePanel, type PanelTab } from "@/lib/panel"
+import { useDismiss } from "@/lib/use-dismiss"
+import { useLongPress } from "@/lib/use-long-press"
+import { useNarrow } from "@/lib/use-window-class"
 import { absPath, downloadFile, downloadZip, filesFromDrop, list, upload, type Entry, type Target, type Upload } from "@/lib/workspace-fs"
 import { Brew, Skel } from "./brew"
+import { ChangesTab, useChangeCount } from "./changes"
 import { Menu, type MenuItem } from "./file-link"
 import { FilePreview } from "./file-preview"
+import { MenuList, Popover, Sheet } from "./ui/sheet"
 
-/** The chat column plus, when open, the Files + Preview panel on its right. */
+/**
+ * The chat column plus, when open, the workspace panel (Changes · Files ·
+ * Preview; docs/RESPONSIVE.md §6). Phones and tablets: a full-screen layer over
+ * the chat, which stays mounted underneath (its scroll position survives).
+ * 840–1199px: a side pane, the sidebar drops to its rail and the chat keeps
+ * 440px. From 1200px: the resizable side pane.
+ */
 export function Workbench({ children }: { children: ReactNode }) {
   const panel = usePanel()
+  const narrow = useNarrow()
+  const layer = narrow && !!panel?.open
   return (
     <div className="flex min-h-0 min-w-0 flex-1">
-      <div className="relative flex min-w-0 flex-1 flex-col">{children}</div>
-      {panel?.open && <SidePanel />}
+      <div inert={layer || undefined} className="relative flex min-w-0 flex-1 flex-col">
+        {children}
+      </div>
+      {panel?.open && (narrow ? <PanelLayer /> : <SidePane />)}
     </div>
   )
 }
 
-export function PanelToggle({ className = "" }: { className?: string }) {
+/**
+ * Opens and closes the panel. Default: "Files" with an icon, for desktop headers. `compact`: icon only
+ * (36px, 44px on touch) with the chat's changed-file count as a badge, for phone headers.
+ */
+export function PanelToggle({ className = "", compact = false }: { className?: string; compact?: boolean }) {
   const panel = usePanel()
+  const c = useChangeCount(panel?.sessionID)
   if (!panel) return null
+  const label = `${panel.open ? "Hide" : "Show"} changes, files & preview`
+  if (compact)
+    return (
+      <button
+        type="button"
+        // With changed files, opening shows Changes first: what the agent did is what you check on a phone.
+        onClick={() => (!panel.open && c.files > 0 ? panel.openTab("changes") : panel.toggle())}
+        aria-pressed={panel.open}
+        aria-label={c.files > 0 ? `${label} (${c.files} changed file${c.files === 1 ? "" : "s"})` : label}
+        title={`${label} (${PANEL_SHORTCUT})`}
+        className={`relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition pointer-coarse:h-11 pointer-coarse:w-11 ${panel.open ? "bg-surface-2 text-ink" : "text-ink-2 hover:bg-surface-2 hover:text-ink"} ${className}`}
+      >
+        <PanelIcon size={17} />
+        {c.files > 0 && (
+          <span aria-hidden className="absolute top-0.5 right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] leading-none font-medium text-accent-ink tabular-nums pointer-coarse:top-1.5 pointer-coarse:right-1.5">
+            {c.files > 99 ? "99+" : c.files}
+          </span>
+        )}
+      </button>
+    )
   return (
     <button
       type="button"
       onClick={panel.toggle}
       aria-pressed={panel.open}
-      title={`${panel.open ? "Hide" : "Show"} files & preview (${PANEL_SHORTCUT})`}
-      className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs transition ${panel.open ? "bg-surface-2 text-ink" : "text-ink-2 hover:bg-surface-2 hover:text-ink"} ${className}`}
+      title={`${label} (${PANEL_SHORTCUT})`}
+      className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs transition pointer-coarse:min-h-11 ${panel.open ? "bg-surface-2 text-ink" : "text-ink-2 hover:bg-surface-2 hover:text-ink"} ${className}`}
     >
       <PanelIcon />
       Files
@@ -39,12 +80,31 @@ export function PanelToggle({ className = "" }: { className?: string }) {
   )
 }
 
-function SidePanel() {
+const TAB_LABEL: Record<PanelTab, string> = { changes: "Changes", files: "Files", preview: "Preview" }
+const TABS: PanelTab[] = ["changes", "files", "preview"]
+
+/** Desktop: a pane right of the chat, resizable from its left edge. */
+function SidePane() {
   const panel = usePanel()!
+  const setRail = useNav()?.setRailForced
+  const count = useChangeCount(panel.sessionID)
+  const ref = useRef<HTMLElement>(null)
   const [live, setLive] = useState<number | null>(null)
   const drag = useRef<{ x: number; w: number } | null>(null)
   const width = live ?? panel.width
-  const max = () => Math.max(PANEL_MIN, Math.min(1100, window.innerWidth * 0.7))
+
+  // 840–1199px: the sidebar steps down to its rail while the pane is open.
+  useEffect(() => {
+    setRail?.(true)
+    return () => setRail?.(false)
+  }, [setRail])
+
+  // Large: 320–1100px (and 70% of the window), as always. Expanded: whatever leaves the chat 440px.
+  const max = () => {
+    const large = window.matchMedia("(min-width: 75rem)").matches
+    const room = ref.current?.parentElement?.clientWidth ?? window.innerWidth
+    return Math.max(PANEL_MIN, Math.min(large ? 1100 : room - 440, window.innerWidth * 0.7))
+  }
 
   function onPointerDown(e: PointerEvent<HTMLDivElement>) {
     e.preventDefault()
@@ -63,7 +123,7 @@ function SidePanel() {
   }
 
   return (
-    <aside style={{ width }} aria-label="Files and preview" className="relative flex max-w-[75vw] shrink-0 flex-col border-l border-line bg-surface/50">
+    <aside ref={ref} style={{ width }} aria-label="Workspace panel" className="relative flex max-w-[75vw] shrink-0 flex-col border-l border-line bg-surface/50 max-large:max-w-[calc(100%-440px)]">
       <div
         role="separator"
         aria-orientation="vertical"
@@ -73,49 +133,114 @@ function SidePanel() {
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
         onDoubleClick={() => panel.setWidth(panel.width >= PANEL_WIDE - 40 ? 440 : Math.min(PANEL_WIDE, max()))}
-        className={`absolute inset-y-0 -left-[3px] z-10 w-[6px] cursor-col-resize transition-colors hover:bg-accent/30 ${live !== null ? "bg-accent/40" : ""}`}
+        className={`absolute inset-y-0 -left-[3px] z-10 w-[6px] cursor-col-resize touch-none transition-colors hover:bg-accent/30 pointer-coarse:-left-2 pointer-coarse:w-4 ${live !== null ? "bg-accent/40" : ""}`}
       />
       <header className="flex h-12 shrink-0 items-center gap-1 border-b border-line px-2">
-        <Tab active={panel.tab === "files"} onClick={() => panel.setTab("files")}>
-          Files
-        </Tab>
-        <Tab active={panel.tab === "preview"} onClick={() => panel.setTab("preview")}>
-          <span className="max-w-[180px] truncate">{panel.selected ? `Preview · ${panel.selected.split("/").pop()}` : "Preview"}</span>
-        </Tab>
+        {TABS.map((t) => (
+          <Tab key={t} active={panel.tab === t} onClick={() => panel.setTab(t)}>
+            {t === "preview" ? (
+              <span className="max-w-[180px] truncate">{panel.selected ? `Preview · ${panel.selected.split("/").pop()}` : "Preview"}</span>
+            ) : (
+              TAB_LABEL[t]
+            )}
+            {t === "changes" && count.files > 0 && <span className="ml-1.5 text-[11px] text-muted tabular-nums">{count.files}</span>}
+          </Tab>
+        ))}
         <div className="flex-1" />
-        <button type="button" onClick={() => panel.setOpen(false)} title={`Close (${PANEL_SHORTCUT})`} aria-label="Close panel" className="rounded-lg p-1.5 text-muted transition hover:bg-surface-2 hover:text-ink">
-          <svg width="12" height="12" viewBox="0 0 12 12" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
-            <path d="M2.5 2.5l7 7M9.5 2.5l-7 7" />
-          </svg>
+        <button type="button" onClick={() => panel.setOpen(false)} title={`Close (${PANEL_SHORTCUT})`} aria-label="Close panel" className="flex items-center justify-center rounded-lg p-1.5 text-muted transition hover:bg-surface-2 hover:text-ink pointer-coarse:h-11 pointer-coarse:w-11">
+          <CloseIcon size={12} />
         </button>
       </header>
-      <div className={`min-h-0 flex-1 flex-col ${panel.tab === "files" ? "flex" : "hidden"}`}>
-        {panel.target ? (
-          <FileTree key={`${panel.target.dir}|${panel.target.conn?.baseUrl ?? ""}|${panel.showHidden}`} target={panel.target} />
-        ) : (
-          <div className="p-4">
-            <Brew mood="wake" timerAfter={10} />
-          </div>
-        )}
+      <PanelBody />
+    </aside>
+  )
+}
+
+/** Phones and tablets: the panel covers the chat. ✕ (or back) returns to it. */
+function PanelLayer() {
+  const panel = usePanel()!
+  const count = useChangeCount(panel.sessionID)
+  const [menu, setMenu] = useState(false)
+  const closeBtn = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    closeBtn.current?.focus({ preventScroll: true })
+  }, [])
+
+  function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
+    if (e.key === "Escape" && !e.defaultPrevented) panel.setOpen(false)
+  }
+
+  return (
+    <div role="dialog" aria-modal="true" aria-label="Workspace panel" onKeyDown={onKeyDown} className="fixed inset-0 z-40 flex flex-col bg-bg pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
+      <header className="flex h-14 shrink-0 items-center gap-1 border-b border-line px-1">
+        <button ref={closeBtn} type="button" onClick={() => panel.setOpen(false)} aria-label="Close panel" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-ink-2 transition hover:bg-surface-2 hover:text-ink">
+          <CloseIcon size={14} />
+        </button>
+        <div role="tablist" aria-label="Panel" className="flex min-w-0 flex-1 justify-center gap-0.5">
+          {TABS.map((t) => (
+            <button
+              key={t}
+              type="button"
+              role="tab"
+              aria-selected={panel.tab === t}
+              onClick={() => panel.setTab(t)}
+              className={`flex h-9 min-w-0 items-center rounded-lg px-3 text-[14px] transition pointer-coarse:h-11 ${panel.tab === t ? "bg-surface-2 font-medium text-ink" : "text-ink-2 hover:text-ink"}`}
+            >
+              <span className="truncate">{TAB_LABEL[t]}</span>
+              {t === "changes" && count.files > 0 && <span className="ml-1 text-[12px] font-normal text-muted tabular-nums">{count.files}</span>}
+            </button>
+          ))}
+        </div>
+        <button type="button" onClick={() => setMenu(true)} aria-label="View options" aria-haspopup="menu" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-ink-2 transition hover:bg-surface-2 hover:text-ink">
+          <MoreIcon />
+        </button>
+        <Sheet open={menu} onClose={() => setMenu(false)} title="View">
+          <MenuList
+            onDone={() => setMenu(false)}
+            items={[
+              { label: "Wrap long lines in diffs", hint: panel.wrap ? "On" : "Off", onSelect: () => panel.setWrap(!panel.wrap) },
+              { label: "Show hidden folders", hint: panel.showHidden ? "On" : "Off", onSelect: () => panel.setShowHidden(!panel.showHidden) },
+            ]}
+          />
+        </Sheet>
+      </header>
+      <PanelBody />
+    </div>
+  )
+}
+
+/** The three tabs' content. All stay mounted, so switching keeps each tab's scroll and state. */
+function PanelBody() {
+  const panel = usePanel()!
+  const show = (t: PanelTab) => `min-h-0 min-w-0 flex-1 flex-col overflow-hidden ${panel.tab === t ? "flex" : "hidden"}`
+  const waking = (
+    <div className="p-4">
+      <Brew mood="wake" timerAfter={10} />
+    </div>
+  )
+  return (
+    <>
+      <div className={show("changes")}>
+        <ChangesTab />
       </div>
-      <div className={`min-h-0 flex-1 flex-col ${panel.tab === "preview" ? "flex" : "hidden"}`}>
+      <div className={show("files")}>{panel.target ? <FileTree key={`${panel.target.dir}|${panel.target.conn?.baseUrl ?? ""}|${panel.showHidden}`} target={panel.target} /> : waking}</div>
+      <div className={show("preview")}>
         {!panel.selected ? (
           <div className="flex flex-1 items-center justify-center p-6 text-center text-[13px] text-muted">Pick a file in Files and it shows up here.</div>
         ) : panel.target ? (
           <FilePreview key={`${panel.target.dir}|${panel.selected}`} target={panel.target} rel={panel.selected} />
         ) : (
-          <div className="p-4">
-            <Brew mood="wake" timerAfter={10} />
-          </div>
+          waking
         )}
       </div>
-    </aside>
+    </>
   )
 }
 
 function Tab({ active, onClick, children }: { active: boolean; onClick(): void; children: ReactNode }) {
   return (
-    <button type="button" onClick={onClick} aria-pressed={active} className={`flex min-w-0 items-center rounded-lg px-2.5 py-1 text-xs transition ${active ? "bg-surface-2 text-ink" : "text-ink-2 hover:bg-surface-2 hover:text-ink"}`}>
+    <button type="button" onClick={onClick} aria-pressed={active} className={`flex min-w-0 items-center rounded-lg px-2.5 py-1 text-xs transition pointer-coarse:min-h-11 ${active ? "bg-surface-2 text-ink" : "text-ink-2 hover:bg-surface-2 hover:text-ink"}`}>
       {children}
     </button>
   )
@@ -135,6 +260,10 @@ function FileTree({ target }: { target: Target }) {
   const [status, setStatus] = useState<Status | null>(null)
   const [drop, setDrop] = useState<string | null>(null)
   const [menu, setMenu] = useState<{ x: number; y: number; entry: Entry | null } | null>(null)
+  const [more, setMore] = useState(false)
+  const moreRef = useRef<HTMLDivElement>(null)
+  const closeMore = useCallback(() => setMore(false), [])
+  useDismiss(moreRef, more, closeMore)
   const inflight = useRef(new Set<string>())
   const expandedRef = useRef(expanded)
   const picker = useRef<HTMLInputElement>(null)
@@ -289,7 +418,7 @@ function FileTree({ target }: { target: Target }) {
       return (
         <div style={{ paddingLeft: 12 + depth * 14 }} className="py-1 pr-2 text-[12px] text-warn">
           {d.error}{" "}
-          <button type="button" onClick={() => void load(rel)} className="text-accent underline underline-offset-2">
+          <button type="button" onClick={() => void load(rel)} className="text-accent underline underline-offset-2 pointer-coarse:py-2">
             Retry
           </button>
         </div>
@@ -300,7 +429,16 @@ function FileTree({ target }: { target: Target }) {
       const open = dir && expanded.has(e.rel)
       return (
         <div key={e.rel}>
-          <Row entry={e} depth={depth} open={open} active={selected === e.rel} dropping={dir && drop === e.rel} onOpen={() => (dir ? panel.toggleFolder(e.rel) : panel.openFile(e.rel))} onMenu={(ev) => openMenu(ev, e)} />
+          <Row
+            entry={e}
+            depth={depth}
+            open={open}
+            active={selected === e.rel}
+            dropping={dir && drop === e.rel}
+            onOpen={() => (dir ? panel.toggleFolder(e.rel) : panel.openFile(e.rel))}
+            onMenu={(ev) => openMenu(ev, e)}
+            onMenuAt={(x, y) => setMenu({ x, y, entry: e })}
+          />
           {open && rows(e.rel, depth + 1)}
         </div>
       )
@@ -309,7 +447,7 @@ function FileTree({ target }: { target: Target }) {
 
   return (
     <>
-      <div className="flex shrink-0 items-center gap-0.5 border-b border-line px-2 py-1.5">
+      <div className="flex shrink-0 items-center gap-0.5 border-b border-line px-2 py-1.5 pointer-coarse:py-0.5">
         <span className="min-w-0 flex-1 truncate px-1 font-mono text-[11px] text-muted" title={target.dir}>
           {rootName}
         </span>
@@ -322,17 +460,25 @@ function FileTree({ target }: { target: Target }) {
         >
           <path d="M7 10V2.5M3.8 5.5 7 2.3l3.2 3.2M2.5 11.5h9" />
         </IconButton>
-        <IconButton label={`Download ${rootName} as .zip`} onClick={() => void zip("")}>
-          <path d="M7 2.5V10M3.8 7 7 10.2 10.2 7M2.5 11.5h9" />
-        </IconButton>
-        <IconButton label={showHidden ? "Hide .git, node_modules and caches" : "Show hidden folders"} pressed={showHidden} onClick={() => panel.setShowHidden(!showHidden)}>
-          <path d="M1.5 7s2-3.8 5.5-3.8S12.5 7 12.5 7 10.5 10.8 7 10.8 1.5 7 1.5 7Z" />
-          <circle cx="7" cy="7" r="1.6" />
-          {!showHidden && <path d="M2.5 11.5l9-9" />}
-        </IconButton>
         <IconButton label="Refresh" onClick={refresh}>
           <path d="M11.5 7a4.5 4.5 0 1 1-1.3-3.2M11.5 2.5v2.8H8.7" />
         </IconButton>
+        <div ref={moreRef} className="relative">
+          <IconButton label="More" pressed={more} onClick={() => setMore((v) => !v)}>
+            <circle cx="3" cy="7" r=".9" fill="currentColor" stroke="none" />
+            <circle cx="7" cy="7" r=".9" fill="currentColor" stroke="none" />
+            <circle cx="11" cy="7" r=".9" fill="currentColor" stroke="none" />
+          </IconButton>
+          <Popover open={more} onClose={closeMore} title={rootName} className="absolute top-full right-0 z-20 mt-1 w-[260px] rounded-xl border border-line bg-surface shadow-card">
+            <MenuList
+              onDone={closeMore}
+              items={[
+                { label: showHidden ? "Hide .git, node_modules and caches" : "Show hidden folders", hint: showHidden ? "On" : undefined, onSelect: () => panel.setShowHidden(!showHidden) },
+                { label: `Download ${rootName} as .zip`, onSelect: () => void zip("") },
+              ]}
+            />
+          </Popover>
+        </div>
         <input
           ref={picker}
           type="file"
@@ -356,7 +502,7 @@ function FileTree({ target }: { target: Target }) {
         onDragLeave={(e) => !e.currentTarget.contains(e.relatedTarget as Node) && setDrop(null)}
         onDrop={onDrop}
         onContextMenu={(e) => openMenu(e, null)}
-        className={`min-h-0 flex-1 overflow-auto py-1 transition ${drop === "" ? "bg-accent-soft/40 outline-2 -outline-offset-4 outline-accent/50 outline-dashed" : ""}`}
+        className={`min-h-0 flex-1 overflow-auto overscroll-contain py-1 transition ${drop === "" ? "bg-accent-soft/40 outline-2 -outline-offset-4 outline-accent/50 outline-dashed" : ""}`}
       >
         {rows("", 0)}
       </div>
@@ -374,8 +520,28 @@ function FileTree({ target }: { target: Target }) {
   )
 }
 
-function Row({ entry, depth, open, active, dropping, onOpen, onMenu }: { entry: Entry; depth: number; open: boolean; active: boolean; dropping: boolean; onOpen(): void; onMenu(e: ReactMouseEvent): void }) {
+/** Tap opens; right-click, a long press or the ⋯ (always there on touch, on hover with a mouse) gives the actions. */
+function Row({
+  entry,
+  depth,
+  open,
+  active,
+  dropping,
+  onOpen,
+  onMenu,
+  onMenuAt,
+}: {
+  entry: Entry
+  depth: number
+  open: boolean
+  active: boolean
+  dropping: boolean
+  onOpen(): void
+  onMenu(e: ReactMouseEvent): void
+  onMenuAt(x: number, y: number): void
+}) {
   const dir = entry.type === "directory"
+  const press = useLongPress<HTMLButtonElement>((x, y) => onMenuAt(x, y))
   return (
     <div
       data-drop={dir ? entry.rel : parentRel(entry.rel)}
@@ -386,15 +552,16 @@ function Row({ entry, depth, open, active, dropping, onOpen, onMenu }: { entry: 
         role="treeitem"
         aria-expanded={dir ? open : undefined}
         aria-selected={active}
+        {...press}
         onClick={onOpen}
         onContextMenu={onMenu}
         title={entry.rel}
         style={{ paddingLeft: 6 + depth * 14 }}
-        className={`flex min-w-0 flex-1 items-center gap-1.5 py-[3px] text-left text-[13px] outline-none focus-visible:underline ${entry.ignored ? "text-muted" : "text-ink-2"} ${active ? "text-ink" : ""}`}
+        className={`flex min-w-0 flex-1 items-center gap-1.5 py-[3px] text-left text-[13px] outline-none [-webkit-touch-callout:none] focus-visible:underline pointer-coarse:min-h-11 pointer-coarse:text-[14px] pointer-coarse:select-none ${entry.ignored ? "text-muted" : "text-ink-2"} ${active ? "text-ink" : ""}`}
       >
         <span className="flex w-3 shrink-0 justify-center text-muted">
           {dir && (
-            <svg width="8" height="8" viewBox="0 0 8 8" className={`transition-transform ${open ? "rotate-90" : ""}`}>
+            <svg width="8" height="8" viewBox="0 0 8 8" className={`transition-transform motion-reduce:transition-none ${open ? "rotate-90" : ""}`}>
               <path d="M2.5 1.2 5.6 4 2.5 6.8" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           )}
@@ -402,7 +569,12 @@ function Row({ entry, depth, open, active, dropping, onOpen, onMenu }: { entry: 
         {dir ? <FolderIcon open={open} /> : <FileIcon />}
         <span className="min-w-0 truncate">{entry.name}</span>
       </button>
-      <button type="button" onClick={onMenu} aria-label={`Actions for ${entry.name}`} className="mr-1 shrink-0 rounded px-1 text-muted opacity-0 transition group-hover:opacity-100 hover:text-ink focus-visible:opacity-100">
+      <button
+        type="button"
+        onClick={onMenu}
+        aria-label={`Actions for ${entry.name}`}
+        className="mr-1 flex shrink-0 items-center justify-center rounded px-1 text-muted transition hover:text-ink focus-visible:opacity-100 pointer-coarse:mr-0 pointer-coarse:h-11 pointer-coarse:w-11 pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100"
+      >
         ⋯
       </button>
     </div>
@@ -421,7 +593,14 @@ function TreeSkeleton({ depth }: { depth: number }) {
 
 function IconButton({ label, pressed, onClick, children }: { label: string; pressed?: boolean; onClick(): void; children: ReactNode }) {
   return (
-    <button type="button" onClick={onClick} title={label} aria-label={label} aria-pressed={pressed} className={`rounded-lg p-1.5 transition ${pressed ? "bg-surface-2 text-ink" : "text-muted hover:bg-surface-2 hover:text-ink"}`}>
+    <button
+      type="button"
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+      aria-pressed={pressed}
+      className={`flex items-center justify-center rounded-lg p-1.5 transition pointer-coarse:h-11 pointer-coarse:w-11 ${pressed ? "bg-surface-2 text-ink" : "text-muted hover:bg-surface-2 hover:text-ink"}`}
+    >
       <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
         {children}
       </svg>
@@ -429,11 +608,29 @@ function IconButton({ label, pressed, onClick, children }: { label: string; pres
   )
 }
 
-function PanelIcon() {
+function PanelIcon({ size = 13 }: { size?: number }) {
   return (
-    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3">
+    <svg width={size} height={size} viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3">
       <rect x="1.5" y="2" width="11" height="10" rx="2" />
       <path d="M8.5 2v10" />
+    </svg>
+  )
+}
+
+function CloseIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 12 12" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
+      <path d="M2.5 2.5l7 7M9.5 2.5l-7 7" />
+    </svg>
+  )
+}
+
+function MoreIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+      <circle cx="3.5" cy="8" r="1.2" />
+      <circle cx="8" cy="8" r="1.2" />
+      <circle cx="12.5" cy="8" r="1.2" />
     </svg>
   )
 }

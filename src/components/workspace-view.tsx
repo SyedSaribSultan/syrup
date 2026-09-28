@@ -8,6 +8,7 @@ import { PanelProvider } from "@/lib/panel"
 import { useNow } from "@/lib/use-now"
 import { Brew } from "./brew"
 import { EgressEditor } from "./egress-editor"
+import { AppShell } from "./app-shell"
 import { NewChat } from "./new-chat"
 import { SessionView } from "./session-view"
 import { Workbench } from "./side-panel"
@@ -99,14 +100,11 @@ export function WorkspaceView({ workspaceId, egressAllow, hasKeys }: { workspace
       <PanelProvider workspaceId={workspaceId}>
         <ConnectionWatch onLost={() => void open("reopen")} />
         <AbortOnUnload />
-        <div className="flex h-full min-h-0 flex-1">
-          <Sidebar status={<SandboxStatus ready={ready} start={start} beat={beat} reopening={reopening} failed={!!error} />} footer={<SandboxControls workspaceId={workspaceId} egressAllow={egressAllow} />} />
-          <main className="relative flex min-w-0 flex-1 flex-col">
-            <SessionCapNotice beat={beat} />
-            {error && sessionId && <OpenError error={error} onRetry={retry} />}
-            <Workbench>{sessionId ? <SessionView id={sessionId} /> : <NewChat hrefFor={(id) => `/w/${workspaceId}/s/${id}`} noKeys={!hasKeys} error={error} onRetry={retry} />}</Workbench>
-          </main>
-        </div>
+        <AppShell sidebar={<Sidebar status={<SandboxStatus ready={ready} start={start} beat={beat} reopening={reopening} failed={!!error} />} footer={<SandboxControls workspaceId={workspaceId} egressAllow={egressAllow} />} />}>
+          <SessionCapNotice beat={beat} />
+          {error && sessionId && <OpenError error={error} onRetry={retry} />}
+          <Workbench>{sessionId ? <SessionView id={sessionId} /> : <NewChat hrefFor={(id) => `/w/${workspaceId}/s/${id}`} noKeys={!hasKeys} error={error} onRetry={retry} />}</Workbench>
+        </AppShell>
       </PanelProvider>
     </EngineProvider>
   )

@@ -134,8 +134,8 @@ export function MessageView({ entry, streaming, rating = null, onRate }: Props) 
       {!streaming && (meta || rateable) && (
         <div className="mt-1.5 flex items-center gap-2 text-[11px] text-muted">
           {rateable && <Thumbs value={rating} onRate={(r) => onRate(r, answeredBy)} />}
-          {/* Hover-only in the app; a shared snapshot shows it always (touch screens have no hover). */}
-          {meta && <span className={ro ? "" : "opacity-0 transition group-hover:opacity-100"}>{meta}</span>}
+          {/* Hover-only with a mouse; a touch screen shows it under each turn's last reply, a shared snapshot always. */}
+          {meta && <span className={`min-w-0 truncate ${ro ? "" : `opacity-0 transition group-hover:opacity-100 ${onRate ? "pointer-coarse:opacity-100" : ""}`}`}>{meta}</span>}
         </div>
       )}
     </div>
@@ -149,14 +149,14 @@ const THUMB_DOWN = "M17 14V2M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0
 /** Thumbs on a finished reply. Hover-only until one is chosen; clicking the chosen thumb again clears it. */
 function Thumbs({ value, onRate }: { value: Rating | null; onRate: (r: Rating | 0) => void }) {
   const thumb = (r: Rating, label: string, d: string) => (
-    <button type="button" title={label} aria-label={label} aria-pressed={value === r} onClick={() => onRate(value === r ? 0 : r)} className={`rounded p-0.5 transition hover:text-ink ${value === r ? "text-ink" : ""}`}>
+    <button type="button" title={label} aria-label={label} aria-pressed={value === r} onClick={() => onRate(value === r ? 0 : r)} className={`rounded p-0.5 transition hover:text-ink pointer-coarse:p-2.5 ${value === r ? "text-ink" : ""}`}>
       <svg width="13" height="13" viewBox="0 0 24 24" fill={value === r ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
         <path d={d} />
       </svg>
     </button>
   )
   return (
-    <span className={`flex items-center gap-0.5 ${value ? "" : "opacity-0 transition group-hover:opacity-100 focus-within:opacity-100"}`}>
+    <span className={`flex items-center gap-0.5 pointer-coarse:-my-2 pointer-coarse:-ml-2.5 ${value ? "" : "opacity-0 transition group-hover:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100"}`}>
       {thumb(1, "Good reply", THUMB_UP)}
       {thumb(-1, "Bad reply", THUMB_DOWN)}
     </span>

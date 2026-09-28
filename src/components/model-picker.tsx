@@ -6,9 +6,11 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { useEngine } from "@/lib/engine-store"
 import { useDismiss } from "@/lib/use-dismiss"
 import { useKeyTiers, type KeyTiers } from "@/lib/use-key-tiers"
+import { useCoarsePointer, useNarrow } from "@/lib/use-window-class"
 import { useRouterStatus } from "@/lib/use-router-status"
 import { useSessionAnswers } from "@/lib/use-session-answers"
 import { Brew } from "./brew"
+import { Sheet } from "./ui/sheet"
 import { MAX_FAVORITES, modelKey, recordRecent, toggleFavorite, useModelPrefs } from "@/lib/model-prefs"
 import { costTier, displayName, providerName } from "@/lib/model-registry"
 import {
@@ -36,8 +38,13 @@ function useSessionId(): string | undefined {
   return params?.sid ?? (pathname?.startsWith("/s/") ? params?.id : undefined)
 }
 
-export function ModelPicker() {
+/**
+ * `variant="bar"`: the phone/tablet top bar's title ("Auto ▾"), where the model lives below the expanded
+ * breakpoint (docs/RESPONSIVE.md §5.1). Below that breakpoint the list opens as a full-height sheet.
+ */
+export function ModelPicker({ variant = "composer" }: { variant?: "composer" | "bar" }) {
   const { models, model } = useEngine()
+  const narrow = useNarrow()
   const [open, setOpen] = useState(false)
   const [place, setPlace] = useState({ up: true, max: 560 })
   const ref = useRef<HTMLDivElement>(null)
@@ -79,24 +86,41 @@ export function ModelPicker() {
         aria-haspopup="listbox"
         onClick={toggle}
         title={now ? (now.inChat ? `${title} is using ${now.name} (${now.provider}) in this chat` : `${title} last used ${now.name} (${now.provider}); a new chat may get another model`) : undefined}
-        className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs transition hover:bg-surface-2 hover:text-ink ${open ? "bg-surface-2 text-ink" : "text-ink-2"}`}
+        className={
+          variant === "bar"
+            ? `flex min-w-0 max-w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-[15px] transition hover:bg-surface-2 pointer-coarse:py-2.5 ${open ? "bg-surface-2" : ""}`
+            : `flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs transition hover:bg-surface-2 hover:text-ink ${open ? "bg-surface-2 text-ink" : "text-ink-2"}`
+        }
       >
-        <span className="max-w-[260px] truncate">
-          {title ?? (current ? displayName(current) : model ? model.modelID : "Pick a model")}
-          {now && (
-            <span className="text-muted">
-              {" "}
-              · {now.inChat ? "" : "last used "}
-              {now.name}
-            </span>
-          )}
-        </span>
+        {variant === "bar" ? (
+          <span className="min-w-0 truncate">
+            <span className="font-medium text-ink">{title ?? (current ? displayName(current) : model ? model.modelID : "Pick a model")}</span>
+            {now && <span className="text-muted"> {now.name}</span>}
+          </span>
+        ) : (
+          <span className="max-w-[260px] truncate">
+            {title ?? (current ? displayName(current) : model ? model.modelID : "Pick a model")}
+            {now && (
+              <span className="text-muted">
+                {" "}
+                · {now.inChat ? "" : "last used "}
+                {now.name}
+              </span>
+            )}
+          </span>
+        )}
         {badge && <span className="shrink-0 rounded bg-accent-soft px-1 text-[10px] font-medium text-accent">{badge}</span>}
         <svg width="10" height="10" viewBox="0 0 10 10" className="opacity-60">
           <path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" strokeWidth="1.3" />
         </svg>
       </button>
-      {open && <Panel onClose={close} up={place.up} maxHeight={place.max} sessionId={sessionId} />}
+      {open && narrow ? (
+        <Sheet open onClose={close} size="full" label="Choose a model">
+          <Panel onClose={close} up={false} maxHeight={0} sessionId={sessionId} sheet />
+        </Sheet>
+      ) : (
+        open && <Panel onClose={close} up={place.up} maxHeight={place.max} sessionId={sessionId} />
+      )}
     </div>
   )
 }
@@ -104,7 +128,8 @@ export function ModelPicker() {
 /** Item key plus the model it shows, so the highlight follows a model that moves section (e.g. when starred). */
 type Cursor = { key: string | null; model: string | null }
 
-function Panel({ onClose, up, maxHeight, sessionId }: { onClose(): void; up: boolean; maxHeight: number; sessionId?: string }) {
+function Panel({ onClose, up, maxHeight, sessionId, sheet }: { onClose(): void; up: boolean; maxHeight: number; sessionId?: string; sheet?: boolean }) {
+  const coarse = useCoarsePointer()
   const { models, model, setModel, hasKeys, directory } = useEngine()
   const status = useRouterStatus(true)
   const answers = useSessionAnswers(sessionId)
@@ -180,9 +205,9 @@ function Panel({ onClose, up, maxHeight, sessionId }: { onClose(): void; up: boo
 
   return (
     <div
-      className={`absolute left-0 z-30 flex w-[420px] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-card ${up ? "" : "top-full mt-2"}`}
+      className={sheet ? "flex h-full flex-col" : `absolute left-0 z-30 flex w-[420px] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-card ${up ? "" : "top-full mt-2"}`}
       // Fixed height, positioned by its top edge: switching rows or filtering never moves the rows under the cursor.
-      style={up ? { height: maxHeight, top: -(maxHeight + 8) } : { height: maxHeight }}
+      style={sheet ? undefined : up ? { height: maxHeight, top: -(maxHeight + 8) } : { height: maxHeight }}
     >
       <div className="flex shrink-0 items-center gap-2 border-b border-line px-3.5">
         <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" className="shrink-0 text-muted">
@@ -190,7 +215,9 @@ function Panel({ onClose, up, maxHeight, sessionId }: { onClose(): void; up: boo
           <path d="m9.2 9.2 3 3" />
         </svg>
         <input
-          autoFocus
+          // A touch keyboard would cover half the list before anyone asked to search.
+          autoFocus={!coarse}
+          type="search"
           value={query}
           onChange={(e) => {
             setQuery(e.target.value)
@@ -310,7 +337,7 @@ function Row({ item, active, current, favorites, status, tiers, nowFor, onPick, 
     const copy = ALIAS_COPY[item.m.id]
     const now = nowFor(item.m.id)
     return (
-      <div {...common} aria-selected={selected} className={`mx-1.5 flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 ${bg}`}>
+      <div {...common} aria-selected={selected} className={`mx-1.5 flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 pointer-coarse:py-2.5 ${bg}`}>
         <AliasIcon id={item.m.id} />
         <span className="min-w-0 flex-1">
           <span className="block text-[13px] font-medium text-ink">{copy?.title ?? displayName(item.m)}</span>
@@ -335,7 +362,7 @@ function Row({ item, active, current, favorites, status, tiers, nowFor, onPick, 
   const chip = hint ? undefined : item.chip
   const freeLabel = m.free ? "Free" : freeTier ? "Free tier" : null
   return (
-    <div {...common} aria-selected={selected} className={`group mx-1.5 flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 ${bg}`}>
+    <div {...common} aria-selected={selected} className={`group mx-1.5 flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 pointer-coarse:py-1 ${bg}`}>
       <span className={`flex min-w-0 flex-1 items-center gap-1.5 ${st?.fixKey || item.tag ? "opacity-60" : ""}`}>
         <span className="truncate text-[13px] text-ink">{displayName(m)}</span>
         {item.showProvider && <span className="min-w-[3ch] shrink-[4] truncate text-[11px] text-muted">{providerName(m.providerID)}</span>}
@@ -375,7 +402,7 @@ function Row({ item, active, current, favorites, status, tiers, nowFor, onPick, 
           e.stopPropagation()
           onStar(key)
         }}
-        className={`shrink-0 rounded p-0.5 transition hover:text-accent ${fav ? "text-accent" : "text-muted"} ${fav || active ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
+        className={`shrink-0 rounded p-0.5 transition hover:text-accent pointer-coarse:p-2 ${fav ? "text-accent" : "text-muted"} ${fav || active ? "opacity-100" : "opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100"}`}
       >
         <Star filled={fav} />
       </button>

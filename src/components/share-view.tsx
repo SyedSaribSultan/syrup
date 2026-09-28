@@ -78,35 +78,43 @@ export function shareDate(ms: number): string {
   return DATE.format(new Date(ms))
 }
 
-/** Header, messages and footer of a shared chat. `id` adds the Markdown/JSON links; `homeHref` the "Try syrup" link. */
+/** Markdown / JSON links: small text, 44px tall on touch screens. */
+const FORMAT_LINK = "rounded px-1 py-0.5 transition hover:text-ink pointer-coarse:inline-flex pointer-coarse:min-h-11 pointer-coarse:items-center pointer-coarse:px-2"
+
+/**
+ * Header, messages and footer of a shared chat. `id` adds the Markdown/JSON links; `homeHref` the "Try syrup" link.
+ * The wordmark row stays pinned while reading (under the notch on phones); the title block scrolls away.
+ */
 export function ShareDocument({ transcript: t, id, homeHref }: { transcript: Transcript; id?: string; homeHref?: string }) {
   const entries = useMemo(() => toEntries(t), [t])
   const n = t.stats.messages
   return (
     <div className="h-full overflow-y-auto">
-      <header className="border-b border-line bg-surface/60">
-        <div className="mx-auto w-full max-w-[720px] px-6 pt-5 pb-7">
-          <div className="flex items-center justify-between gap-3">
-            {homeHref ? (
-              <Link href={homeHref} prefetch={false} className="font-serif text-[1.35rem] font-semibold tracking-tight text-ink">
-                syrup
-              </Link>
-            ) : (
-              <span className="font-serif text-[1.35rem] font-semibold tracking-tight text-ink">syrup</span>
-            )}
-            {id && (
-              <div className="flex items-center gap-1.5 text-[11px] text-muted">
-                <a href={`/c/${id}/md`} className="rounded px-1 py-0.5 transition hover:text-ink">
-                  Markdown
-                </a>
-                <span aria-hidden>·</span>
-                <a href={`/c/${id}/json`} className="rounded px-1 py-0.5 transition hover:text-ink">
-                  JSON
-                </a>
-              </div>
-            )}
-          </div>
-          <h1 className="mt-6 font-serif text-[1.9rem] leading-tight font-medium tracking-tight text-ink">{t.title}</h1>
+      <div className="sticky top-0 z-10 bg-surface pt-[env(safe-area-inset-top)]">
+        <div className="mx-auto flex h-12 w-full max-w-[720px] items-center justify-between gap-3 px-4 medium:h-16 medium:px-6 medium:pt-2">
+          {homeHref ? (
+            <Link href={homeHref} prefetch={false} className="font-serif text-[1.2rem] font-semibold tracking-tight text-ink medium:text-[1.35rem]">
+              syrup
+            </Link>
+          ) : (
+            <span className="font-serif text-[1.2rem] font-semibold tracking-tight text-ink medium:text-[1.35rem]">syrup</span>
+          )}
+          {id && (
+            <div className="flex items-center gap-1.5 text-[11px] text-muted">
+              <a href={`/c/${id}/md`} className={FORMAT_LINK}>
+                Markdown
+              </a>
+              <span aria-hidden>·</span>
+              <a href={`/c/${id}/json`} className={FORMAT_LINK}>
+                JSON
+              </a>
+            </div>
+          )}
+        </div>
+      </div>
+      <header className="border-b border-line bg-surface">
+        <div className="mx-auto w-full max-w-[720px] px-4 pt-3 pb-5 medium:px-6 medium:pt-4 medium:pb-7">
+          <h1 className="font-serif text-[1.5rem] leading-tight font-medium tracking-tight break-words text-ink medium:text-[1.9rem]">{t.title}</h1>
           <p className="mt-2 text-[13px] text-muted">
             Shared from syrup · {shareDate(t.snapshotAt)} · {n} message{n === 1 ? "" : "s"}
           </p>
@@ -114,7 +122,8 @@ export function ShareDocument({ transcript: t, id, homeHref }: { transcript: Tra
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-[720px] px-6 pt-8 pb-12">
+      {/* Long words wrap; code and tables scroll inside themselves (Markdown wraps them), never the page. */}
+      <main className="mx-auto w-full max-w-[720px] min-w-0 px-4 pt-6 pb-12 break-words medium:px-6 medium:pt-8">
         <ReadOnlyProvider answers={t.answers}>
           <div className="space-y-6">
             {entries.map((e) => (
@@ -132,12 +141,12 @@ export function ShareDocument({ transcript: t, id, homeHref }: { transcript: Tra
       </main>
 
       <footer className="border-t border-line">
-        <div className="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-6 py-8 medium:flex-row medium:items-center medium:justify-between">
+        <div className="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-4 pt-8 pb-[max(2rem,env(safe-area-inset-bottom))] medium:flex-row medium:items-center medium:justify-between medium:px-6">
           <p className="max-w-[440px] text-[12px] leading-relaxed text-muted">
             A snapshot from {shareDate(t.snapshotAt)}. Anything said after it stays private. Secrets are redacted and file paths are shortened.
           </p>
           {homeHref && (
-            <Link href={homeHref} prefetch={false} className="shrink-0 self-start rounded-lg bg-accent px-3.5 py-2 text-xs font-medium text-accent-ink transition hover:opacity-90 medium:self-auto">
+            <Link href={homeHref} prefetch={false} className="shrink-0 self-start rounded-lg bg-accent px-3.5 py-2 text-xs font-medium text-accent-ink transition hover:opacity-90 pointer-coarse:py-3.5 medium:self-auto">
               Try syrup
             </Link>
           )}

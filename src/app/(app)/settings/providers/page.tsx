@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { Brew, Skel } from "@/components/brew"
+import { RowMenu } from "@/components/pages/row-menu"
 import { useOptionalEngine } from "@/lib/engine-store"
 import { useRouterStatus } from "@/lib/use-router-status"
 
@@ -83,7 +84,7 @@ export default function ProvidersPage() {
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto w-full max-w-[880px] px-6 py-8">
+      <div className="mx-auto w-full max-w-[880px] px-4 py-8 medium:px-6">
         <h1 className="font-serif text-[1.75rem] font-medium tracking-tight text-ink">Providers</h1>
         <p className="mt-1 max-w-[640px] text-sm text-muted">
           Add API keys from any provider. Keys are encrypted at rest and only ever used for requests you start. You can keep several keys per provider; the active one is what the agent uses.
@@ -134,7 +135,7 @@ export default function ProvidersPage() {
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 placeholder="Search…"
-                className="w-44 rounded-lg border border-line bg-surface px-2.5 py-1 text-xs outline-none placeholder:text-muted focus:border-line-2"
+                className="w-full rounded-lg border border-line bg-surface px-2.5 py-1 text-xs outline-none placeholder:text-muted focus:border-line-2 pointer-coarse:min-h-11 medium:w-44"
               />
             }
           >
@@ -154,11 +155,12 @@ export default function ProvidersPage() {
 function Section({ title, hint, right, children }: { title: string; hint?: string; right?: React.ReactNode; children: React.ReactNode }) {
   return (
     <section className="mt-8">
-      <div className="mb-3 flex items-center justify-between">
+      {/* On phones the right-hand control (search) drops under the title at full width. */}
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-medium text-ink">
           {title} {hint && <span className="ml-1 font-normal text-muted">· {hint}</span>}
         </h2>
-        {right}
+        {right && <div className="w-full medium:w-auto">{right}</div>}
       </div>
       <div className="space-y-2">{children}</div>
     </section>
@@ -256,30 +258,51 @@ function ProviderCard({
       </button>
 
       {open && (
-        <div className="border-t border-line px-4 py-3">
+        <div className="@container border-t border-line px-4 py-3">
           {p.keys.length > 0 && (
             <ul className="mb-3 space-y-1.5">
-              {p.keys.map((k) => (
-                <li key={k.id} className="flex items-center gap-2 text-[13px]">
-                  <span className={`h-1.5 w-1.5 rounded-full ${k.active ? "bg-ok" : "bg-line-2"}`} />
-                  <span className="text-ink">{k.label}</span>
-                  <span className="font-mono text-xs text-muted">{k.hint}</span>
-                  <span className={`rounded px-1 text-[10px] font-medium ${k.tier === "free" ? "bg-accent-soft text-accent" : "bg-surface-2 text-ink-2"}`}>{k.tier}</span>
-                  <span className="flex-1" />
-                  {!k.active && (
-                    <Small onClick={() => call(k.id, () => fetch(`/api/providers/${p.id}/keys/${k.id}`, { method: "PATCH" }))} disabled={!!busy}>
-                      Use this key
-                    </Small>
-                  )}
-                  {k.active && <span className="text-[11px] text-muted">active</span>}
-                  <Small onClick={() => call(k.id, () => fetch(`/api/providers/${p.id}/keys/${k.id}`, { method: "DELETE" }))} disabled={!!busy} tone="err">
-                    Remove
-                  </Small>
-                </li>
-              ))}
+              {p.keys.map((k) => {
+                const activate = () => call(k.id, () => fetch(`/api/providers/${p.id}/keys/${k.id}`, { method: "PATCH" }))
+                const remove = () => call(k.id, () => fetch(`/api/providers/${p.id}/keys/${k.id}`, { method: "DELETE" }))
+                return (
+                  <li key={k.id} className="flex items-center gap-2 text-[13px]">
+                    <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${k.active ? "bg-ok" : "bg-line-2"}`} />
+                    {/* One line when the card is wide; narrow, the hint (and "active") drop to a second line. */}
+                    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-0.5">
+                      <span className="min-w-0 truncate text-ink">{k.label}</span>
+                      <span className="order-last basis-full font-mono text-xs text-muted @[480px]:order-none @[480px]:basis-auto">
+                        {k.hint}
+                        {k.active && <span className="font-sans text-[11px] @[480px]:hidden"> · active</span>}
+                      </span>
+                      <span className={`rounded px-1 text-[10px] font-medium ${k.tier === "free" ? "bg-accent-soft text-accent" : "bg-surface-2 text-ink-2"}`}>{k.tier}</span>
+                    </div>
+                    <div className="hidden items-center gap-2 @[480px]:flex">
+                      {!k.active && (
+                        <Small onClick={activate} disabled={!!busy}>
+                          Use this key
+                        </Small>
+                      )}
+                      {k.active && <span className="text-[11px] text-muted">active</span>}
+                      <Small onClick={remove} disabled={!!busy} tone="err">
+                        Remove
+                      </Small>
+                    </div>
+                    <RowMenu
+                      className="@[480px]:hidden"
+                      label={`Actions for ${k.label}`}
+                      title={k.label}
+                      items={[
+                        ...(k.active ? [] : [{ label: "Use this key", onSelect: () => void activate(), disabled: !!busy }]),
+                        { label: "Remove", onSelect: () => void remove(), danger: true, disabled: !!busy },
+                      ]}
+                    />
+                  </li>
+                )
+              })}
             </ul>
           )}
 
+          {/* Narrow: the key gets its own line, then label, tier and Add share the next. */}
           <div className="flex flex-wrap items-center gap-2">
             <input
               type="password"
@@ -288,17 +311,17 @@ function ProviderCard({
               onChange={(e) => setKey(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && void add()}
               placeholder={p.env[0] ? `${p.env[0]} value` : "API key"}
-              className="min-w-[220px] flex-1 rounded-lg border border-line bg-bg px-3 py-1.5 font-mono text-[13px] outline-none placeholder:font-sans placeholder:text-muted focus:border-line-2"
+              className="w-full rounded-lg border border-line bg-bg px-3 py-1.5 font-mono text-[13px] outline-none placeholder:font-sans placeholder:text-muted focus:border-line-2 pointer-coarse:min-h-11 @[520px]:w-auto @[520px]:min-w-[220px] @[520px]:flex-1"
             />
             <input
               value={label}
               onChange={(e) => setLabel(e.target.value)}
               placeholder="Label (optional)"
-              className="w-36 rounded-lg border border-line bg-bg px-3 py-1.5 text-[13px] outline-none placeholder:text-muted focus:border-line-2"
+              className="w-0 min-w-0 flex-1 rounded-lg border border-line bg-bg px-3 py-1.5 text-[13px] outline-none placeholder:text-muted focus:border-line-2 pointer-coarse:min-h-11 @[520px]:w-36 @[520px]:flex-none"
             />
             <div className="flex rounded-lg border border-line p-0.5 text-xs">
               {(["free", "paid"] as Tier[]).map((t) => (
-                <button key={t} type="button" onClick={() => setTier(t)} className={`rounded-md px-2 py-1 transition ${tier === t ? "bg-surface-2 text-ink" : "text-muted hover:text-ink"}`}>
+                <button key={t} type="button" onClick={() => setTier(t)} className={`rounded-md px-2 py-1 transition pointer-coarse:min-h-10 pointer-coarse:px-3 ${tier === t ? "bg-surface-2 text-ink" : "text-muted hover:text-ink"}`}>
                   {t}
                 </button>
               ))}
@@ -307,7 +330,7 @@ function ProviderCard({
               type="button"
               onClick={() => void add()}
               disabled={!key.trim() || !!busy}
-              className={`rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-accent-ink transition ${busy === "add" ? "" : "disabled:opacity-40"}`}
+              className={`rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-accent-ink transition pointer-coarse:min-h-11 ${busy === "add" ? "" : "disabled:opacity-40"}`}
             >
               {busy === "add" ? <Brew mood="save" tone="inherit" timerAfter={0} /> : "Add key"}
             </button>
@@ -315,7 +338,7 @@ function ProviderCard({
 
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted">
             {c && (
-              <a href={c.keyUrl} target="_blank" rel="noreferrer" className="text-accent underline underline-offset-2">
+              <a href={c.keyUrl} target="_blank" rel="noreferrer" className="text-accent underline underline-offset-2 pointer-coarse:inline-flex pointer-coarse:min-h-11 pointer-coarse:items-center">
                 Get a key ↗
               </a>
             )}
@@ -362,7 +385,7 @@ function Small({ children, onClick, disabled, tone }: { children: React.ReactNod
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`rounded px-1.5 py-0.5 text-[11px] transition disabled:opacity-40 ${tone === "err" ? "text-muted hover:text-err" : "text-ink-2 hover:text-ink"}`}
+      className={`rounded px-1.5 py-0.5 text-[11px] transition disabled:opacity-40 pointer-coarse:min-h-11 pointer-coarse:px-2.5 ${tone === "err" ? "text-muted hover:text-err" : "text-ink-2 hover:text-ink"}`}
     >
       {children}
     </button>

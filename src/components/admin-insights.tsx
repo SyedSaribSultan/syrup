@@ -40,10 +40,10 @@ export function Insights() {
 
   return (
     <section className="mt-6 rounded-xl border border-line bg-surface p-4 shadow-card">
-      <div className="flex items-baseline gap-2">
+      <div className="flex flex-wrap items-baseline gap-x-2">
         <h2 className="text-sm font-medium text-ink">Insights</h2>
         {data && <span className="text-xs text-muted">updated {fmtRelative(data.generatedAt)}</span>}
-        <button type="button" onClick={() => void load()} className="ml-auto text-xs text-muted hover:text-ink">
+        <button type="button" onClick={() => void load()} className="ml-auto text-xs text-muted hover:text-ink pointer-coarse:-my-3 pointer-coarse:min-h-11 pointer-coarse:px-1">
           Refresh
         </button>
       </div>
@@ -82,7 +82,7 @@ export function Insights() {
                 <b className="font-medium text-ink">{data.research.consenting}</b> of {data.research.users} people opted in · {data.research.chats} chats · {data.research.messages} messages · {data.research.rated} rated replies
               </span>
               {data.research.consenting > 0 ? (
-                <a href="/api/admin/research-export" className="ml-auto rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink-2 hover:border-line-2 hover:text-ink">
+                <a href="/api/admin/research-export" className="ml-auto rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink-2 hover:border-line-2 hover:text-ink pointer-coarse:inline-flex pointer-coarse:min-h-11 pointer-coarse:items-center">
                   Download dataset (.jsonl)
                 </a>
               ) : null}
@@ -130,9 +130,10 @@ function Funnel({ steps }: { steps: Data["funnel"] }) {
   return (
     <ul className="space-y-1.5">
       {steps.map((s, i) => (
-        <li key={s.step} className="grid grid-cols-[170px_1fr_90px] items-center gap-3 text-[13px]">
-          <span className="text-ink-2">{s.step}</span>
-          <span className="h-2 overflow-hidden rounded bg-surface-2">
+        // Phones: step and count on one line, the bar full width under them.
+        <li key={s.step} className="grid grid-cols-[1fr_auto] items-center gap-x-3 gap-y-1 text-[13px] medium:grid-cols-[170px_1fr_90px] medium:gap-3">
+          <span className="min-w-0 text-ink-2">{s.step}</span>
+          <span className="order-last col-span-2 h-2 overflow-hidden rounded bg-surface-2 medium:order-none medium:col-span-1">
             <span className={`block h-full rounded ${i === worst ? "bg-warn" : "bg-accent"}`} style={{ width: top > 0 ? `${(s.users / top) * 100}%` : "0%" }} />
           </span>
           <span className="text-right tabular-nums text-ink-2">
@@ -153,7 +154,7 @@ function Models({ rows }: { rows: ModelRow[] }) {
   if (rows.length === 0) return <p className="text-sm text-muted">No Auto or Fast traffic and no ratings yet.</p>
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-[13px]">
+      <table className="w-full text-[13px] whitespace-nowrap [&_td:not(:first-child)]:pl-4 [&_th:not(:first-child)]:pl-4">
         <thead className="text-left text-[11px] uppercase tracking-wider text-muted">
           <tr>
             <th className="py-1 font-medium">Model</th>

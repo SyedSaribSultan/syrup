@@ -133,7 +133,9 @@ We use Material 3's window size classes. They are based on real device data and 
 
 ### 4.1 Restructure
 
-- **New `AppShell`** (`components/app-shell.tsx`) owns the sidebar, the drawer state, the rail state and the main column. It is mounted **once**.
+- **New `AppShell`** (`components/app-shell.tsx`) owns the sidebar slot, the drawer and the main column.
+  - Drawer and rail state live in **`NavProvider`** (`lib/nav.tsx`), mounted once per app, above every frame.
+  - *As built:* inside a cloud workspace the sidebar still renders within `WorkspaceView`, because rename/delete and the sandbox status need that workspace's engine connection. `WorkspaceView` uses the same `AppShell`, so the layout is identical, and the state survives navigation because it lives in `NavProvider`.
 - **Mounting changes:**
   - `shell.tsx` and `cloud-frame.tsx` become thin wrappers that pass mode-specific slots into it.
   - `workspace-view.tsx` stops mounting its own sidebar. It passes its workspace slots (sandbox status, network, stop) up through context.
@@ -456,6 +458,17 @@ Each phase ships on its own and leaves the app better than before. **Phases 0–
 - a11y pass: VoiceOver on iOS, TalkBack on Android, keyboard-only on desktop
 
 ---
+
+### As built (where it differs from the plan above)
+
+- **Model picker on phones:** the list already opens on a short set (Auto, Fast, favourites, recents, recommended), with everything else behind "All models". So below 840px the same panel opens as a full-height sheet, not as a separate short dropdown plus a second picker. The search box doesn't autofocus on touch.
+- **Composer:** one rounded box on every size, text on top, `+` and send below (the Gemini app's multi-line state). No single-line pill mode.
+- **Chats section:** not collapsible. It gets a search box once there are more than 6 chats.
+- **Workspace controls:** the sandbox status line stays under the switcher. Network and Stop moved into the switcher's menu, under "This workspace".
+- **Chat info:** tokens and cost live in ⋯ → Chat info (a small dialog), and in the header from 1200px up.
+- **Type-scale cleanup** (§8, 366 small sizes → 6 steps): not done. It's pure churn across 32 files with no user-visible win at this point.
+- **Shortcuts:** Ctrl/⌘+B (sidebar), Ctrl/⌘+Shift+O (new chat), `/` (focus composer). Ctrl/⌘+K for the model picker is skipped, because two pickers are mounted (top bar and composer) and only CSS decides which one shows.
+- **Keyboard on iOS:** `ViewportSync` sizes the app to `visualViewport` on touch screens. It still needs a real-iPhone check.
 
 ## 11. How we test
 

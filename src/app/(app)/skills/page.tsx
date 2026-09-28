@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { Brew, Skel } from "@/components/brew"
+import { RowMenu } from "@/components/pages/row-menu"
 
 type Source = "syrup" | "claude" | "agents" | "project" | "builtin"
 type Skill = { name: string; description: string; location: string; managed: boolean; source: Source; enabled: boolean; tokens: number; content: string }
@@ -87,30 +88,31 @@ export default function SkillsPage() {
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto w-full max-w-[880px] px-6 py-8">
+      <div className="mx-auto w-full max-w-[880px] px-4 py-8 medium:px-6">
         <h1 className="font-serif text-[1.75rem] font-medium tracking-tight text-ink">Skills</h1>
         <p className="mt-1 max-w-[640px] text-sm text-muted">
           Skills are folders with a <code className="rounded bg-code-bg px-1 font-mono text-[12px]">SKILL.md</code> that teach the agent a repeatable task. It loads them on demand. Installed skills work in every project.
         </p>
 
-        <div className="mt-6 rounded-xl border border-line bg-surface p-4 shadow-card">
+        <div className="@container mt-6 rounded-xl border border-line bg-surface p-4 shadow-card">
           <div className="mb-3 flex gap-1 text-xs">
             {(["git", "paste"] as const).map((m) => (
-              <button key={m} type="button" onClick={() => setMode(m)} className={`rounded-md px-2.5 py-1 transition ${mode === m ? "bg-surface-2 text-ink" : "text-muted hover:text-ink"}`}>
+              <button key={m} type="button" onClick={() => setMode(m)} className={`rounded-md px-2.5 py-1 transition pointer-coarse:min-h-10 ${mode === m ? "bg-surface-2 text-ink" : "text-muted hover:text-ink"}`}>
                 {m === "git" ? "From GitHub" : "Paste SKILL.md"}
               </button>
             ))}
           </div>
           {mode === "git" ? (
-            <div className="flex gap-2">
+            // Narrow: the Install button goes full width under the field.
+            <div className="flex flex-col gap-2 @[480px]:flex-row">
               <input
                 value={source}
                 onChange={(e) => setSource(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && void install()}
                 placeholder="owner/repo, owner/repo/path/to/skill, or a full URL"
-                className="flex-1 rounded-lg border border-line bg-bg px-3 py-2 font-mono text-[13px] outline-none placeholder:font-sans placeholder:text-muted focus:border-line-2"
+                className="min-w-0 flex-1 rounded-lg border border-line bg-bg px-3 py-2 font-mono text-[13px] outline-none placeholder:font-sans placeholder:text-muted focus:border-line-2 pointer-coarse:min-h-11"
               />
-              <button type="button" onClick={() => void install()} disabled={busy || source.trim().length < 3} className={`rounded-lg bg-accent px-3 py-2 text-xs font-medium text-accent-ink ${busy ? "" : "disabled:opacity-40"}`}>
+              <button type="button" onClick={() => void install()} disabled={busy || source.trim().length < 3} className={`rounded-lg bg-accent px-3 py-2 text-xs font-medium text-accent-ink pointer-coarse:min-h-11 ${busy ? "" : "disabled:opacity-40"}`}>
                 {busy ? <Brew label="Installing" tone="inherit" /> : "Install"}
               </button>
             </div>
@@ -124,7 +126,7 @@ export default function SkillsPage() {
                 className="w-full resize-y rounded-lg border border-line bg-bg px-3 py-2 font-mono text-[12.5px] leading-relaxed outline-none placeholder:text-muted focus:border-line-2"
               />
               <div className="mt-2 flex justify-end">
-                <button type="button" onClick={() => void install()} disabled={busy || content.trim().length < 10} className={`rounded-lg bg-accent px-3 py-2 text-xs font-medium text-accent-ink ${busy ? "" : "disabled:opacity-40"}`}>
+                <button type="button" onClick={() => void install()} disabled={busy || content.trim().length < 10} className={`w-full rounded-lg bg-accent px-3 py-2 text-xs font-medium text-accent-ink pointer-coarse:min-h-11 @[480px]:w-auto ${busy ? "" : "disabled:opacity-40"}`}>
                   {busy ? <Brew mood="save" tone="inherit" timerAfter={0} /> : "Create skill"}
                 </button>
               </div>
@@ -174,8 +176,9 @@ export default function SkillsPage() {
           if (rows.length === 0) return null
           const groupOn = all.filter((s) => s.enabled)
           return (
-            <section key={grp.source} className="mt-6">
-              <div className="mb-2 flex items-baseline gap-3">
+            <section key={grp.source} className="@container mt-6">
+              {/* Wraps on phones; "Turn all off" folds into a ⋯ when the column is narrow. */}
+              <div className="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
                 <h3 className="text-[13px] font-medium text-ink">{grp.label}</h3>
                 <span className="text-[12px] text-muted">
                   {groupOn.length}/{all.length} on · ~{fmt(groupOn.reduce((n, s) => n + s.tokens, 0))} tokens
@@ -186,10 +189,16 @@ export default function SkillsPage() {
                   type="button"
                   disabled={groupOn.length === 0}
                   onClick={() => void toggle(groupOn.map((s) => s.name), false)}
-                  className="text-[12px] text-muted hover:text-ink disabled:opacity-40 disabled:hover:text-muted"
+                  className="hidden text-[12px] text-muted hover:text-ink disabled:opacity-40 disabled:hover:text-muted items-center @[480px]:inline-flex pointer-coarse:min-h-11"
                 >
                   Turn all off
                 </button>
+                <RowMenu
+                  className="-my-2 self-center @[480px]:hidden"
+                  label={`${grp.label} actions`}
+                  title={grp.label}
+                  items={[{ label: "Turn all off", onSelect: () => void toggle(groupOn.map((s) => s.name), false), disabled: groupOn.length === 0 }]}
+                />
               </div>
               <ul className="space-y-2">
                 {rows.map((s) => (
@@ -252,7 +261,7 @@ function SaribCard() {
           </div>
         </div>
         {st && !installed && (
-          <button type="button" onClick={() => void install()} disabled={st.installing || !st.python} className={`shrink-0 rounded-lg bg-accent px-3 py-2 text-xs font-medium text-accent-ink ${st.installing ? "" : "disabled:opacity-40"}`}>
+          <button type="button" onClick={() => void install()} disabled={st.installing || !st.python} className={`shrink-0 rounded-lg bg-accent px-3 py-2 text-xs font-medium text-accent-ink pointer-coarse:min-h-11 ${st.installing ? "" : "disabled:opacity-40"}`}>
             {st.installing ? <Brew label="Installing" tone="inherit" /> : "Enable"}
           </button>
         )}
@@ -269,7 +278,7 @@ function SaribCard() {
       {st?.error && <div className="mt-2 text-xs text-err">{st.error}</div>}
       {st?.log && (
         <div className="mt-2">
-          <button type="button" onClick={() => setShowLog((v) => !v)} className="text-[11px] text-muted hover:text-ink">
+          <button type="button" onClick={() => setShowLog((v) => !v)} className="text-[11px] text-muted hover:text-ink pointer-coarse:min-h-11">
             {showLog ? "Hide" : "Show"} install log
           </button>
           {showLog && <pre className="mt-1 max-h-[240px] overflow-auto rounded-lg bg-code-bg p-3 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap text-ink-2">{st.log}</pre>}
@@ -303,7 +312,7 @@ function SkillCard({ s, onChange, onToggle }: { s: Skill; onChange(): Promise<vo
           aria-checked={s.enabled}
           aria-label={`${s.enabled ? "Turn off" : "Turn on"} ${s.name}`}
           onClick={() => onToggle(!s.enabled)}
-          className={`relative mt-3 h-5 w-9 shrink-0 rounded-full transition ${s.enabled ? "bg-accent" : "bg-line-2"}`}
+          className={`relative mt-3 h-5 w-9 shrink-0 rounded-full transition pointer-coarse:after:absolute pointer-coarse:after:-inset-3 ${s.enabled ? "bg-accent" : "bg-line-2"}`}
         >
           <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition ${s.enabled ? "left-[18px]" : "left-0.5"}`} />
         </button>
@@ -323,7 +332,7 @@ function SkillCard({ s, onChange, onToggle }: { s: Skill; onChange(): Promise<vo
                   await onChange()
                   setBusy(false)
                 }}
-                className="text-muted hover:text-err disabled:opacity-40"
+                className="text-muted hover:text-err disabled:opacity-40 pointer-coarse:min-h-11 pointer-coarse:px-2"
               >
                 Remove
               </button>

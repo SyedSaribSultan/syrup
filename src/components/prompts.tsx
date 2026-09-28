@@ -28,7 +28,7 @@ function PermissionCard({ req }: { req: PermissionReq }) {
     <div className="rounded-xl border border-accent/40 bg-accent-soft/40 p-3">
       <div className="text-[13px] font-medium text-ink">Allow {req.title}?</div>
       {detail && <pre className="mt-1.5 max-h-40 overflow-auto rounded-lg bg-code-bg p-2 font-mono text-[12px] text-ink-2 whitespace-pre-wrap">{detail}</pre>}
-      <div className="mt-2 flex gap-2">
+      <div className="mt-2 flex flex-wrap gap-2 max-medium:flex-col">
         <Btn primary onClick={() => replyPermission(req, "once")}>
           Allow once
         </Btn>
@@ -70,7 +70,7 @@ function QuestionCard({ req }: { req: QuestionReq }) {
                   key={o.label}
                   type="button"
                   onClick={() => toggle(qi, o.label, q.multiple)}
-                  className={`rounded-lg border px-3 py-2 text-left transition ${on ? "border-accent bg-accent-soft/60" : "border-line hover:border-line-2"}`}
+                  className={`rounded-lg border px-3 py-2 text-left transition pointer-coarse:py-3 ${on ? "border-accent bg-accent-soft/60" : "border-line hover:border-line-2"}`}
                 >
                   <div className="text-[13px] font-medium text-ink">{o.label}</div>
                   {o.description && <div className="text-[12px] text-muted">{o.description}</div>}
@@ -88,7 +88,7 @@ function QuestionCard({ req }: { req: QuestionReq }) {
           </div>
         </div>
       ))}
-      <div className="mt-3 flex gap-2">
+      <div className="mt-3 flex flex-wrap gap-2 max-medium:flex-col">
         <Btn
           primary
           disabled={!complete}
@@ -108,7 +108,7 @@ function Btn({ children, onClick, primary, disabled }: { children: React.ReactNo
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`rounded-lg px-3 py-1.5 text-xs font-medium transition disabled:opacity-40 ${
+      className={`rounded-lg px-3 py-1.5 text-xs font-medium transition disabled:opacity-40 pointer-coarse:py-3 pointer-coarse:text-[14px] ${
         primary ? "bg-accent text-accent-ink" : "border border-line text-ink-2 hover:border-line-2 hover:text-ink"
       }`}
     >

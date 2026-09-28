@@ -10,6 +10,7 @@ import type { Transcript } from "@/lib/transcript"
 import { useDismiss } from "@/lib/use-dismiss"
 import { useWorkspaces } from "@/lib/workspaces"
 import { Brew, Skel } from "./brew"
+import { Popover } from "./ui/sheet"
 import { confirmDialog } from "./ui/dialog"
 
 /**
@@ -46,24 +47,34 @@ function Btn({ onClick, disabled, tone, children }: { onClick(): void; disabled?
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`rounded-lg border border-line bg-bg px-2.5 py-1 text-xs transition hover:border-line-2 disabled:opacity-50 ${tone === "err" ? "text-err" : "text-ink-2 hover:text-ink"}`}
+      className={`rounded-lg border border-line bg-bg px-2.5 py-1 text-xs transition hover:border-line-2 disabled:opacity-50 pointer-coarse:px-3.5 pointer-coarse:py-2.5 pointer-coarse:text-[13px] ${tone === "err" ? "text-err" : "text-ink-2 hover:text-ink"}`}
     >
       {children}
     </button>
   )
 }
 
-export function ShareButton({ sessionId }: { sessionId: string }) {
-  const [open, setOpen] = useState(false)
+/**
+ * `open`/`onOpenChange` make it controllable, e.g. from the chat's ⋯ menu on phones, where `trigger={false}`
+ * hides the button and the panel opens as a bottom sheet.
+ */
+export function ShareButton({ sessionId, open: openProp, onOpenChange, trigger = true }: { sessionId: string; open?: boolean; onOpenChange?(open: boolean): void; trigger?: boolean }) {
+  const [openState, setOpenState] = useState(false)
+  const open = openProp ?? openState
+  const setOpen = useCallback((v: boolean) => (onOpenChange ? onOpenChange(v) : setOpenState(v)), [onOpenChange])
   const ref = useRef<HTMLDivElement>(null)
-  const close = useCallback(() => setOpen(false), [])
+  const close = useCallback(() => setOpen(false), [setOpen])
   useDismiss(ref, open, close)
   return (
     <div ref={ref} className="relative">
-      <button type="button" aria-expanded={open} aria-haspopup="dialog" onClick={() => setOpen((v) => !v)} className={`rounded-lg px-2 py-1 text-xs transition ${open ? "bg-surface-2 text-ink" : "text-ink-2 hover:bg-surface-2 hover:text-ink"}`}>
-        Share
-      </button>
-      {open && <SharePanel sessionId={sessionId} />}
+      {trigger && (
+        <button type="button" aria-expanded={open} aria-haspopup="dialog" onClick={() => setOpen(!open)} className={`rounded-lg px-2 py-1 text-xs transition ${open ? "bg-surface-2 text-ink" : "text-ink-2 hover:bg-surface-2 hover:text-ink"}`}>
+          Share
+        </button>
+      )}
+      <Popover open={open} onClose={close} label="Share chat" className="absolute top-full right-0 z-30 mt-2 w-[min(440px,92vw)] rounded-xl border border-line bg-surface text-left shadow-card">
+        <SharePanel sessionId={sessionId} />
+      </Popover>
     </div>
   )
 }
@@ -165,7 +176,7 @@ function SharePanel({ sessionId }: { sessionId: string }) {
     })
 
   return (
-    <div role="dialog" aria-label="Share chat" className="absolute top-full right-0 z-30 mt-2 w-[min(440px,92vw)] rounded-xl border border-line bg-surface p-4 text-left shadow-card">
+    <div className="p-4 max-expanded:px-5 max-expanded:pb-6">
       {share === undefined ? (
         <div className="space-y-2">
           <Skel className="h-4 w-32" />
@@ -196,11 +207,11 @@ function SharePanel({ sessionId }: { sessionId: string }) {
             <button
               type="button"
               onClick={() => void copyText(share.url).then(() => flash("link"))}
-              className="shrink-0 rounded-lg bg-accent px-2.5 py-1.5 text-xs font-medium text-accent-ink transition hover:opacity-90"
+              className="shrink-0 rounded-lg bg-accent px-2.5 py-1.5 text-xs font-medium text-accent-ink transition hover:opacity-90 pointer-coarse:px-3.5 pointer-coarse:py-2.5"
             >
               {copied === "link" ? "Copied" : "Copy"}
             </button>
-            <a href={share.url} target="_blank" rel="noreferrer" className="shrink-0 rounded-lg border border-line bg-bg px-2.5 py-1.5 text-xs text-ink-2 transition hover:border-line-2 hover:text-ink">
+            <a href={share.url} target="_blank" rel="noreferrer" className="shrink-0 rounded-lg border border-line bg-bg px-2.5 py-1.5 text-xs text-ink-2 transition hover:border-line-2 hover:text-ink pointer-coarse:px-3.5 pointer-coarse:py-2.5">
               Open
             </a>
           </div>
@@ -225,9 +236,9 @@ function SharePanel({ sessionId }: { sessionId: string }) {
 
       {error && <p className="mt-3 text-[12px] text-err">{error}</p>}
 
-      <div className="mt-4 flex items-center justify-between gap-2 border-t border-line pt-3">
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-line pt-3">
         <span className="text-[12px] text-muted">Export</span>
-        <div className="flex gap-1.5">
+        <div className="flex flex-wrap gap-1.5">
           <Btn onClick={() => void download("md")} disabled={!!busy}>
             {busy === "md" ? "Saving…" : "Markdown"}
           </Btn>
@@ -315,8 +326,8 @@ export function SharedLinks({ variant = "card" }: { variant?: "card" | "compact"
     ) : (
       <ul className={`divide-y divide-line ${compact ? "mt-2 max-h-[240px] overflow-y-auto" : "mt-3"}`}>
         {rows.map((s) => (
-          <li key={s.id} className="flex items-center gap-3 py-2">
-            <div className="min-w-0 flex-1">
+          <li key={s.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
+            <div className="min-w-0 flex-1 basis-48">
               <a href={s.url} target="_blank" rel="noreferrer" className="block truncate text-[13px] text-ink transition hover:text-accent">
                 {s.title || "Untitled"}
               </a>
@@ -325,13 +336,13 @@ export function SharedLinks({ variant = "card" }: { variant?: "card" | "compact"
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-1">
-              <button type="button" onClick={() => void copy(s)} className="rounded px-1.5 py-0.5 text-[11px] text-ink-2 transition hover:bg-surface-2 hover:text-ink">
+              <button type="button" onClick={() => void copy(s)} className="rounded px-1.5 py-0.5 text-[11px] pointer-coarse:px-2.5 pointer-coarse:py-2 pointer-coarse:text-[13px] text-ink-2 transition hover:bg-surface-2 hover:text-ink">
                 {copied === s.id ? "Copied" : "Copy"}
               </button>
-              <button type="button" onClick={() => void update(s)} disabled={busy === s.id} className="rounded px-1.5 py-0.5 text-[11px] text-ink-2 transition hover:bg-surface-2 hover:text-ink disabled:opacity-50">
+              <button type="button" onClick={() => void update(s)} disabled={busy === s.id} className="rounded px-1.5 py-0.5 text-[11px] pointer-coarse:px-2.5 pointer-coarse:py-2 pointer-coarse:text-[13px] text-ink-2 transition hover:bg-surface-2 hover:text-ink disabled:opacity-50">
                 {busy === s.id ? "…" : "Update"}
               </button>
-              <button type="button" onClick={() => stop(s)} disabled={busy === s.id} className="rounded px-1.5 py-0.5 text-[11px] text-err transition hover:bg-surface-2 disabled:opacity-50">
+              <button type="button" onClick={() => stop(s)} disabled={busy === s.id} className="rounded px-1.5 py-0.5 text-[11px] pointer-coarse:px-2.5 pointer-coarse:py-2 pointer-coarse:text-[13px] text-err transition hover:bg-surface-2 disabled:opacity-50">
                 Stop
               </button>
             </div>

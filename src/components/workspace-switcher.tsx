@@ -1,9 +1,10 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { hostOS, localFileAction } from "@/lib/file-actions"
 import { Skel } from "./brew"
 import { confirmDialog } from "./ui/dialog"
+import { Popover } from "./ui/sheet"
 import { useDismiss } from "@/lib/use-dismiss"
 import { MAX_WORKSPACES } from "@/lib/workspace-limits"
 import { baseName, useAllChats, useWorkspaces, wsColor, wsTint, type WorkspaceItem } from "@/lib/workspaces"
@@ -33,7 +34,8 @@ function shortDetail(detail: string): string {
   return /^[a-z]:|^\//i.test(detail) && parts.length > 2 ? `…${sep}${parts.slice(-2).join(sep)}` : detail
 }
 
-export function WorkspaceSwitcher() {
+/** `controls`: the open workspace's own settings (cloud: network access, stop), shown under the list. */
+export function WorkspaceSwitcher({ controls }: { controls?: ReactNode }) {
   const { workspaces, activeId } = useWorkspaces()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -61,11 +63,15 @@ export function WorkspaceSwitcher() {
         </svg>
       </button>
 
-      {open && (
-        <div className="absolute left-3 top-full z-30 mt-1.5 w-[328px] overflow-hidden rounded-xl border border-line bg-surface shadow-card">
-          <Menu onDone={() => setOpen(false)} />
-        </div>
-      )}
+      <Popover open={open} onClose={close} label="Workspaces" className="absolute left-3 top-full z-30 mt-1.5 w-[328px] overflow-hidden rounded-xl border border-line bg-surface shadow-card">
+        <Menu onDone={close} />
+        {controls && (
+          <div className="border-t border-line">
+            <div className="px-3.5 pt-2.5 pb-1 text-[11px] font-medium uppercase tracking-wider text-muted">This workspace</div>
+            {controls}
+          </div>
+        )}
+      </Popover>
     </div>
   )
 }
@@ -110,7 +116,7 @@ function Menu({ onDone }: { onDone(): void }) {
           </span>
         </span>
       </div>
-      <div className="max-h-[360px] space-y-0.5 overflow-y-auto p-1.5">
+      <div className="max-h-[360px] space-y-0.5 overflow-y-auto p-1.5 max-expanded:max-h-none">
         {workspaces?.length === 0 && <div className="px-2 py-3 text-[13px] text-muted">No workspaces yet. Add one below.</div>}
         {workspaces?.map((w) => {
           const isActive = w.id === activeId
@@ -134,21 +140,21 @@ function Menu({ onDone }: { onDone(): void }) {
                   </span>
                   <span className="block truncate text-[11px] text-muted">{shortDetail(w.detail)}</span>
                 </span>
-                <span className={`shrink-0 text-[11px] text-muted ${isActive && mode === "cloud" ? "" : "group-hover:invisible"}`}>
+                <span className={`shrink-0 text-[11px] text-muted ${isActive && mode === "cloud" ? "" : "group-focus-within:invisible group-hover:invisible pointer-coarse:invisible"}`}>
                   {n} {n === 1 ? "chat" : "chats"}
                 </span>
               </button>
               {(mode === "local" || (!isActive && !w.home)) && (
-                <span className="absolute top-1/2 right-2 hidden -translate-y-1/2 items-center gap-0.5 group-hover:flex">
+                <span className="absolute top-1/2 right-2 hidden -translate-y-1/2 items-center gap-0.5 group-focus-within:flex group-hover:flex pointer-coarse:flex">
                   {mode === "local" && (
-                    <button type="button" title={`Open folder in ${folderApp}`} aria-label="Open folder" onClick={() => void onReveal(w)} className="rounded-md p-1.5 text-muted transition hover:bg-surface hover:text-ink">
+                    <button type="button" title={`Open folder in ${folderApp}`} aria-label="Open folder" onClick={() => void onReveal(w)} className="rounded-md p-1.5 text-muted transition hover:bg-surface hover:text-ink pointer-coarse:p-2.5">
                       <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round">
                         <path d="M1.75 4.25c0-.55.45-1 1-1h3.1l1.5 1.5h5.9c.55 0 1 .45 1 1v6.5c0 .55-.45 1-1 1H2.75c-.55 0-1-.45-1-1v-8Z" />
                       </svg>
                     </button>
                   )}
                   {!isActive && !w.home && (
-                    <button type="button" title={mode === "cloud" ? "Delete workspace" : "Remove from list"} onClick={() => void onRemove(w)} className="rounded-md p-1.5 text-muted transition hover:bg-surface hover:text-err">
+                    <button type="button" title={mode === "cloud" ? "Delete workspace" : "Remove from list"} onClick={() => void onRemove(w)} className="rounded-md p-1.5 text-muted transition hover:bg-surface hover:text-err pointer-coarse:p-2.5">
                       <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
                         <path d="M3.5 3.5l7 7M10.5 3.5l-7 7" />
                       </svg>
@@ -167,7 +173,7 @@ function Menu({ onDone }: { onDone(): void }) {
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-dashed border-warn/50 text-[13px] text-warn">!</span>
             <span className="text-[12px] leading-snug text-ink-2">
               <span className="block font-medium text-ink">All {MAX_WORKSPACES} slots in use</span>
-              Remove a workspace (hover it, then ×) to add another.
+              Remove a workspace (the × next to it) to add another.
             </span>
           </div>
         ) : mode === "local" ? (

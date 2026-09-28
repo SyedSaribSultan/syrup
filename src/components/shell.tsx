@@ -2,7 +2,9 @@
 
 import { usePathname } from "next/navigation"
 import { type ReactNode } from "react"
+import { NavProvider } from "@/lib/nav"
 import { PanelProvider } from "@/lib/panel"
+import { AppShell } from "./app-shell"
 import { LogsProvider } from "./logs-modal"
 import { Sidebar } from "./sidebar"
 import { Workbench } from "./side-panel"
@@ -14,10 +16,11 @@ export function Shell({ children }: { children: ReactNode }) {
   return (
     <LogsProvider>
       <PanelProvider>
-        <div className="flex h-full">
-          <Sidebar />
-          <main className="relative flex min-w-0 flex-1 flex-col">{chat ? <Workbench>{children}</Workbench> : children}</main>
-        </div>
+        <NavProvider>
+          <AppShell sidebar={<Sidebar />} pageBar={!chat}>
+            {chat ? <Workbench>{children}</Workbench> : children}
+          </AppShell>
+        </NavProvider>
       </PanelProvider>
     </LogsProvider>
   )

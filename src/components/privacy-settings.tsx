@@ -66,12 +66,13 @@ export function PrivacySettings() {
     <>
       <section className="mt-6 rounded-xl border border-line bg-surface p-4 shadow-card">
         <h2 className="text-sm font-medium text-ink">Account</h2>
-        <dl className="mt-2 grid grid-cols-[120px_1fr] gap-y-1 text-[13px]">
+        {/* Label above value on phones, side by side from medium up. */}
+        <dl className="mt-2 grid grid-cols-1 text-[13px] medium:grid-cols-[120px_1fr] medium:gap-y-1">
           <dt className="text-muted">Email</dt>
-          <dd className="font-mono text-ink">{me.email}</dd>
-          <dt className="text-muted">Member since</dt>
+          <dd className="font-mono break-all text-ink">{me.email}</dd>
+          <dt className="mt-2 text-muted medium:mt-0">Member since</dt>
           <dd className="text-ink-2">{new Date(me.createdAt).toLocaleDateString()}</dd>
-          <dt className="text-muted">Terms accepted</dt>
+          <dt className="mt-2 text-muted medium:mt-0">Terms accepted</dt>
           <dd className="text-ink-2">
             {me.consents.terms.at ? new Date(me.consents.terms.at).toLocaleDateString() : "—"}{" "}
             <Link href="/legal/terms" className="text-muted underline underline-offset-2 hover:text-ink">
@@ -107,11 +108,11 @@ export function PrivacySettings() {
       <section className="mt-6 rounded-xl border border-line bg-surface p-4 shadow-card">
         <h2 className="text-sm font-medium text-ink">Your data</h2>
         <p className="mt-1 text-[13px] text-ink-2">Export everything we hold about you, or delete your account. Requests are recorded with a timestamp and handled within the times published in the Privacy Policy.</p>
-        <div className="mt-3 flex gap-2">
-          <button type="button" disabled={!!busy} onClick={() => void request("export")} className="rounded-lg border border-line bg-bg px-3 py-2 text-xs font-medium text-ink transition hover:border-line-2 disabled:opacity-40">
+        <div className="mt-3 flex flex-col gap-2 medium:flex-row">
+          <button type="button" disabled={!!busy} onClick={() => void request("export")} className="rounded-lg border border-line bg-bg px-3 py-2 text-xs font-medium text-ink transition hover:border-line-2 disabled:opacity-40 pointer-coarse:min-h-11">
             Request export
           </button>
-          <button type="button" disabled={!!busy} onClick={() => void request("delete")} className="rounded-lg border border-err/30 bg-bg px-3 py-2 text-xs font-medium text-err transition hover:border-err/60 disabled:opacity-40">
+          <button type="button" disabled={!!busy} onClick={() => void request("delete")} className="rounded-lg border border-err/30 bg-bg px-3 py-2 text-xs font-medium text-err transition hover:border-err/60 disabled:opacity-40 pointer-coarse:min-h-11">
             Delete account…
           </button>
         </div>
@@ -119,7 +120,7 @@ export function PrivacySettings() {
         {me.requests.length > 0 && (
           <ul className="mt-3 divide-y divide-line text-[12px]">
             {me.requests.map((r) => (
-              <li key={r.id} className="flex gap-3 py-1.5">
+              <li key={r.id} className="flex flex-wrap gap-x-3 gap-y-0.5 py-1.5">
                 <span className="rounded bg-surface-2 px-1.5 text-[10px] uppercase text-ink-2">{r.type}</span>
                 <span className="text-ink-2">{r.status}</span>
                 <span className="text-muted">{new Date(r.requestedAt).toLocaleString()}</span>
@@ -179,7 +180,7 @@ function Toggle({ title, on, busy, onChange, onLabel, offLabel, children }: { ti
           aria-checked={on}
           disabled={busy}
           onClick={() => onChange(!on)}
-          className={`relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition disabled:opacity-50 ${on ? "bg-accent" : "bg-line-2"}`}
+          className={`relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition disabled:opacity-50 pointer-coarse:after:absolute pointer-coarse:after:-inset-2.5 ${on ? "bg-accent" : "bg-line-2"}`}
           title={on ? onLabel : offLabel}
         >
           <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition ${on ? "left-[22px]" : "left-0.5"}`} />

@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next"
 import { Geist, Geist_Mono, Lora } from "next/font/google"
 import { DialogHost } from "@/components/ui/dialog"
+import { ViewportSync } from "@/components/ui/viewport-sync"
+import { THEME_SCRIPT } from "@/lib/theme-script"
 import "./globals.css"
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] })
@@ -10,6 +12,8 @@ const lora = Lora({ variable: "--font-lora", subsets: ["latin"], weight: ["400",
 export const metadata: Metadata = {
   title: "syrup",
   description: "A coding agent powered by your own API keys.",
+  // Added to the iOS home screen it opens full-screen; "default" keeps the status bar above the page.
+  appleWebApp: { capable: true, title: "syrup", statusBarStyle: "default" },
 }
 
 /**
@@ -37,10 +41,15 @@ export const viewport: Viewport = {
  */
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} ${lora.variable} h-full antialiased`}>
+    // data-theme may be set by THEME_SCRIPT before React hydrates.
+    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} ${lora.variable} h-full antialiased`} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+      </head>
       <body className="h-full">
         {children}
         <DialogHost />
+        <ViewportSync />
       </body>
     </html>
   )

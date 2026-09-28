@@ -20,14 +20,17 @@ import {
 } from "@/lib/file-actions"
 import { usePanel } from "@/lib/panel"
 import { useDismiss } from "@/lib/use-dismiss"
+import { useLongPress } from "@/lib/use-long-press"
+import { useNarrow } from "@/lib/use-window-class"
 import { Brew } from "./brew"
 import { useReadOnly } from "./read-only"
 import { confirmDialog } from "./ui/dialog"
+import { MenuList, Sheet } from "./ui/sheet"
 
 /**
  * A file mention: click reveals it (local: a new File Explorer window with the
- * file selected; cloud: opens it in the Files panel), right-click opens a menu
- * of actions. Paths outside the workspace render as plain text.
+ * file selected; cloud: opens it in the Files panel), right-click or a long
+ * press opens a menu of actions. Paths outside the workspace render as plain text.
  */
 export function FileLink(props: { path: string; children?: ReactNode; className?: string }) {
   // A shared snapshot has no engine and no files: the mention is plain text.
@@ -44,7 +47,7 @@ function LiveFileLink({ path, children, className = "" }: { path: string; childr
         type="button"
         {...fm.bind}
         title={`${fm.file.abs}\n${fm.cloud ? "Click to open in the panel" : "Click to show in folder"} · right-click for more`}
-        className={`cursor-pointer text-left underline decoration-muted/40 decoration-dotted underline-offset-[3px] transition hover:text-accent hover:decoration-accent focus-visible:rounded-sm focus-visible:outline-1 focus-visible:outline-accent ${className}`}
+        className={`cursor-pointer text-left underline decoration-muted/40 decoration-dotted underline-offset-[3px] transition [-webkit-touch-callout:none] hover:text-accent hover:decoration-accent focus-visible:rounded-sm focus-visible:outline-1 focus-visible:outline-accent ${className}`}
       >
         {children ?? (fm.file.rel === "." ? fm.file.name : fm.file.rel)}
       </button>
@@ -63,7 +66,10 @@ type Toast = { text: string; tone?: "warn"; at: number }
 export type MenuItem = { label: string; hint?: string; run(): void } | "sep"
 type Item = MenuItem
 
-/** The behavior behind FileLink, for elements that already have their own click (e.g. a diff row): spread `bind.onContextMenu`, render `ui`. */
+/**
+ * The behavior behind FileLink. Elements that already have their own click (e.g. a diff row) spread
+ * `bind.onContextMenu` and `press` (long-press on touch), call `openAt` from a visible ⋯, and render `ui`.
+ */
 export function useFileMenu(path: string) {
   const { directory, connection } = useEngine()
   const panel = usePanel()
@@ -123,7 +129,20 @@ export function useFileMenu(path: string) {
     [flash],
   )
 
+  /** Opens the menu at a point (a long press, or under a ⋯ button); `el` gets focus back when it closes. */
+  const openAt = useCallback(
+    (x: number, y: number, el: HTMLElement) => {
+      if (!file) return
+      trigger.current = el
+      setAnchor(anchorOf(el))
+      setMenu({ x, y })
+    },
+    [file],
+  )
+  const press = useLongPress<HTMLElement>(openAt)
+
   const bind = {
+    ...press,
     onClick(e: MouseEvent<HTMLElement>) {
       e.stopPropagation()
       trigger.current = e.currentTarget
@@ -135,11 +154,10 @@ export function useFileMenu(path: string) {
       if (!file) return
       e.preventDefault()
       e.stopPropagation()
-      trigger.current = e.currentTarget
-      setAnchor(anchorOf(e.currentTarget))
       // A keyboard-opened menu (Shift+F10) has no pointer position; anchor it under the element.
       const r = e.currentTarget.getBoundingClientRect()
-      setMenu(e.clientX || e.clientY ? { x: e.clientX, y: e.clientY } : { x: r.left, y: r.bottom + 4 })
+      if (e.clientX || e.clientY) openAt(e.clientX, e.clientY, e.currentTarget)
+      else openAt(r.left, r.bottom + 4, e.currentTarget)
     },
   }
 
@@ -168,10 +186,10 @@ export function useFileMenu(path: string) {
     )
   }
 
-  return { file, cloud, bind, ui }
+  return { file, cloud, bind, press, openAt, ui }
 }
 
-/** A short note next to the mention that was used; the bottom of the screen when there is no anchor. */
+/** A short note next to the mention that was used; with no anchor, bottom centre (on phones above the composer and the home indicator). */
 function ToastView({ toast, anchor, onDone }: { toast: Toast; anchor: Anchor | null; onDone(): void }) {
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -191,13 +209,29 @@ function ToastView({ toast, anchor, onDone }: { toast: Toast; anchor: Anchor | n
     el.style.top = `${anchor.bottom + 6 + r.height > window.innerHeight - 8 ? anchor.top - 6 - r.height : anchor.bottom + 6}px`
   }, [anchor])
   return (
-    <div ref={ref} role="status" className={`fixed z-[70] max-w-[90vw] truncate rounded-lg ${anchor ? "" : "bottom-6 left-1/2 -translate-x-1/2"} border border-line bg-surface px-3 py-2 text-[12px] shadow-card ${toast.tone === "warn" ? "text-warn" : "text-ink-2"}`}>
+    <div
+      ref={ref}
+      role="status"
+      className={`fixed z-[70] max-w-[90vw] truncate rounded-lg ${anchor ? "" : "bottom-[calc(env(safe-area-inset-bottom)+96px)] left-1/2 -translate-x-1/2 expanded:bottom-6"} border border-line bg-surface px-3 py-2 text-[12px] shadow-card ${toast.tone === "warn" ? "text-warn" : "text-ink-2"}`}
+    >
       {toast.text}
     </div>
   )
 }
 
-export function Menu({ at, title, items, onClose }: { at: { x: number; y: number }; title: string; items: Item[]; onClose(refocus?: boolean): void }) {
+/** The file actions: an anchored menu at the pointer on desktop, an action sheet (big rows) on phones and tablets. */
+export function Menu(props: { at: { x: number; y: number }; title: string; items: Item[]; onClose(refocus?: boolean): void }) {
+  const narrow = useNarrow()
+  if (!narrow) return <PointerMenu {...props} />
+  const done = () => props.onClose(false)
+  return (
+    <Sheet open onClose={done} title={<span className="block truncate font-mono text-[13px] font-normal text-ink-2">{props.title.split(/[\\/]/).pop() || props.title}</span>} label={props.title}>
+      <MenuList items={props.items.map((it) => (it === "sep" ? ("divider" as const) : { label: it.label, hint: it.hint, onSelect: it.run }))} onDone={done} />
+    </Sheet>
+  )
+}
+
+function PointerMenu({ at, title, items, onClose }: { at: { x: number; y: number }; title: string; items: Item[]; onClose(refocus?: boolean): void }) {
   const ref = useRef<HTMLDivElement>(null)
   const dismiss = useCallback(() => onClose(false), [onClose])
   useDismiss(ref, true, dismiss)
@@ -255,7 +289,7 @@ export function Menu({ at, title, items, onClose }: { at: { x: number; y: number
               onClose()
               it.run()
             }}
-            className="flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left text-[13px] text-ink outline-none transition hover:bg-surface-2 focus-visible:bg-surface-2"
+            className="flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left text-[13px] text-ink outline-none transition hover:bg-surface-2 focus-visible:bg-surface-2 pointer-coarse:py-3"
           >
             {it.label}
             {it.hint && <span className="text-[11px] text-muted">{it.hint}</span>}
@@ -266,26 +300,32 @@ export function Menu({ at, title, items, onClose }: { at: { x: number; y: number
   )
 }
 
+/** Cloud file viewer: full-screen on phones and tablets, a centred dialog from the expanded breakpoint up. */
 function Viewer({ file, body, onDownload, onClose }: { file: WorkspaceFile; body: FileBody | "loading"; onDownload(): void; onClose(): void }) {
   const ref = useRef<HTMLDivElement>(null)
   useDismiss(ref, true, onClose)
   const text = body !== "loading" && body.kind === "text" ? body.text : null
   const clipped = text && text.length > 200_000 ? `${text.slice(0, 200_000)}\n… (truncated, download for the full file)` : text
+  const btn = "flex items-center rounded-lg px-2 py-1 text-xs text-ink-2 transition hover:bg-surface-2 hover:text-ink disabled:opacity-40 pointer-coarse:min-h-11 pointer-coarse:px-3 pointer-coarse:text-[13px]"
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-bg/70 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={file.rel}>
-      <div ref={ref} data-layer className="flex max-h-[85vh] w-[min(880px,100%)] flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-card">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-bg/70 backdrop-blur-sm expanded:p-4" role="dialog" aria-modal="true" aria-label={file.rel}>
+      <div
+        ref={ref}
+        data-layer
+        className="flex h-full w-full flex-col overflow-hidden bg-surface pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] expanded:h-auto expanded:max-h-[85vh] expanded:w-[min(880px,100%)] expanded:rounded-xl expanded:border expanded:border-line expanded:pt-0 expanded:pb-0 expanded:shadow-card"
+      >
         <div className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-2">
           <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-ink-2" title={file.abs}>
             {file.rel}
           </span>
-          <button type="button" onClick={onDownload} disabled={body === "loading"} className="rounded-lg px-2 py-1 text-xs text-ink-2 transition hover:bg-surface-2 hover:text-ink disabled:opacity-40">
+          <button type="button" onClick={onDownload} disabled={body === "loading"} className={btn}>
             Download
           </button>
-          <button type="button" autoFocus onClick={onClose} className="rounded-lg px-2 py-1 text-xs text-ink-2 transition hover:bg-surface-2 hover:text-ink">
+          <button type="button" autoFocus onClick={onClose} className={btn}>
             Close
           </button>
         </div>
-        <div className="min-h-0 flex-1 overflow-auto">
+        <div className="min-h-0 flex-1 overflow-auto overscroll-contain">
           {body === "loading" ? (
             <div className="flex min-h-[160px] items-center justify-center p-4">
               <Brew mood="load" size="md" />

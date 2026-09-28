@@ -76,6 +76,35 @@
   }
 }
 
+/* Dark chosen in the app (lib/theme.ts), whatever the OS says. Same values as the block above. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #1b1a17;
+  --surface: #23221e;
+  --surface-2: #2b2a25;
+  --ink: #ece9e1;
+  --ink-2: #c9c5ba;
+  --muted: #8f8b80;
+  --line: #34322c;
+  --line-2: #44413a;
+  --accent: #d8785a;
+  --accent-ink: #1b1a17;
+  --accent-soft: #3a2a23;
+  --ok: #6cbf87;
+  --warn: #d9b25a;
+  --err: #e2685f;
+  --code-bg: #1f1e1a;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px -12px rgba(0, 0, 0, 0.6);
+  --ws-0: #6d9ee8;
+  --ws-1: #6cc487;
+  --ws-2: #e6b84f;
+  --ws-3: #b08ae8;
+  --ws-4: #ec7068;
+  --ws-5: #4cc4c4;
+  --ws-6: #e87bb8;
+  --ws-7: #c49467;
+}
+
 @theme inline {
   --color-bg: var(--bg);
   --color-surface: var(--surface);
@@ -108,8 +137,9 @@ body {
 }
 
 body {
-  /* The dynamic viewport: excludes mobile browser bars, and on Android the keyboard too. */
-  height: 100dvh;
+  /* The dynamic viewport: excludes mobile browser bars, and on Android the keyboard too. On iOS,
+     ViewportSync sets --app-h to the area above the keyboard (src/components/ui/viewport-sync.tsx). */
+  height: var(--app-h, 100dvh);
   /* The page itself never scrolls (only inner regions do), so no pull-to-refresh or rubber-banding of the whole app. */
   overscroll-behavior: none;
   background: var(--bg);
@@ -236,6 +266,9 @@ body {
   border-left: 3px solid var(--line-2);
   padding-left: 0.9em;
   color: var(--ink-2);
+}
+.md .md-table {
+  overflow-x: auto;
 }
 .md table {
   border-collapse: collapse;

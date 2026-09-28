@@ -123,6 +123,6 @@ export default function proxy(req: NextRequest, event: Parameters<typeof cloudGu
 }
 
 export const config = {
-  // Everything except Next internals and static assets.
-  matcher: ["/((?!_next/static|_next/image|favicon\\.ico|.*\\.(?:png|jpg|jpeg|gif|svg|webp|ico|woff2?|txt|xml)$).*)"],
+  // Everything except Next internals and static assets (the web manifest too: install prompts fetch it signed out).
+  matcher: ["/((?!_next/static|_next/image|favicon\\.ico|.*\\.(?:png|jpg|jpeg|gif|svg|webp|ico|woff2?|txt|xml|webmanifest)$).*)"],
 }

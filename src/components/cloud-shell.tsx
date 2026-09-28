@@ -1,5 +1,6 @@
 import type { Session } from "next-auth"
 import type { ReactNode } from "react"
+import { NavProvider } from "@/lib/nav"
 import { CloudWorkspacesProvider } from "@/lib/workspaces"
 import { Analytics } from "./analytics"
 import { CloudFrame } from "./cloud-frame"
@@ -14,7 +15,9 @@ export function CloudShell({ session, children }: { session: Session | null; chi
       <Analytics user={user ? { id: user.id, admin: user.admin } : null} />
       {user ? (
         <CloudWorkspacesProvider user={{ name: user.name ?? null, email: user.email ?? null, image: user.image ?? null, admin: user.admin }}>
-          <CloudFrame sidebar={<Sidebar />}>{children}</CloudFrame>
+          <NavProvider>
+            <CloudFrame sidebar={<Sidebar />}>{children}</CloudFrame>
+          </NavProvider>
         </CloudWorkspacesProvider>
       ) : (
         <main className="flex h-full min-w-0 flex-col">{children}</main>

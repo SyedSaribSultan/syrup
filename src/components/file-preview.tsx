@@ -7,14 +7,18 @@ import { extOf, fmtBytes, parentRel } from "@/lib/fs-rules"
 import { highlight, langOf, type Tok } from "@/lib/highlight"
 import { inlineHtml, resolveAsset } from "@/lib/html-inline"
 import { prefillComposer, usePanel } from "@/lib/panel"
+import { useDismiss } from "@/lib/use-dismiss"
+import { useNarrow } from "@/lib/use-window-class"
 import { absPath, downloadFile, list, read, type Read, type Target } from "@/lib/workspace-fs"
 import { Brew } from "./brew"
 import { Markdown } from "./markdown"
+import { MenuList, Popover, type MenuItem } from "./ui/sheet"
 
 /**
  * Preview tab: one workspace file, rendered by kind. Static only: HTML runs
  * in a sandboxed srcdoc frame (scripts, no same-origin), SVG only ever as an
  * <img>, PDFs in the browser's viewer. Reloads when the agent changes files.
+ * Wide content (code, tables) scrolls sideways inside the preview, never the page.
  */
 
 type Kind = "html" | "markdown" | "image" | "pdf" | "csv" | "tsv" | "json" | "code" | "binary"
@@ -44,6 +48,13 @@ export function FilePreview({ target, rel }: { target: Target; rel: string }) {
   const [res, setRes] = useState<Loaded | null>(null)
   const [source, setSource] = useState(false)
   const [note, setNote] = useState<string | null>(null)
+  const [more, setMore] = useState(false)
+  const moreRef = useRef<HTMLDivElement>(null)
+  const closeMore = useCallback(() => setMore(false), [])
+  useDismiss(moreRef, more, closeMore)
+  const narrow = useNarrow()
+  // The inlined page HtmlView renders, for "Open in new tab".
+  const [page, setPage] = useState<{ rel: string; src: string } | null>(null)
 
   useEffect(() => {
     let alive = true
@@ -126,10 +137,10 @@ export function FilePreview({ target, rel }: { target: Target; rel: string }) {
   else if (body) {
     const text = body.kind === "text" ? body.text : ""
     if (source && canToggle) content = <CodeView text={extOf(name) === "svg" && body.kind === "binary" ? new TextDecoder().decode(body.bytes) : text} name={name} />
-    else if (kind === "html") content = <HtmlView html={text} rel={rel} target={target} onNavigate={(r) => panel.openFile(r)} />
+    else if (kind === "html") content = <HtmlView html={text} rel={rel} target={target} onNavigate={(r) => panel.openFile(r)} onReady={(src) => setPage({ rel, src })} />
     else if (kind === "markdown")
       content = (
-        <div className="overflow-auto px-6 py-5">
+        <div className="overflow-auto px-4 py-4 medium:px-6 medium:py-5">
           <Markdown text={text} />
         </div>
       )
@@ -155,53 +166,81 @@ export function FilePreview({ target, rel }: { target: Target; rel: string }) {
       )
   }
 
+  const icon = (d: ReactNode) => (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+      {d}
+    </svg>
+  )
+  const actions: MenuItem[] = [
+    { label: "Reload", icon: icon(<path d="M11.5 7a4.5 4.5 0 1 1-1.3-3.2M11.5 2.5v2.8H8.7" />), onSelect: () => setRev((r) => r + 1) },
+    ...(narrow && kind === "html" && page?.rel === rel ? [{ label: "Open in new tab", icon: icon(<path d="M8 2.5h3.5V6M11.3 2.7 6.5 7.5M10 8.5v2.3c0 .4-.3.7-.7.7H3.2c-.4 0-.7-.3-.7-.7V4.7c0-.4.3-.7.7-.7h2.3" />), onSelect: () => openInTab(page.src, name) }] : []),
+    { label: "Download", icon: icon(<path d="M7 2.5V10M3.8 7 7 10.2 10.2 7M2.5 11.5h9" />), onSelect: () => void save() },
+    {
+      label: "Copy path",
+      icon: icon(
+        <>
+          <rect x="4.5" y="4.5" width="7" height="7.5" rx="1.5" />
+          <path d="M9.5 4.5V3a1 1 0 0 0-1-1H3.5a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h1" />
+        </>,
+      ),
+      onSelect: () => {
+        void copyText(absPath(target, rel))
+        setNote("Copied path")
+      },
+    },
+    ...(cloud
+      ? []
+      : [
+          {
+            label: revealLabel(hostOS()),
+            icon: icon(<path d="M1.8 11.2V3.4c0-.4.3-.7.7-.7h2.8l1.2 1.3h4.9c.4 0 .7.3.7.7v5.8c0 .4-.3.7-.7.7H2.5c-.4 0-.7-.3-.7-.7Z" />),
+            onSelect: () =>
+              void localFileAction(target.dir, absPath(target, rel), "reveal").then((err) => {
+                if (err) setNote(err === "missing" ? "It isn't there anymore" : err)
+              }),
+          },
+        ]),
+  ]
+
   return (
     <>
-      <div className="flex shrink-0 items-center gap-1 border-b border-line px-2 py-1.5">
+      <div className="flex shrink-0 items-center gap-1 border-b border-line px-2 py-1.5 pointer-coarse:py-0.5">
         <span className="min-w-0 flex-1 truncate px-1 font-mono text-[11px] text-ink-2" title={absPath(target, rel)}>
           {rel}
           {loaded && "size" in loaded && <span className="ml-2 text-muted">{fmtBytes(loaded.size)}</span>}
         </span>
         {canToggle && (
-          <div className="flex rounded-lg border border-line p-0.5 text-[11px]">
+          <div className="flex shrink-0 rounded-lg border border-line p-0.5 text-[11px] pointer-coarse:text-[13px]">
             {(["Page", "Source"] as const).map((l) => (
-              <button key={l} type="button" aria-pressed={(l === "Source") === source} onClick={() => setSource(l === "Source")} className={`rounded-md px-1.5 py-0.5 transition ${(l === "Source") === source ? "bg-surface-2 text-ink" : "text-muted hover:text-ink"}`}>
+              <button key={l} type="button" aria-pressed={(l === "Source") === source} onClick={() => setSource(l === "Source")} className={`rounded-md px-1.5 py-0.5 transition pointer-coarse:min-h-10 pointer-coarse:px-3 ${(l === "Source") === source ? "bg-surface-2 text-ink" : "text-muted hover:text-ink"}`}>
                 {l === "Page" && kind !== "html" ? "View" : l}
               </button>
             ))}
           </div>
         )}
-        <SmallButton label="Reload" onClick={() => setRev((r) => r + 1)}>
-          <path d="M11.5 7a4.5 4.5 0 1 1-1.3-3.2M11.5 2.5v2.8H8.7" />
-        </SmallButton>
-        <SmallButton label="Download" onClick={() => void save()}>
-          <path d="M7 2.5V10M3.8 7 7 10.2 10.2 7M2.5 11.5h9" />
-        </SmallButton>
-        <SmallButton
-          label="Copy path"
-          onClick={() => {
-            void copyText(absPath(target, rel))
-            setNote("Copied path")
-          }}
-        >
-          <rect x="4.5" y="4.5" width="7" height="7.5" rx="1.5" />
-          <path d="M9.5 4.5V3a1 1 0 0 0-1-1H3.5a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h1" />
-        </SmallButton>
-        {!cloud && (
-          <SmallButton
-            label={revealLabel(hostOS())}
-            onClick={() =>
-              void localFileAction(target.dir, absPath(target, rel), "reveal").then((err) => {
-                if (err) setNote(err === "missing" ? "It isn't there anymore" : err)
-              })
-            }
+        <div ref={moreRef} className="relative shrink-0">
+          <button
+            type="button"
+            onClick={() => setMore((v) => !v)}
+            aria-expanded={more}
+            aria-haspopup="menu"
+            aria-label="File actions"
+            title="Reload, download, copy path…"
+            className={`flex items-center justify-center rounded-lg p-1.5 transition pointer-coarse:h-11 pointer-coarse:w-11 ${more ? "bg-surface-2 text-ink" : "text-muted hover:bg-surface-2 hover:text-ink"}`}
           >
-            <path d="M1.8 11.2V3.4c0-.4.3-.7.7-.7h2.8l1.2 1.3h4.9c.4 0 .7.3.7.7v5.8c0 .4-.3.7-.7.7H2.5c-.4 0-.7-.3-.7-.7Z" />
-          </SmallButton>
-        )}
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+              <circle cx="3" cy="7" r="1" />
+              <circle cx="7" cy="7" r="1" />
+              <circle cx="11" cy="7" r="1" />
+            </svg>
+          </button>
+          <Popover open={more} onClose={closeMore} title={name} className="absolute top-full right-0 z-20 mt-1 w-[220px] rounded-xl border border-line bg-surface shadow-card">
+            <MenuList items={actions} onDone={closeMore} />
+          </Popover>
+        </div>
       </div>
       {gui && <GuiNote name={name} onDownload={() => void save()} />}
-      <div className="relative min-h-0 flex-1 overflow-auto">{content}</div>
+      <div className="relative min-h-0 min-w-0 flex-1 overflow-auto overscroll-contain">{content}</div>
       {note && (
         <div role="status" className="shrink-0 truncate border-t border-line px-3 py-2 text-[12px] text-ink-2">
           {note}
@@ -222,7 +261,7 @@ function GuiNote({ name, onDownload }: { name: string; onDownload(): void }) {
         <PrimaryButton onClick={() => prefillComposer(`Make a web version of ${name} that I can open in the browser: a static index.html (with its CSS and JS next to it) that does the same thing, so I can preview it in the panel.`)}>
           Ask for a web version
         </PrimaryButton>
-        <button type="button" onClick={onDownload} className="rounded-lg border border-line bg-surface px-2.5 py-1 text-xs text-ink-2 transition hover:border-line-2 hover:text-ink">
+        <button type="button" onClick={onDownload} className="rounded-lg border border-line bg-surface px-2.5 py-1 text-xs text-ink-2 transition hover:border-line-2 hover:text-ink pointer-coarse:min-h-11 pointer-coarse:px-4 pointer-coarse:text-[13px]">
           Download
         </button>
       </div>
@@ -230,9 +269,38 @@ function GuiNote({ name, onDownload }: { name: string; onDownload(): void }) {
   )
 }
 
-function HtmlView({ html, rel, target, onNavigate }: { html: string; rel: string; target: Target; onNavigate(rel: string): void }) {
+/**
+ * "Open in new tab" for an HTML preview, at real size on a phone. Never a blob: URL (it would run the
+ * page's scripts with syrup's origin); a blank tab holding the same sandboxed srcdoc frame instead.
+ * Opened synchronously from the tap, or mobile browsers block the popup.
+ */
+function openInTab(src: string, name: string) {
+  const w = window.open("", "_blank")
+  if (!w) return
+  // Cut the way back to this tab before anything from the page runs.
+  w.opener = null
+  const d = w.document
+  d.title = name
+  const meta = d.createElement("meta")
+  meta.name = "viewport"
+  meta.content = "width=device-width, initial-scale=1"
+  d.head.append(meta)
+  d.body.style.margin = "0"
+  const f = d.createElement("iframe")
+  f.setAttribute("sandbox", "allow-scripts allow-forms allow-modals")
+  f.title = name
+  f.srcdoc = src
+  f.style.cssText = "border:0;display:block;width:100vw;height:100vh;height:100dvh;background:#fff"
+  d.body.append(f)
+}
+
+function HtmlView({ html, rel, target, onNavigate, onReady }: { html: string; rel: string; target: Target; onNavigate(rel: string): void; onReady?(src: string): void }) {
   const [doc, setDoc] = useState<{ src: string; missing: string[]; html: string } | null>(null)
   const frame = useRef<HTMLIFrameElement>(null)
+  const ready = useRef(onReady)
+  useEffect(() => {
+    ready.current = onReady
+  })
 
   useEffect(() => {
     let alive = true
@@ -240,7 +308,11 @@ function HtmlView({ html, rel, target, onNavigate }: { html: string; rel: string
       const got = await read(target, r, r.split("/").pop() || r)
       return "body" in got ? got.body : null
     }
-    void inlineHtml(html, rel, readAsset).then((d) => alive && setDoc({ src: d.html, missing: d.missing, html }))
+    void inlineHtml(html, rel, readAsset).then((d) => {
+      if (!alive) return
+      setDoc({ src: d.html, missing: d.missing, html })
+      ready.current?.(d.html)
+    })
     return () => {
       alive = false
     }
@@ -400,18 +472,8 @@ function Center({ children }: { children: ReactNode }) {
 
 function PrimaryButton({ onClick, children }: { onClick(): void; children: ReactNode }) {
   return (
-    <button type="button" onClick={onClick} className="rounded-lg bg-accent px-2.5 py-1 text-xs font-medium text-accent-ink transition hover:opacity-90">
+    <button type="button" onClick={onClick} className="rounded-lg bg-accent px-2.5 py-1 text-xs font-medium text-accent-ink transition hover:opacity-90 pointer-coarse:min-h-11 pointer-coarse:px-4 pointer-coarse:text-[13px]">
       {children}
-    </button>
-  )
-}
-
-function SmallButton({ label, onClick, children }: { label: string; onClick(): void; children: ReactNode }) {
-  return (
-    <button type="button" onClick={onClick} title={label} aria-label={label} className="rounded-lg p-1.5 text-muted transition hover:bg-surface-2 hover:text-ink">
-      <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
-        {children}
-      </svg>
     </button>
   )
 }

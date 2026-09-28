@@ -52,17 +52,18 @@ export function Connections() {
         with <span className="font-mono text-[12px]">Contents: Read</span> on the repositories you want. It is encrypted with a key unique to your account, used only while cloning, and never written to a workspace&apos;s disk.
       </p>
       {state?.connected ? (
-        <div className="mt-3 flex items-center gap-3 text-[13px]">
+        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px]">
           <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[11px] text-ok">connected</span>
-          <span className="font-mono text-ink-2">GitHub token {state.hint}</span>
-          <button type="button" disabled={busy} onClick={() => void remove()} className="text-xs text-muted hover:text-err disabled:opacity-40">
+          <span className="min-w-0 font-mono break-all text-ink-2">GitHub token {state.hint}</span>
+          <button type="button" disabled={busy} onClick={() => void remove()} className="text-xs text-muted hover:text-err disabled:opacity-40 pointer-coarse:min-h-11 pointer-coarse:px-1">
             Remove
           </button>
         </div>
       ) : (
-        <div className="mt-3 flex gap-2">
-          <input value={token} onChange={(e) => setToken(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void save()} placeholder="github_pat_… or ghp_…" type="password" autoComplete="off" className="flex-1 rounded-lg border border-line bg-bg px-3 py-2 font-mono text-[13px] outline-none placeholder:font-sans placeholder:text-muted focus:border-line-2" />
-          <button type="button" onClick={() => void save()} disabled={busy || token.trim().length < 20} className="rounded-lg bg-accent px-3 py-2 text-xs font-medium text-accent-ink disabled:opacity-40">
+        // Phones: Save goes full width under the field.
+        <div className="mt-3 flex flex-col gap-2 medium:flex-row">
+          <input value={token} onChange={(e) => setToken(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void save()} placeholder="github_pat_… or ghp_…" type="password" autoComplete="off" className="min-w-0 flex-1 rounded-lg border border-line bg-bg px-3 py-2 font-mono text-[13px] outline-none placeholder:font-sans placeholder:text-muted focus:border-line-2 pointer-coarse:min-h-11" />
+          <button type="button" onClick={() => void save()} disabled={busy || token.trim().length < 20} className="rounded-lg bg-accent px-3 py-2 text-xs font-medium text-accent-ink disabled:opacity-40 pointer-coarse:min-h-11">
             {busy ? "Checking…" : "Save"}
           </button>
         </div>
