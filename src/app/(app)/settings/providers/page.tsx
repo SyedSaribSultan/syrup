@@ -92,7 +92,7 @@ export default function ProvidersPage() {
         {error && <div className="mt-4 rounded-lg border border-err/30 bg-err/5 px-3 py-2 text-[13px] text-err">{error}</div>}
 
         <Section title="Built in" hint="Ships with syrup">
-          <div className="grid gap-2 sm:grid-cols-2">
+          <div className="grid gap-2 medium:grid-cols-2">
             <BuiltInCard
               name="syrup router"
               badge="built in"
@@ -138,7 +138,7 @@ export default function ProvidersPage() {
               />
             }
           >
-            <div className="grid gap-2 sm:grid-cols-2">
+            <div className="grid gap-2 medium:grid-cols-2">
               {others.slice(0, q ? 200 : 40).map((p) => (
                 <ProviderCard key={p.id} p={p} onChange={changed} compact />
               ))}

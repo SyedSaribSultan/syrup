@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { hostOS, localFileAction } from "@/lib/file-actions"
 import { Skel } from "./brew"
+import { confirmDialog } from "./ui/dialog"
 import { useDismiss } from "@/lib/use-dismiss"
 import { MAX_WORKSPACES } from "@/lib/workspace-limits"
 import { baseName, useAllChats, useWorkspaces, wsColor, wsTint, type WorkspaceItem } from "@/lib/workspaces"
@@ -77,11 +78,12 @@ function Menu({ onDone }: { onDone(): void }) {
   for (const c of chats) counts.set(c.workspaceId, (counts.get(c.workspaceId) ?? 0) + 1)
 
   async function onRemove(w: WorkspaceItem) {
-    const msg =
+    const ok = await confirmDialog(
       mode === "cloud"
-        ? `Delete "${w.name}"?\n\nThis destroys its sandbox and every file in it. It cannot be undone. Its chats leave the list (the history stays in your account).`
-        : `Remove "${w.name}" from syrup?\n\nThe folder and its files stay on disk. Its chats leave the list and come back if you add the folder again.`
-    if (window.confirm(msg)) await remove(w.id)
+        ? { title: `Delete "${w.name}"?`, body: "This destroys its sandbox and every file in it. It cannot be undone. Its chats leave the list (the history stays in your account).", confirmLabel: "Delete", danger: true }
+        : { title: `Remove "${w.name}" from syrup?`, body: "The folder and its files stay on disk. Its chats leave the list and come back if you add the folder again.", confirmLabel: "Remove" },
+    )
+    if (ok) await remove(w.id)
   }
 
   const [folderErr, setFolderErr] = useState<string | null>(null)

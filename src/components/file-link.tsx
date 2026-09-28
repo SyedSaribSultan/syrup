@@ -22,6 +22,7 @@ import { usePanel } from "@/lib/panel"
 import { useDismiss } from "@/lib/use-dismiss"
 import { Brew } from "./brew"
 import { useReadOnly } from "./read-only"
+import { confirmDialog } from "./ui/dialog"
 
 /**
  * A file mention: click reveals it (local: a new File Explorer window with the
@@ -86,7 +87,7 @@ export function useFileMenu(path: string) {
   const local = useCallback(
     async (action: LocalAction) => {
       if (!file) return
-      if (action === "open" && isExecutable(file.name, isWindowsPath(directory)) && !window.confirm(`Open ${file.name}?\n\nThis runs it as a program on your computer.`)) return
+      if (action === "open" && isExecutable(file.name, isWindowsPath(directory)) && !(await confirmDialog({ title: `Open ${file.name}?`, body: "This runs it as a program on your computer.", confirmLabel: "Open", danger: true }))) return
       const err = await localFileAction(directory, file.abs, action)
       if (err === "missing") missing(file)
       else if (err) flash(err, "warn")

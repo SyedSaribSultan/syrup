@@ -12,6 +12,7 @@ import { NewChat } from "./new-chat"
 import { SessionView } from "./session-view"
 import { Workbench } from "./side-panel"
 import { Sidebar } from "./sidebar"
+import { confirmDialog } from "./ui/dialog"
 
 /**
  * Cloud workspace: the same chat UI as local mode, mounted at once while the
@@ -155,7 +156,7 @@ function SandboxControls({ workspaceId, egressAllow }: { workspaceId: string; eg
   const [stopping, setStopping] = useState(false)
 
   async function stop() {
-    if (!window.confirm("Stop this workspace's sandbox now? Your files and chats are kept; the next message wakes it again.")) return
+    if (!(await confirmDialog({ title: "Stop this workspace's sandbox now?", body: "Your files and chats are kept; the next message wakes it again.", confirmLabel: "Stop" }))) return
     setStopping(true)
     await fetch(`/api/workspaces/${workspaceId}/stop`, { method: "POST" })
     router.push("/")

@@ -4,6 +4,7 @@ import Link from "next/link"
 import posthog from "posthog-js"
 import { useCallback, useEffect, useState } from "react"
 import { Skel } from "./brew"
+import { confirmDialog } from "./ui/dialog"
 
 type Consent = { granted: boolean; current: boolean; at: string | null }
 type Me = {
@@ -45,8 +46,12 @@ export function PrivacySettings() {
   }
 
   async function request(type: "export" | "delete") {
-    const text = type === "delete" ? "Delete your account and all data? Your account is deactivated immediately and everything is erased within 30 days. This cannot be undone." : "Request a full export of your data? You'll get a download link by email."
-    if (!window.confirm(text)) return
+    const ok = await confirmDialog(
+      type === "delete"
+        ? { title: "Delete your account and all data?", body: "Your account is deactivated immediately and everything is erased within 30 days. This cannot be undone.", confirmLabel: "Delete account", danger: true }
+        : { title: "Request a full export of your data?", body: "You'll get a download link by email.", confirmLabel: "Request export" },
+    )
+    if (!ok) return
     setBusy(type)
     const r = await fetch("/api/data-requests", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type }) })
     const j = await r.json()

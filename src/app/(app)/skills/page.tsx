@@ -180,7 +180,7 @@ export default function SkillsPage() {
                 <span className="text-[12px] text-muted">
                   {groupOn.length}/{all.length} on · ~{fmt(groupOn.reduce((n, s) => n + s.tokens, 0))} tokens
                 </span>
-                <span className="hidden text-[11px] text-muted sm:inline">{grp.hint}</span>
+                <span className="hidden text-[11px] text-muted medium:inline">{grp.hint}</span>
                 <span className="flex-1" />
                 <button
                   type="button"

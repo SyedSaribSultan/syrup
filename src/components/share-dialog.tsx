@@ -10,6 +10,7 @@ import type { Transcript } from "@/lib/transcript"
 import { useDismiss } from "@/lib/use-dismiss"
 import { useWorkspaces } from "@/lib/workspaces"
 import { Brew, Skel } from "./brew"
+import { confirmDialog } from "./ui/dialog"
 
 /**
  * Share button for the chat header, the same in both modes: a public,
@@ -122,8 +123,8 @@ function SharePanel({ sessionId }: { sessionId: string }) {
       const j = await api<{ share: ShareInfo }>(`/api/shares/${share!.id}`, { method: "PATCH" })
       setShare(j.share)
     })
-  const revoke = () => {
-    if (!window.confirm("Stop sharing this chat? The link stops working right away.")) return
+  const revoke = async () => {
+    if (!(await confirmDialog({ title: "Stop sharing this chat?", body: "The link stops working right away.", confirmLabel: "Stop sharing", danger: true }))) return
     void run("revoke", async () => {
       await api(`/api/shares/${share!.id}`, { method: "DELETE" })
       setShare(null)
@@ -289,8 +290,8 @@ export function SharedLinks({ variant = "card" }: { variant?: "card" | "compact"
       const j = await api<{ share: ShareInfo }>(`/api/shares/${s.id}`, { method: "PATCH" })
       setRows((rs) => rs?.map((r) => (r.id === s.id ? { ...j.share, stats: undefined } : r)) ?? null)
     })
-  const stop = (s: ShareInfo) => {
-    if (!window.confirm(`Stop sharing "${s.title || "Untitled"}"? The link stops working right away.`)) return
+  const stop = async (s: ShareInfo) => {
+    if (!(await confirmDialog({ title: `Stop sharing "${s.title || "Untitled"}"?`, body: "The link stops working right away.", confirmLabel: "Stop sharing", danger: true }))) return
     void act(s.id, async () => {
       await api(`/api/shares/${s.id}`, { method: "DELETE" })
       setRows((rs) => rs?.filter((r) => r.id !== s.id) ?? null)

@@ -52,7 +52,7 @@ export function Insights() {
       {data && (
         <div className="mt-4 space-y-6">
           <Block title="Is it growing?" hint="Active means sent at least one message that week.">
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            <div className="grid grid-cols-2 gap-2 medium:grid-cols-3">
               <Stat label="People" value={data.growth.users} />
               <Stat label="New this week" value={data.growth.new7} sub={`last week ${data.growth.newPrev7}`} />
               <Stat label="Active this week" value={data.growth.active7} sub={`last week ${data.growth.activePrev7}`} />
@@ -64,7 +64,7 @@ export function Insights() {
           </Block>
 
           <Block title="Are the answers good?" hint="Last 30 days. More stops or thumbs-down than usual means replies are missing the mark.">
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <div className="grid grid-cols-2 gap-2 medium:grid-cols-4">
               <Stat label="Thumbs up" value={data.quality.up} sub={data.quality.up + data.quality.down > 0 ? `${pct(data.quality.up, data.quality.up + data.quality.down)} of ratings` : "no ratings yet"} />
               <Stat label="Thumbs down" value={data.quality.down} />
               <Stat label="Stopped by the user" value={data.quality.stopped} sub={`${pct(data.quality.stopped, data.quality.turns)} of ${data.quality.turns} messages`} />

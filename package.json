@@ -14,7 +14,8 @@
     "sidecar:build": "node sidecar/build.mjs",
     "test:router": "node scripts/test-router.mjs",
     "test:transcript": "node scripts/test-transcript.mjs",
-    "chat:export": "node scripts/chat-export.mjs"
+    "chat:export": "node scripts/chat-export.mjs",
+    "shots": "node scripts/shots.mjs"
   },
   "dependencies": {
     "@auth/drizzle-adapter": "^1.11.3",
@@ -46,6 +47,7 @@
     "esbuild": "^0.28.2",
     "eslint": "^9",
     "eslint-config-next": "16.3.5",
+    "playwright": "^1.63.0",
     "tailwindcss": "^4",
     "typescript": "^5"
   },

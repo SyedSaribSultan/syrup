@@ -132,12 +132,12 @@ export function ShareDocument({ transcript: t, id, homeHref }: { transcript: Tra
       </main>
 
       <footer className="border-t border-line">
-        <div className="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-6 py-8 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-6 py-8 medium:flex-row medium:items-center medium:justify-between">
           <p className="max-w-[440px] text-[12px] leading-relaxed text-muted">
             A snapshot from {shareDate(t.snapshotAt)}. Anything said after it stays private. Secrets are redacted and file paths are shortened.
           </p>
           {homeHref && (
-            <Link href={homeHref} prefetch={false} className="shrink-0 self-start rounded-lg bg-accent px-3.5 py-2 text-xs font-medium text-accent-ink transition hover:opacity-90 sm:self-auto">
+            <Link href={homeHref} prefetch={false} className="shrink-0 self-start rounded-lg bg-accent px-3.5 py-2 text-xs font-medium text-accent-ink transition hover:opacity-90 medium:self-auto">
               Try syrup
             </Link>
           )}

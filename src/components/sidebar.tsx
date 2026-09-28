@@ -7,6 +7,7 @@ import { useOptionalEngine } from "@/lib/engine-store"
 import { fmtRelative } from "@/lib/format"
 import { useAllChats, useWorkspaces } from "@/lib/workspaces"
 import { useLogs } from "./logs-modal"
+import { confirmDialog, promptDialog } from "./ui/dialog"
 import { WorkspaceDot, WorkspaceSwitcher } from "./workspace-switcher"
 
 /**
@@ -26,12 +27,12 @@ export function Sidebar({ status, footer }: { status?: ReactNode; footer?: React
   const chats = useAllChats()
 
   async function rename(id: string, current: string) {
-    const title = window.prompt("Rename chat", current)
-    if (engine && title && title.trim() && title.trim() !== current) await engine.renameSession(id, title.trim())
+    const title = await promptDialog({ title: "Rename chat", value: current, confirmLabel: "Save" })
+    if (engine && title && title !== current) await engine.renameSession(id, title)
   }
 
   async function remove(id: string, title: string) {
-    if (!engine || !window.confirm(`Delete "${title || "Untitled"}"? This cannot be undone.`)) return
+    if (!engine || !(await confirmDialog({ title: `Delete "${title || "Untitled"}"?`, body: "This cannot be undone.", confirmLabel: "Delete", danger: true }))) return
     await engine.deleteSession(id)
     if (activeChat === id) router.push(w.newChatHref ?? "/")
   }

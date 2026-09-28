@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { Insights } from "@/components/admin-insights"
+import { alertDialog, confirmDialog } from "@/components/ui/dialog"
 
 type User = { id: string; email: string; name: string | null; createdAt: string; lastSeenAt: string | null; blockedAt: string | null; analyticsOptOut: boolean; keys: number; research: boolean }
 type Req = { id: string; user_id: string; type: string; status: string; requested_at: string }
@@ -33,9 +34,9 @@ export default function AdminPage() {
   }, [load])
 
   async function setBlocked(u: User, blocked: boolean) {
-    if (blocked && !window.confirm(`Block ${u.email}? They can't sign in or use syrup until you unblock them, and their running sandboxes stop now.`)) return
+    if (blocked && !(await confirmDialog({ title: `Block ${u.email}?`, body: "They can't sign in or use syrup until you unblock them, and their running sandboxes stop now.", confirmLabel: "Block", danger: true }))) return
     const r = await fetch("/api/admin/users", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ userId: u.id, blocked }) })
-    if (!r.ok) window.alert((await r.json().catch(() => null))?.error ?? "That didn't work.")
+    if (!r.ok) await alertDialog({ title: "That didn't work", body: (await r.json().catch(() => null))?.error })
     await load()
   }
 

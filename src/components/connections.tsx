@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
+import { confirmDialog } from "./ui/dialog"
 
 /** Settings card: GitHub token for private repositories. */
 export function Connections() {
@@ -33,7 +34,7 @@ export function Connections() {
   }
 
   async function remove() {
-    if (!window.confirm("Remove the GitHub token? Existing workspaces keep their files; new private-repo workspaces will need a token again.")) return
+    if (!(await confirmDialog({ title: "Remove the GitHub token?", body: "Existing workspaces keep their files; new private-repo workspaces will need a token again.", confirmLabel: "Remove", danger: true }))) return
     setBusy(true)
     await fetch("/api/me/github", { method: "DELETE" })
     await load()
