@@ -87,15 +87,39 @@ function firstLine(text: string): string {
   return nl < 0 ? t : t.slice(0, nl)
 }
 
-/** Hard when the user asks for planning/debugging-type work, or the session keeps failing tool calls. Auto only. */
+// Signals that a request is substantial work, not a quick answer. Two or more make the turn hard.
+const DEPTH_RE = /\b(detailed|in[- ]depth|comprehensive|thorough|complete|entire|whole|full[- ]?(?:blown|scale)?|end[- ]to[- ]end|step[- ]by[- ]step|from scratch|production[- ]ready)\b/i
+const WORK_RE = /\b(build|create|implement|write|draft|develop|generate|research|analy[sz]e|compare|strategy|campaign|migrate|optimi[sz]e|document)\b/i
+const LONG_ASK_CHARS = 600
+
+/** Why a request reads as substantial: long, asks for depth, asks to produce something, or has several parts. */
+function workSignals(text: string): string[] {
+  const out: string[] = []
+  if (text.length >= LONG_ASK_CHARS) out.push("long")
+  if (DEPTH_RE.test(text)) out.push("depth")
+  if (WORK_RE.test(text)) out.push("work")
+  const items = text.match(/^\s*(?:[-*•]|\d+[.)])\s+\S/gm)?.length ?? 0
+  const questions = text.match(/\?/g)?.length ?? 0
+  if (items >= 3 || questions >= 3) out.push("multi_part")
+  return out
+}
+
+/**
+ * Judged from the latest user message, so every step of a turn (tool calls, a continuation after a cut-off)
+ * shares its verdict. Hard for planning/debugging-type asks, for substantial work (two or more work signals),
+ * or while the session keeps failing tool calls. Auto only.
+ */
 export function difficulty(alias: Alias, messages: Msg[], session: SessionState, now: number): { hard: boolean; why: string | null } {
   if (alias !== "auto") return { hard: false, why: null }
-  const last = messages[messages.length - 1]
   const failures = trailingToolFailures(messages)
   if (failures >= 2) session.escalatedUntil = now + ESCALATE_MS
-  if (last?.role === "user") {
-    const m = HARD_RE.exec(textOf(last.content).slice(0, 20_000))
+  const ask = [...messages].reverse().find((m) => m.role === "user")
+  if (ask) {
+    const text = textOf(ask.content).slice(0, 20_000)
+    const m = HARD_RE.exec(text)
     if (m) return { hard: true, why: `keyword:${m[1].toLowerCase()}` }
+    const signals = workSignals(text)
+    if (signals.length >= 2) return { hard: true, why: `work:${signals.join("+")}` }
   }
   if (failures >= 2) return { hard: true, why: `tool_failures:${failures}` }
   if (session.escalatedUntil > now) return { hard: true, why: "escalated" }
@@ -209,6 +233,8 @@ export function applySticky(ranked: Scored[], session: SessionState, shape: Requ
   const i = ranked.findIndex((s) => s.c.id === sid)
   if (i < 0) return { ordered: ranked, reason: "fallback", note: "sticky_unavailable" }
   const st = ranked[i]
+  // A failover is a stopgap for one turn: every new user message gets a fresh pick, judged on its own prompt.
+  if (shape.lastIsUser && session.stickyByFallback) return { ordered: ranked, reason: "best", note: "released_fallback" }
   if (shape.hard) {
     const required = ranked.some((s) => s.c.info.grade === "frontier") ? 3 : ranked.some((s) => s.c.info.grade === "strong") ? 2 : 0
     if (GRADE_RANK[st.c.info.grade] < required) return { ordered: ranked, reason: i === 0 ? "best" : "escalated" }

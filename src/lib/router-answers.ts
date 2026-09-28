@@ -42,6 +42,9 @@ export function currentAnswer(all: readonly Answer[] | null, alias: string): Ans
   return last
 }
 
+/** A new step that starts this soon after a broken one is the engine continuing it, not a new user turn. */
+const CONTINUATION_GAP_MS = 10_000
+
 export type RouterSwitch =
   | { kind: "stopped"; to: Answer; from: Answer[] }
   | { kind: "escalated" | "unavailable"; to: Answer; from: Answer }
@@ -58,12 +61,16 @@ export function routerSwitch(mine: readonly Answer[], all: readonly Answer[], cr
     const from = earlier.filter((a) => backendKey(a.providerId, a.modelId) !== toKey)
     if (from.length > 0) return { kind: "stopped", to, from }
   }
+  let prev: Answer | null = null
+  for (const a of all) {
+    if (a.alias !== to.alias || answerStart(a) >= created || isSmallCall(a, [])) continue
+    if (!prev || answerStart(a) > answerStart(prev)) prev = a
+  }
+  // The engine usually continues a cut-off answer in a new message, so look at the step just before this message too.
+  if (earlier.length === 0 && prev?.partial && backendKey(prev.providerId, prev.modelId) !== toKey && answerStart(to) - prev.ts < CONTINUATION_GAP_MS) {
+    return { kind: "stopped", to, from: [prev] }
+  }
   if (to.reason === "escalated" || (to.reason === "fallback" && to.attempts === 1)) {
-    let prev: Answer | null = null
-    for (const a of all) {
-      if (a.alias !== to.alias || answerStart(a) >= created || isSmallCall(a, [])) continue
-      if (!prev || answerStart(a) > answerStart(prev)) prev = a
-    }
     if (prev && backendKey(prev.providerId, prev.modelId) !== toKey) return { kind: to.reason === "escalated" ? "escalated" : "unavailable", to, from: prev }
   }
   if (to.attempts > 1) return { kind: "retried", to }

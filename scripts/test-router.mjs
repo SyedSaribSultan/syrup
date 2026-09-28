@@ -25,7 +25,7 @@ await build({
       'export * from "./src/server/router/core"',
       'export * from "./src/server/router/upstream-errors"',
       'export { BASE_URL } from "./src/server/router/backends"',
-      'export { difficulty, estimatePromptTokens, trailingToolFailures } from "./src/server/router/policy"',
+      'export { applySticky, difficulty, estimatePromptTokens, trailingToolFailures } from "./src/server/router/policy"',
       'export { HttpRouterStore } from "./sidecar/store-http"',
     ].join("\n"),
     resolveDir: root,
@@ -212,6 +212,8 @@ function sseOk(opts = {}) {
       if (opts.delayMs) await sleep(opts.delayMs)
     }
     if (opts.toolCall) send({ id: "c", choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: opts.toolCall, type: "function", function: { name: "read", arguments: "{}" } }] } }] })
+    // noFinish: the upstream closes cleanly after the content, with no finish reason (a cut-off answer).
+    if (opts.noFinish) return void res.end()
     send({ id: "c", choices: [{ index: 0, delta: {}, finish_reason: opts.toolCall ? "tool_calls" : "stop" }] })
     send({ id: "c", choices: [], usage: { prompt_tokens: 100, completion_tokens: 20 } })
     res.write("data: [DONE]\n\n")
@@ -482,6 +484,63 @@ await scenario("unit: turn difficulty heuristics", async () => {
   eq(d.why, "tool_failures:2", "escalates on failures")
   assert(s.escalatedUntil === 1000 + 600_000, "escalated for 10 minutes")
   eq(R.difficulty("auto", [{ role: "user", content: "ok thanks" }, { role: "assistant", content: "hi" }], s, 5000).why, "escalated", "stays escalated")
+})
+
+await scenario("unit: substantial asks are hard, judged from the latest user message for every step of the turn", async () => {
+  const s = { key: "x", sticky: null, stickyAt: 0, stickyByFallback: false, outEwma: 600, escalatedUntil: 0, lastSeen: 0 }
+  const brief =
+    "I'm working on a big project and need sample brands to test an image generator that is meant to be good at ads. " +
+    "Help me create a whole campaign: one large document with prompts for image ads and video ads. Start with one product, " +
+    "a new cereal inspired by a superhero series that just came out. Build the full brand around it, the product, the packaging, " +
+    "the look and the voice, and give me very detailed prompts for each format so I can compare how the generator handles them. " +
+    "Keep it to one product for now and we can add more brands later once this one works."
+  const d = R.difficulty("auto", [{ role: "user", content: brief }], s, 0)
+  eq(d.hard, true, "a long, detailed creative brief is hard")
+  assert(d.why?.startsWith("work:"), `why: ${d.why}`)
+  eq(R.difficulty("auto", [{ role: "user", content: "write a haiku about rain" }], s, 0).hard, false, "one work signal is routine")
+  eq(R.difficulty("auto", [{ role: "user", content: "create a complete README for this repo" }], s, 0).hard, true, "produce + depth is hard")
+  const continuing = [{ role: "user", content: brief }, { role: "assistant", content: "Here is the campaign. # 1. Brand" }]
+  eq(R.difficulty("auto", continuing, s, 0).hard, true, "a continuation step keeps the turn's verdict")
+  eq(R.difficulty("auto", [...continuing, { role: "user", content: "thanks!" }], s, 0).hard, false, "the next user message is judged on its own")
+})
+
+await scenario("unit: a failover backend never carries into the next user turn", async () => {
+  const mk = (id, score, quality) => ({ c: { id, info: { quality, grade: "strong" }, scarce: false, costs: null }, score, predMs: 5000, predTtftMs: 2000, outTokens: 1000 })
+  const ranked = [mk("google/flash", 47.0, 88), mk("google/flash-lite", 46.9, 55)]
+  const session = { key: "x", sticky: "google/flash-lite", stickyAt: 0, stickyByFallback: true, outEwma: 600, escalatedUntil: 0, lastSeen: 0 }
+  const turn = R.applySticky(ranked, session, { alias: "auto", hard: false, lastIsUser: true })
+  eq(turn.ordered[0].c.id, "google/flash", "fresh pick on the new user message")
+  eq(turn.note, "released_fallback", "released")
+  const step = R.applySticky(ranked, session, { alias: "auto", hard: false, lastIsUser: false })
+  eq(step.ordered[0].c.id, "google/flash-lite", "mid-turn steps stay on the backend that is answering")
+  const chosen = R.applySticky(ranked, { ...session, stickyByFallback: false }, { alias: "auto", hard: false, lastIsUser: true })
+  eq(chosen.ordered[0].c.id, "google/flash-lite", "a backend that won on merit stays sticky within the margin")
+})
+
+await scenario("gemini: a request ending with a partial answer gets a continue turn; tool-call endings don't", async () => {
+  const r = await makeRouter({ keys: [K.google] })
+  try {
+    const partial = [
+      { role: "system", content: "You are a coding agent." },
+      { role: "user", content: "add a README file" },
+      { role: "assistant", content: "Here is the README. ## Install" },
+    ]
+    const one = await chat(r, { messages: partial })
+    eq(one.status, 200, "status")
+    const sent = mock.hits.at(-1).body.messages
+    eq(mock.hits.at(-1).provider, "google", "google served")
+    eq(sent.length, 4, "one message added")
+    eq(sent.at(-1).role, "user", "ends with a user turn")
+    assert(/^Continue exactly where/.test(sent.at(-1).content), "asks to continue")
+    const toolEnd = [
+      { role: "user", content: "add a README file" },
+      { role: "assistant", content: "", tool_calls: [{ id: "call_g1", type: "function", function: { name: "read", arguments: "{}" } }] },
+    ]
+    await chat(r, { messages: toolEnd })
+    eq(mock.hits.at(-1).body.messages.length, 2, "tool-call ending left alone")
+  } finally {
+    await r.close()
+  }
 })
 
 await scenario("a) normal turn → non-scarce strong free model; plan/debug turn → gemini-3.8-flash", async () => {
@@ -764,6 +823,24 @@ await scenario("m) client abort mid-stream aborts the upstream and records abort
     const ev = r.events.find((e) => e.status === "aborted")
     eq(ev.reason, "aborted", "aborted reason")
     eq(r.events.length, 1, "exactly one event")
+  } finally {
+    await r.close()
+  }
+})
+
+await scenario("m2) a stream that closes after content with no finish reason is recorded as truncated, without a health penalty", async () => {
+  const r = await makeRouter({ keys: [K.opencode] })
+  try {
+    mock.once("opencode/mimo-v2.6-flash-free", sseOk({ chunks: ["half an ", "answer"], noFinish: true }))
+    const h = { "x-session-affinity": "ses_m2" }
+    const one = await chat(r, { user: "add a README file", headers: h })
+    eq(one.status, 200, "committed")
+    await waitFor(() => r.events.length === 1, 3000, "event recorded")
+    eq(r.events[0].status, "error", "a cut-off answer is not recorded as ok")
+    eq(r.events[0].reason, "truncated", "truncated reason")
+    const two = await chat(r, { user: "add a README file", headers: h })
+    eq(two.status, 200, "next step")
+    eq(mock.hits.at(-1).key, "opencode/mimo-v2.6-flash-free", "same backend still serves: no cooldown from a missing finish reason")
   } finally {
     await r.close()
   }

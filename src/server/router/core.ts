@@ -188,7 +188,7 @@ type Ctx = {
 }
 
 type Failed = { kind: "failed"; c: Candidate; cls: Classified; httpStatus: number | null; body?: string }
-type StreamFail = { reason: "stream_error" | "stream_idle"; message: string }
+type StreamFail = { reason: "stream_error" | "stream_idle" | "truncated"; message: string }
 type AttemptResult = { kind: "done" } | { kind: "aborted" } | Failed
 
 export function createRouter({ store, log, secret, baseURLs, now = Date.now, timing: timingOverride }: RouterOptions): Router {
@@ -231,6 +231,18 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
     })
   }
 
+  /**
+   * When an answer is cut off, the engine asks again with the partial answer as the last message. Gemini's
+   * thinking models reject that ("Requests ending with a model turn are not supported"), which forced a
+   * different model to finish the answer. A short user turn asking to continue keeps it with the same model.
+   */
+  function continueNudge(messages: unknown): unknown {
+    if (!Array.isArray(messages) || messages.length === 0) return messages
+    const last = messages[messages.length - 1] as Msg & { tool_calls?: unknown[] }
+    if (last?.role !== "assistant" || (Array.isArray(last.tool_calls) && last.tool_calls.length > 0)) return messages
+    return [...messages, { role: "user", content: "Continue exactly where your previous message stopped. Don't repeat what you already wrote." }]
+  }
+
   function outboundBody(c: Candidate, s: Scored, ctx: Ctx) {
     const { body } = ctx
     const out: Record<string, unknown> = { ...body, model: c.upstreamModel }
@@ -257,6 +269,7 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
     if ((c.providerID === "openai" || c.providerID === "openrouter") && body.prompt_cache_key === undefined) out.prompt_cache_key = ctx.sessionKey.slice(0, 64)
 
     const restored: Record<string, number> = {}
+    if (c.providerID === "google") out.messages = continueNudge(out.messages)
     if (c.providerID === "google") {
       const r = sigs.restore(ctx.sessionKey, out.messages)
       out.messages = r.messages
@@ -356,7 +369,11 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
   function succeeded(ctx: Ctx, c: Candidate, attempt: number, attemptStart: number, reason: string, ttftMs: number | null, genMs: number, tap: StreamTap, fail: StreamFail | null) {
     const usage = tap.usage
     const streamError = fail?.message ?? null
-    if (fail) {
+    if (fail?.reason === "truncated") {
+      // Recorded as a partial answer so the chat can say so, but not held against the backend's health:
+      // a provider that simply omits finish reasons must not cool down on every answer.
+      health.success(c, ctx.shape.promptTokens, ttftMs, usage.completion_tokens ?? 0, genMs)
+    } else if (fail) {
       // The first token came, so the backend does answer; the broken stream still counts against its health.
       health.success(c, ctx.shape.promptTokens, ttftMs, 0, 0)
       health.failure(c, { reason: "error", status: "error", scope: "none", retryAt: null, unhealthy: true, message: fail.message }, ctx.shape.promptTokens, null)
@@ -653,6 +670,9 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
         ? { reason: "stream_idle", message: `upstream silent for ${Math.round(timing.idleMs / 1000)}s after the first token` }
         : { reason: "stream_error", message: `stream failed: ${caught instanceof Error ? caught.message : String(caught)}` }
     }
+    // A clean close with no finish reason means the answer was cut off upstream. The engine sees finish
+    // "unknown" and asks again in a new step, so the chat must be able to tell this answer stopped mid-way.
+    if (!fail && !tap.finishReason) fail = { reason: "truncated", message: "upstream ended the stream without a finish reason" }
     succeeded(ctx, c, attempt, attemptStart, reason, ttftMs, now() - firstAt, tap, fail)
     res.end()
     return { kind: "done" }
