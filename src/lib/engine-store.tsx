@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useReducer,
 import posthog from "posthog-js"
 import { clog, installClientLogging } from "./clientlog"
 import { localHomePath } from "./home"
+import { useKeyTiers } from "./use-key-tiers"
 import { oc, ocRaw, type Connection, type Message, type Model, type Part, type Provider, type Session, type SessionStatus } from "./oc"
 
 /**
@@ -202,8 +203,10 @@ type Ctx = State & {
   replyQuestion(req: QuestionReq, answers: string[][]): Promise<void>
   rejectQuestion(req: QuestionReq): Promise<void>
   models: (Model & { free: boolean })[]
-  /** True when at least one key-based provider is connected (not just the built-in free ones). */
+  /** True when at least one provider key is saved or connected (not just the built-in free models). */
   hasKeys: boolean
+  /** hasKeys is settled (saved keys loaded or the engine reports one), so a "no keys" hint never flashes. */
+  keysKnown: boolean
   /** Booted with a workspace directory. createSession and send wait for this, so a message typed early is kept, not lost. */
   ready: boolean
   /** Called (often, in bursts) when the agent may have changed workspace files. Returns an unsubscribe. */
@@ -594,7 +597,11 @@ export function EngineProvider({ children, connection, remote }: { children: Rea
     )
   }, [state.providers])
 
-  const hasKeys = useMemo(() => state.providers.some((p) => p.id !== "opencode" && p.id !== "syrup"), [state.providers])
+  // Keys saved in syrup count, not just what the engine sees: in the cloud keys go only to the router, never to the engine.
+  const tiers = useKeyTiers()
+  const engineHasKeys = useMemo(() => state.providers.some((p) => p.id !== "opencode" && p.id !== "syrup"), [state.providers])
+  const hasKeys = engineHasKeys || (tiers?.size ?? 0) > 0
+  const keysKnown = engineHasKeys || tiers !== null
 
   const value: Ctx = {
     ...state,
@@ -614,6 +621,7 @@ export function EngineProvider({ children, connection, remote }: { children: Rea
     rejectQuestion,
     models,
     hasKeys,
+    keysKnown,
     ready,
     onFilesChanged,
   }

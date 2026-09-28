@@ -23,10 +23,10 @@ type Props = {
  */
 export function NewChat({ hrefFor, noKeys, error, onRetry }: Props) {
   const router = useRouter()
-  const { createSession, send, directory, models, hasKeys, providers, ready } = useEngine()
+  const { createSession, send, directory, models, hasKeys, keysKnown, providers, ready } = useEngine()
   const [pending, setPending] = useState<{ text: string; files: Attachment[] } | null>(null)
   const freeCount = models.filter((m) => m.free && m.providerID !== "syrup").length
-  const showKeys = providers.length > 0 ? !hasKeys : !!noKeys
+  const showKeys = keysKnown ? !hasKeys : !!noKeys
 
   async function onSend(text: string, files: Attachment[]) {
     if (!ready) setPending({ text, files })
