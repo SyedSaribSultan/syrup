@@ -70,7 +70,7 @@ Console labels drift over time; if a label differs slightly, look for the neares
 
 **C. Audience** (Google Auth Platform → **Audience**)
 9. **Publishing status** starts as **Testing**, which caps sign-ins at **100 test users** you list by hand. Click **Publish app** → confirm. Status becomes **In production**.
-   - Because syrup only requests the non-sensitive scopes `openid`, `email`, `profile`, **no verification review is required** to be in production. Anyone with a Google account can reach the sign-in; syrup's own invite list decides who gets in.
+   - Because syrup only requests the non-sensitive scopes `openid`, `email`, `profile`, **no verification review is required** to be in production. Anyone with a verified Google account can then sign in.
 
 **D. Data Access** (Google Auth Platform → **Data Access**)
 10. Optional: **Add or remove scopes** → tick `openid`, `.../auth/userinfo.email`, `.../auth/userinfo.profile` → **Update** → **Save**. Auth.js requests exactly these; listing them here just keeps the record accurate. Do **not** add any other scope.
@@ -137,15 +137,16 @@ GRANT EXECUTE ON FUNCTION get_shared_chat(text), bump_shared_chat_views(text) TO
 
 PostHog is optional: without the key, analytics are off.
 
-## Part 6 — Admins and invites
+## Part 6 — Admins
 
-Nothing to set up in a console. Two things to decide:
-1. **Admins:** `<admin-email>` (comma-separate more). Set via `SYRUP_ADMIN_EMAILS`; admins see the admin page.
-2. **First invites:** any number of emails, seeded from `SYRUP_INVITES` (comma-separated). After the first deploy, manage invites in the admin page. Sign-in with an email not on the list shows "invite only".
+Nothing to set up in a console. One thing to decide:
+1. **Admins:** `<admin-email>` (comma-separate more). Set via `SYRUP_ADMIN_EMAILS`; admins see the admin page (users, sandbox usage, data requests).
+
+Sign-in is open: anyone with a verified Google account can create an account. Watch the sandbox budget in the admin page, since the free tier's sandbox CPU hours are shared by everyone (see PLAN.md §10b).
 
 ## Part 7 — Legal documents
 
-The drafts in `src/content/legal/` (Terms, Privacy, Research Consent, Cookies) are served at `/legal/*`. Before inviting anyone outside a small test group:
+The drafts in `src/content/legal/` (Terms, Privacy, Research Consent, Cookies) are served at `/legal/*`. Before opening the instance to anyone outside a small test group:
 
 1. Replace every `[bracketed]` placeholder (legal entity, address, country, representative) with your own details, and point the contact lines at a channel you monitor.
 2. Adapt them to your retention schedule and subprocessors ([PLAN.md](PLAN.md) §6).
@@ -170,7 +171,6 @@ Project → **Settings** → **Environment Variables** → **Add New**. For each
 | `DATABASE_URL_UNPOOLED` | direct Neon string (owner) | Part 4 | Set automatically by the integration. Migrations and admin reads only. |
 | `SYRUP_MASTER_KEY` | 32 random bytes, base64 | `openssl rand -base64 32` | Wraps every user's data key. **Back it up offline.** Losing it loses every stored provider key. Sensitive. |
 | `SYRUP_ADMIN_EMAILS` | `<admin-email>` | Part 6 | Comma-separated if more than one. |
-| `SYRUP_INVITES` | first invitees' emails | Part 6 | Optional once the admin page manages invites. |
 | `NEXT_PUBLIC_POSTHOG_KEY` | `phc_…` | Part 5 | Public by design. Optional. |
 | `NEXT_PUBLIC_POSTHOG_HOST` | `https://eu.i.posthog.com` | Part 5 | |
 | `NEXT_PUBLIC_APP_URL` | `https://<your-domain>` | — | Preview deployments override automatically via `VERCEL_URL`. Set it in production so shared-chat links and their preview cards use your public domain. |

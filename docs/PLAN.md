@@ -12,9 +12,9 @@ What the hosted (cloud) mode of syrup is, how it is built, and why. Local mode i
 | Tenancy | **Fully separate per user**: own workspaces, keys, chats, memory, usage, skills. |
 | Google's role | **Sign-in only.** Provider API keys are a separate flow. |
 | Data | **Store everything** needed to run the service, protected to best practice, with terms users accept. Research use of content is a **separate consent**. |
-| Hosting cost | **Free-first.** Every service below has a free tier that fits a private beta; nothing requires a paid plan to run. |
+| Hosting cost | **Free-first.** Every service below has a free tier that fits a small public beta; nothing requires a paid plan to run. |
 | Analytics | PostHog Cloud (free tier), product analytics + session replay + feature flags. |
-| Access control | **Invite-only, managed by an admin by hand** in the admin page. No automatic per-user caps or quotas; usage is shown, not enforced. |
+| Access control | **Open sign-up** for any verified Google account. No automatic per-user caps or quotas; usage is shown in the admin page, not enforced. |
 
 ## 1. The one-paragraph architecture
 
@@ -83,7 +83,7 @@ Findings from the current code and the fix for each. Items marked *(local too)* 
 | S8 | `logs` grow forever. | Retention job (§8). |
 | S9 | Free OpenCode Zen models may train on prompts (Big Pickle, Nemotron). | Label them in the model picker; off by default in cloud. |
 | S10 | No CSRF protection on mutating routes. | Auth.js CSRF token on its own routes; same-origin check + `SameSite=Lax` cookies on ours. |
-| S11 | No rate limiting or abuse controls. | Cloudflare rate-limiting rule on `/api/auth/*` and `/api/workspaces` (sandbox creation) against bots. No per-user quotas: access is by invite, controlled manually. |
+| S11 | No rate limiting or abuse controls. | Cloudflare rate-limiting rule on `/api/auth/*` and `/api/workspaces` (sandbox creation) against bots. No per-user quotas; usage is watched in the admin page. |
 | S12 | Secrets in Vercel env, sandbox images, snapshots. | Only Vercel env holds `SYRUP_MASTER_KEY`, `AUTH_SECRET`, `AUTH_GOOGLE_*`, `DATABASE_URL`, `POSTHOG_KEY`, `VERCEL_OIDC` for Sandbox. Images contain no secrets. Snapshots contain no secrets (§3.5). |
 
 Repository hygiene for open source: `SECURITY.md` + GitHub private vulnerability reporting; branch protection on `main` (PR + CI required); Dependabot for npm and Actions; Actions pinned to SHAs; secret scanning + push protection; `CODEOWNERS` on `src/server/**` and `src/app/api/**`; CI never gets secrets on fork PRs (`pull_request` only, never `pull_request_target`).
@@ -123,7 +123,7 @@ Conventions: ULID text primary keys (`id`), `timestamptz` columns named `created
 
 **Operations**
 - `logs` — as today plus user_id, workspace_id; 14-day retention.
-- `invites` — id, email, `invited_by`, `note`, `created_at`, `accepted_at`, `revoked_at`. Sign-in succeeds only for an email with an open invite (or an existing user). Usage per user is read from `sandboxes.total_session_seconds` and `usage_daily`; shown in the admin page, never enforced.
+- Usage per user is read from `sandboxes.total_session_seconds` and the router events; shown in the admin page, never enforced.
 
 Migration path from SQLite: local mode keeps SQLite with the same Drizzle schema where possible (Drizzle supports both dialects from one codebase via two schema files sharing column definitions). Cloud mode uses Postgres. `router_events`, `usage_events`, `memories`, `logs` map 1:1; new tables are cloud-only.
 
@@ -168,8 +168,8 @@ Each phase ends with something deployed and usable. ✅ marks phases that are bu
 - Session lifecycle: resume on open; heartbeat from the browser; `extendTimeout` while a turn is running; stop after 10 idle minutes (saves the 420 GB-hour budget); auto-resume on the next message with a "waking up your workspace…" state; graceful handling of the 45-minute cap (persistent snapshot, resume, replay from the engine's session).
 - Workspaces UI: "New workspace" = paste a public git URL, connect GitHub (OAuth, read-only) for private repos, or empty. Native folder picker hidden in cloud mode.
 - Egress allow-list defaults per provider; per-workspace override.
-- Invite check at sign-in (`invites` table); usage meter in Settings and admin page (informational only).
-- **Result:** the full product works on the domain for one user, then for invited users.
+- Usage meter in Settings and admin page (informational only).
+- **Result:** the full product works on the domain for one user, then for everyone who signs in.
 
 ### Phase 3 — Data, analytics, rights
 - Full transcript sync to `messages` from engine events (via ingest), chats list from Postgres (no sandbox boot needed to browse history).
@@ -179,9 +179,9 @@ Each phase ends with something deployed and usable. ✅ marks phases that are bu
 - Admin page (admins only, allow-listed via `SYRUP_ADMIN_EMAILS`): users, sandbox pool usage, quota adjustments, consent stats, data-request queue.
 - **Result:** every legal obligation has a button behind it; the operator can see how people use the product.
 
-### Phase 4 — Hardening and private beta
+### Phase 4 — Hardening and public beta
 - Cloudflare WAF rules and rate limits; Turnstile on the sign-in page if bot sign-ups appear.
-- Invites managed by an admin in the admin page (add email, revoke). No automatic caps; the Vercel usage dashboard and the admin usage view are how load is watched.
+- Open sign-up. No automatic caps; the Vercel usage dashboard and the admin usage view are how load is watched.
 - Threat-model doc, pen-test checklist run with Claude's security review, dependency audit, headers (CSP, HSTS, frame-ancestors).
 - Status page (free: Upptime on GitHub Pages) and uptime alerts.
 - Legal review of the documents. Open the beta.
@@ -203,7 +203,7 @@ Each phase ends with something deployed and usable. ✅ marks phases that are bu
 ## 9. Risks and honest limits
 
 - **Vercel Hobby is non-commercial.** A deployment on Hobby must earn nothing, show no ads, and take no payments. Donations are allowed. Commercial use needs Pro.
-- **10 concurrent sandboxes and ~50–100 usable sandbox-hours a month (CPU-bound).** Enough for a small invited group, not a public launch. An admin controls invites by hand and watches usage; nothing is enforced automatically.
+- **10 concurrent sandboxes and ~50–100 usable sandbox-hours a month (CPU-bound).** Enough for a small group of active users. Sign-up is open, so an admin watches usage; nothing is enforced automatically.
 - **45-minute sessions.** Long agent runs are interrupted and resumed. The UX must make this ordinary, not an error.
 - **Neon Free autosuspends after 5 minutes.** First request after idle is ~0.5–1 s slower. Acceptable; a keep-warm cron is against the spirit of the free tier.
 - **Google OAuth app publishing.** External apps in "Testing" cap at 100 users; set the consent screen to "Production". With only email/profile scopes there is no verification review, but the consent screen shows your app name and domain, which must match the site.
@@ -221,7 +221,7 @@ Step-by-step instructions are in [DEPLOY.md](DEPLOY.md). In short:
 3. **DNS**: a record for your subdomain pointing at Vercel, proxy **off** if the DNS provider is Cloudflare.
 4. **Neon**: a project in an EU region (or via Vercel Storage); pooled and unpooled connection strings in Vercel env.
 5. **PostHog**: an EU project; its project key in Vercel env.
-6. **First admins and invites**: `SYRUP_ADMIN_EMAILS` and `SYRUP_INVITES`, then the admin page.
+6. **First admins**: `SYRUP_ADMIN_EMAILS`, then the admin page.
 7. **Legal review** of Terms, Privacy and Research Consent before opening to the public (Phase 4).
 
 ## 10b. Capacity benchmarks on the free-tier stack
@@ -242,7 +242,7 @@ Derived (assumes 1 vCPU / 2 GB, 30 min active + 10 min idle per session, 5–10 
 | Analytics sessions / month | ~3,000 at 300 events each | PostHog 1M |
 | App-side daily users | hundreds | Vercel functions (chat stream bypasses them) |
 
-Planning headline: **20–30 invited people using it a few times a week is the realistic free-tier ceiling.** Invites are controlled by an admin manually; these numbers say how many to send, nothing enforces them.
+Planning headline: **20–30 people using it a few times a week is the realistic free-tier ceiling.** Sign-up is open and nothing enforces these numbers; they say when to add a quota or move to Pro.
 
 Stretch, by impact: disable LSP in cloud mode (biggest idle CPU burner); idle-stop at 5 min via sandbox `timeout` + browser heartbeat (no cron needed); 1 vCPU only; per-user daily sandbox-minutes quota with a visible meter; `keepLastSnapshots: 1`, 7-day expiry, drop `node_modules` before stop for large repos; block watchers/dev servers in cloud mode; local connector for heavy users (Phase 5).
 

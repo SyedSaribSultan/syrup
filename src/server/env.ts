@@ -61,8 +61,6 @@ export const env = {
   databaseUrl: process.env.DATABASE_URL || undefined,
   databaseUrlUnpooled: process.env.DATABASE_URL_UNPOOLED || process.env.DATABASE_URL || undefined,
   adminEmails: list(process.env.SYRUP_ADMIN_EMAILS),
-  /** Seed invites until the admin page manages them. */
-  invites: list(process.env.SYRUP_INVITES),
   appUrl: process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000"),
   posthogKey: process.env.NEXT_PUBLIC_POSTHOG_KEY || undefined,
   /** Bearer that lets CLI smoke tests act as the first admin (see cloud/session.ts). */

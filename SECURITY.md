@@ -19,7 +19,7 @@ syrup runs a coding agent that reads, writes and executes code. Two modes exist:
 - Free OpenCode Zen models may use prompts for training; they are labelled in the model picker.
 
 **Cloud mode** (`syrup.syedsarib.com`)
-- Google sign-in, invite-only. Every request is authenticated.
+- Google sign-in, open to any verified Google account. Every request is authenticated.
 - Each user's data is separated by `user_id` and Postgres row-level security.
 - Provider keys are envelope-encrypted per user. They never touch a sandbox disk.
 - The agent runs in an isolated Firecracker microVM per workspace (Vercel Sandbox). Only OpenCode's port is exposed, behind a per-start password that lives in the browser's memory and, encrypted, in the database; it is discarded when the sandbox stops.

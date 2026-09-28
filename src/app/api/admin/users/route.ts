@@ -1,10 +1,11 @@
 import { desc, sql } from "drizzle-orm"
 import { handler, requireAdmin } from "@/server/cloud/session"
 import { pgAdmin, pgReady, pgSchema } from "@/server/db/pg"
+import { env } from "@/server/env"
 
 export const dynamic = "force-dynamic"
 
-/** Users, their key counts and open data requests. Admin only. */
+/** Users, their key counts, open data requests and the admin list. Admin only. */
 export const GET = handler(async () => {
   await requireAdmin()
   await pgReady()
@@ -20,5 +21,6 @@ export const GET = handler(async () => {
   return Response.json({
     users: users.map((u) => ({ ...u, keys: keys[u.id] ?? 0, research: research.has(u.id) })),
     openRequests: openRequests.rows,
+    adminEmails: env.adminEmails,
   })
 })

@@ -3,7 +3,6 @@ import { redirect } from "next/navigation"
 import { env } from "@/server/env"
 
 const ERRORS: Record<string, string> = {
-  invite: "This Google account isn't on the invite list yet. syrup is in early access; ask the admin of this instance for an invite.",
   unverified: "Google reports this email as unverified. Verify it with Google and try again.",
   email: "Google did not share an email address for this account.",
   OAuthAccountNotLinked: "This email is already linked to another sign-in method.",
@@ -59,7 +58,7 @@ export default async function SignInPage({ searchParams }: PageProps<"/signin">)
             <Link href="/legal/privacy" className="underline underline-offset-2 hover:text-ink">
               Privacy Policy
             </Link>
-            . Invite-only during early access.
+            .
           </p>
         </div>
 

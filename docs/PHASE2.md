@@ -98,7 +98,7 @@ src/app/(app)/w/[id]/…       # workspace pages (chat lives here in cloud)
 - PostHog: workspace_created, sandbox_started/stopped (with CPU ms), message_sent (tokens bucket), sandbox_error, egress_blocked. Admin: sandbox pool view against the 5 CPU-hour budget. Kill switch `SYRUP_AGENT_ENABLED` + PostHog flag.
 - Data-rights jobs (nightly cron): exports to R2 + Resend email, deletions after 30 days, log pruning. Needs R2 + Resend accounts.
 - Docs: ARCHITECTURE cloud runtime, PHASE2 numbers, SECURITY sandbox model, README hosted section.
-- **Gate:** a second invited account completes the whole flow; rows invisible under the admin's scope.
+- **Gate:** a second account completes the whole flow; rows invisible under the admin's scope.
 
 Order is fixed; S1–S3 are server-only and testable without touching the UI.
 
@@ -115,4 +115,4 @@ Order is fixed; S1–S3 are server-only and testable without touching the UI.
 
 ## 5. Definition of done
 
-A second invited Google account can: sign in → add a key → create a workspace from a public repo → chat with the agent, see tool calls and permissions → close the tab → come back next day → continue the same chat → see the session's cost in Usage → delete the workspace. Their rows are invisible to the admin's `withUser()` scope; the admin page shows aggregate usage only.
+A second Google account can: sign in → add a key → create a workspace from a public repo → chat with the agent, see tool calls and permissions → close the tab → come back next day → continue the same chat → see the session's cost in Usage → delete the workspace. Their rows are invisible to the admin's `withUser()` scope; the admin page shows aggregate usage only.

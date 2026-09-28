@@ -77,19 +77,6 @@ export const userKeys = pgTable("user_keys", {
   createdAt: ts("created_at").notNull().defaultNow(),
 })
 
-// ---------------------------------------------------------------- access
-
-/** Sign-in succeeds only for an email with an open invite, an existing user, or an admin. */
-export const invites = pgTable("invites", {
-  id: text("id").primaryKey(),
-  email: text("email").notNull(),
-  invitedBy: text("invited_by"),
-  note: text("note"),
-  createdAt: ts("created_at").notNull().defaultNow(),
-  acceptedAt: ts("accepted_at"),
-  revokedAt: ts("revoked_at"),
-}, (t) => [uniqueIndex("invites_email_idx").on(t.email)])
-
 // ---------------------------------------------------------------- providers
 
 export const providerKeys = pgTable("provider_keys", {

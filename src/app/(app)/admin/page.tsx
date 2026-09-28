@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState } from "react"
 
-type Invite = { id: string; email: string; note: string | null; invitedBy: string | null; createdAt: string; acceptedAt: string | null; revokedAt: string | null }
 type User = { id: string; email: string; name: string | null; createdAt: string; lastSeenAt: string | null; analyticsOptOut: boolean; keys: number; research: boolean }
 type Req = { id: string; user_id: string; type: string; status: string; requested_at: string }
 type Box = { workspaceId: string; workspace: string; email: string; status: string; region: string; engineVersion: string | null; lastSessionStartedAt: string | null; totalSessionSeconds: number; totalCpuMs: number; lastError: string | null }
@@ -11,30 +10,19 @@ type Pool = { sandboxes: Box[]; running: number; totalCpuMs: number; totalSessio
 const fmt = (s: string | null) => (s ? new Date(s).toLocaleString() : "—")
 
 export default function AdminPage() {
-  const [invites, setInvites] = useState<Invite[]>([])
-  const [envInvites, setEnvInvites] = useState<string[]>([])
   const [admins, setAdmins] = useState<string[]>([])
   const [users, setUsers] = useState<User[]>([])
   const [requests, setRequests] = useState<Req[]>([])
   const [pool, setPool] = useState<Pool | null>(null)
-  const [email, setEmail] = useState("")
-  const [note, setNote] = useState("")
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    const [a, b, c] = await Promise.all([fetch("/api/admin/invites", { cache: "no-store" }), fetch("/api/admin/users", { cache: "no-store" }), fetch("/api/admin/sandboxes", { cache: "no-store" })])
+    const [b, c] = await Promise.all([fetch("/api/admin/users", { cache: "no-store" }), fetch("/api/admin/sandboxes", { cache: "no-store" })])
     if (c.ok) setPool(await c.json())
-    if (a.ok) {
-      const j = await a.json()
-      setInvites(j.invites)
-      setEnvInvites(j.envInvites)
-      setAdmins(j.adminEmails)
-    }
     if (b.ok) {
       const j = await b.json()
       setUsers(j.users)
       setRequests(j.openRequests)
+      setAdmins(j.adminEmails)
     }
   }, [])
 
@@ -43,63 +31,13 @@ export default function AdminPage() {
     return () => clearTimeout(t)
   }, [load])
 
-  async function add() {
-    setBusy(true)
-    setError(null)
-    const r = await fetch("/api/admin/invites", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email, note }) })
-    if (!r.ok) setError((await r.json()).error ?? "failed")
-    else {
-      setEmail("")
-      setNote("")
-      await load()
-    }
-    setBusy(false)
-  }
-
-  async function revoke(id: string) {
-    await fetch(`/api/admin/invites?id=${id}`, { method: "DELETE" })
-    await load()
-  }
-
-  const open = invites.filter((i) => !i.revokedAt)
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto w-full max-w-[960px] px-6 py-8">
         <h1 className="font-serif text-[1.75rem] font-medium tracking-tight text-ink">Admin</h1>
         <p className="mt-1 text-sm text-muted">
-          Invites decide who can sign in. Admins: <span className="font-mono text-ink-2">{admins.join(", ") || "—"}</span>
-          {envInvites.length > 0 && (
-            <>
-              {" "}
-              · env invites: <span className="font-mono text-ink-2">{envInvites.join(", ")}</span>
-            </>
-          )}
+          Anyone with a verified Google account can sign in. Admins: <span className="font-mono text-ink-2">{admins.join(", ") || "—"}</span>
         </p>
-
-        <section className="mt-6 rounded-xl border border-line bg-surface p-4 shadow-card">
-          <h2 className="text-sm font-medium text-ink">Invite someone</h2>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <input value={email} onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void add()} placeholder="person@gmail.com" className="min-w-[240px] flex-1 rounded-lg border border-line bg-bg px-3 py-2 font-mono text-[13px] outline-none placeholder:font-sans placeholder:text-muted focus:border-line-2" />
-            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="note (optional)" className="min-w-[200px] flex-1 rounded-lg border border-line bg-bg px-3 py-2 text-[13px] outline-none placeholder:text-muted focus:border-line-2" />
-            <button type="button" onClick={() => void add()} disabled={busy || !email.includes("@")} className="rounded-lg bg-accent px-3 py-2 text-xs font-medium text-accent-ink disabled:opacity-40">
-              {busy ? "Adding…" : "Add invite"}
-            </button>
-          </div>
-          {error && <div className="mt-2 text-xs text-err">{error}</div>}
-          <ul className="mt-4 divide-y divide-line">
-            {open.length === 0 && <li className="py-3 text-sm text-muted">No open invites.</li>}
-            {open.map((i) => (
-              <li key={i.id} className="flex items-center gap-3 py-2 text-[13px]">
-                <span className="min-w-0 flex-1 truncate font-mono text-ink">{i.email}</span>
-                <span className="text-muted">{i.note}</span>
-                <span className={`rounded px-1.5 text-[10px] ${i.acceptedAt ? "bg-surface-2 text-ok" : "bg-surface-2 text-ink-2"}`}>{i.acceptedAt ? "accepted" : "pending"}</span>
-                <button type="button" onClick={() => void revoke(i.id)} className="text-xs text-muted hover:text-err">
-                  Revoke
-                </button>
-              </li>
-            ))}
-          </ul>
-        </section>
 
         <section className="mt-6 rounded-xl border border-line bg-surface p-4 shadow-card">
           <h2 className="text-sm font-medium text-ink">

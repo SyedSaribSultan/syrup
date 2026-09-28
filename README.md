@@ -1,6 +1,6 @@
 # syrup
 
-A coding agent in your browser, powered by whatever API keys you already have. Run it on your own machine (this README), or use the hosted early-access version at **https://syrup.syedsarib.com** (invite-only; see [docs/PLAN.md](docs/PLAN.md)).
+A coding agent in your browser, powered by whatever API keys you already have. Run it on your own machine (this README), or use the hosted version at **https://syrup.syedsarib.com** (sign in with Google; see [docs/PLAN.md](docs/PLAN.md)).
 
 No subscription. No single vendor. Start with free models that need no key, then bring keys from NVIDIA, OpenRouter, Mistral, Z.ai, Google AI Studio, or any of 200+ providers. syrup routes work across your keys, fails over when a free tier hits its limit, tracks every token, and shows you exactly what each session cost.
 
@@ -130,7 +130,7 @@ Locally, a link only opens on your machine, so the Share panel also exports Mark
 
 ## Hosted version
 
-The same codebase runs as a hosted product at https://syrup.syedsarib.com (invite-only early access): Google sign-in, per-user encrypted keys, and each workspace's agent in its own isolated sandbox. Design and roadmap: [docs/PLAN.md](docs/PLAN.md), [docs/PHASE2.md](docs/PHASE2.md). To run your own hosted instance, follow [docs/DEPLOY.md](docs/DEPLOY.md).
+The same codebase runs as a hosted product at https://syrup.syedsarib.com, open to anyone with a Google account: Google sign-in, per-user encrypted keys, and each workspace's agent in its own isolated sandbox. Design and roadmap: [docs/PLAN.md](docs/PLAN.md), [docs/PHASE2.md](docs/PHASE2.md). To run your own hosted instance, follow [docs/DEPLOY.md](docs/DEPLOY.md).
 
 ## Status
 
