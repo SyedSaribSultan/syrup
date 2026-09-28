@@ -3,7 +3,7 @@ import { redirect } from "next/navigation"
 import { env } from "@/server/env"
 
 const ERRORS: Record<string, string> = {
-  invite: "This Google account isn't on the invite list yet. syrup is in early access; ask Sarib for an invite.",
+  invite: "This Google account isn't on the invite list yet. syrup is in early access; ask the admin of this instance for an invite.",
   unverified: "Google reports this email as unverified. Verify it with Google and try again.",
   email: "Google did not share an email address for this account.",
   OAuthAccountNotLinked: "This email is already linked to another sign-in method.",

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react"
 
 /**
- * Typewriter reveal for streamed text (same loop as syedsarib.com's chat): text
+ * Typewriter reveal for streamed text (a requestAnimationFrame loop): text
  * lands in chunks and is revealed on animation frames at a steady pace, so short
  * and long answers read at one deliberate rhythm. Text that was already complete
  * when it mounted (history) shows at once; reduced-motion users get it instantly.

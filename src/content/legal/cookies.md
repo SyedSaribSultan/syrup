@@ -22,4 +22,4 @@ Turn analytics off in **Settings → Privacy**, or send the browser **Do Not Tra
 
 Signing in with Google sets Google's own cookies on google.com under Google's policies. syrup does not set cookies for any advertiser or social network.
 
-Questions: github.com/SyedSaribSultan/syrup/issues
+Questions: [GitHub issues](https://github.com/SyedSaribSultan/syrup/issues) for general questions; a [private report](https://github.com/SyedSaribSultan/syrup/security/advisories/new) for anything personal.

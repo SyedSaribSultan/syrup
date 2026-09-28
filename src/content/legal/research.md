@@ -30,4 +30,4 @@ This consent is **off** until you turn it on. Using syrup does not depend on it.
 
 Your explicit consent (GDPR Article 6(1)(a) and, where applicable, Article 9 does not apply because we do not seek special-category data). Consent lasts until you withdraw it or delete your account. We record the version of this text you agreed to and when.
 
-Questions: github.com/SyedSaribSultan/syrup/issues
+Questions: [GitHub issues](https://github.com/SyedSaribSultan/syrup/issues) for general questions; a [private report](https://github.com/SyedSaribSultan/syrup/security/advisories/new) for anything personal.

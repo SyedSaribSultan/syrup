@@ -2,7 +2,7 @@
 
 ## 1. Controller
 
-**[Legal entity or full name]**, **[address]**, **[country]**, is the controller of your personal data. Contact: **github.com/SyedSaribSultan/syrup/issues**. **[EU/UK representative, if required under GDPR Article 27: name and address]**.
+**[Legal entity or full name]**, **[address]**, **[country]**, is the controller of your personal data. Contact: see section 11. **[EU/UK representative, if required under GDPR Article 27: name and address]**.
 
 ## 2. The short version
 
@@ -74,7 +74,7 @@ You can, at any time and free of charge:
 - **Correct** your profile (it comes from Google; change it there).
 - **Delete** your account and data (Settings → Privacy → Delete account). Your account is deactivated immediately; sandboxes and their snapshots are destroyed; all records are permanently erased within **30 days**, except consent and audit records we must keep, and backups which expire within a further 30 days.
 - **Object** to analytics (opt out in Settings) or **withdraw** research consent (Settings).
-- **Complain** to your data protection authority. We would appreciate the chance to help first: github.com/SyedSaribSultan/syrup/issues.
+- **Complain** to your data protection authority. We would appreciate the chance to help first, through a [private report](https://github.com/SyedSaribSultan/syrup/security/advisories/new).
 
 ## 7. Security
 
@@ -96,4 +96,7 @@ We will announce material changes in the app or by email before they take effect
 
 ## 11. Contact
 
-github.com/SyedSaribSultan/syrup/issues
+- General questions: open an issue at [https://github.com/SyedSaribSultan/syrup/issues](https://github.com/SyedSaribSultan/syrup/issues).
+- Anything private, including requests about your personal data: send a private report at [https://github.com/SyedSaribSultan/syrup/security/advisories/new](https://github.com/SyedSaribSultan/syrup/security/advisories/new). It is visible only to the maintainers.
+
+Please do not post personal data in a public issue.

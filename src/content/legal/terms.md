@@ -2,7 +2,7 @@
 
 ## 1. Who we are
 
-syrup is operated by **[Legal entity or full name]**, **[address]**, **[country]** ("syrup", "we"). Contact: **github.com/SyedSaribSultan/syrup/issues**.
+syrup is operated by **[Legal entity or full name]**, **[address]**, **[country]** ("syrup", "we"). Contact: see section 15.
 
 ## 2. What syrup is
 
@@ -71,4 +71,7 @@ These Terms are governed by the laws of **[jurisdiction]**, without affecting ma
 
 ## 15. Contact
 
-github.com/SyedSaribSultan/syrup/issues
+- General questions: open an issue at [https://github.com/SyedSaribSultan/syrup/issues](https://github.com/SyedSaribSultan/syrup/issues).
+- Anything private, including requests about your personal data: send a private report at [https://github.com/SyedSaribSultan/syrup/security/advisories/new](https://github.com/SyedSaribSultan/syrup/security/advisories/new). It is visible only to the maintainers.
+
+Please do not post personal data in a public issue.

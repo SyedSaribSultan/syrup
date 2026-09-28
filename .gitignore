@@ -47,3 +47,19 @@ next-env.d.ts
 .vercel
 .env*.local
 /.sidecar
+
+# local builds, runtime data and personal tooling
+/app.py
+/app.spec
+/dist/
+*.exe
+__pycache__/
+*.key
+vault.key
+*.db
+*.db-*
+*.sqlite*
+*.log
+/logs/
+/screenshots/
+.claude/

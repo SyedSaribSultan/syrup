@@ -117,7 +117,7 @@ A Google AI Studio key is still worth adding for its quality, but it runs out qu
 
 ## Hosted version
 
-The same codebase runs as a hosted product at https://syrup.syedsarib.com (invite-only early access): Google sign-in, per-user encrypted keys, and each workspace's agent in its own isolated sandbox. Design and status: [docs/PLAN.md](docs/PLAN.md), [docs/PHASE2.md](docs/PHASE2.md).
+The same codebase runs as a hosted product at https://syrup.syedsarib.com (invite-only early access): Google sign-in, per-user encrypted keys, and each workspace's agent in its own isolated sandbox. Design and roadmap: [docs/PLAN.md](docs/PLAN.md), [docs/PHASE2.md](docs/PHASE2.md). To run your own hosted instance, follow [docs/DEPLOY.md](docs/DEPLOY.md).
 
 ## Status
 
