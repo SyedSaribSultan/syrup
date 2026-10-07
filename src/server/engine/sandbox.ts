@@ -160,7 +160,11 @@ async function installEngine(sb: Sandbox, ws: Workspace, userId: string) {
     const helper = token ? "-c credential.helper='!f() { echo username=x-access-token; echo \"password=$SYRUP_GIT_TOKEN\"; }; f'" : ""
     const branch = ws.defaultBranch ? `--branch ${JSON.stringify(ws.defaultBranch)}` : ""
     steps.push(`git ${helper} clone --depth 1 ${branch} ${JSON.stringify(ws.repoUrl)} ${JSON.stringify(workDir(ws))}`)
-  } else steps.push(`mkdir -p ${JSON.stringify(workDir(ws))}`)
+  } else {
+    // An empty workspace (Home, Scratch) still gets a repository: the engine snapshots only git worktrees, and without
+    // them the Changes panel and revert do nothing. No commits are made.
+    steps.push(`mkdir -p ${JSON.stringify(workDir(ws))} && git -C ${JSON.stringify(workDir(ws))} -c init.defaultBranch=main init -q`)
+  }
   const r = await sb.runCommand({ cmd: "bash", args: ["-lc", steps.join(" && ")], cwd: HOME, env })
   if (r.exitCode !== 0) {
     const err = (await r.stderr()).slice(-1500)
@@ -180,7 +184,8 @@ async function startEngine(sb: Sandbox, ws: Workspace, userId: string, password:
   const cors = [env.appUrl, process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : ""].filter(Boolean)
   await sb.runCommand({
     cmd: "bash",
-    args: ["-lc", `(${skills.apply})\nexec "$HOME/.opencode/bin/opencode" serve --hostname 0.0.0.0 --port ${PORT} ${cors.map((c) => `--cors ${JSON.stringify(c)}`).join(" ")}`],
+    // `[ -e .git ] || git init`: workspaces created before empty ones got a repository catch up on their next start.
+    args: ["-lc", `(${skills.apply})\n([ -e .git ] || git -c init.defaultBranch=main init -q)\nexec "$HOME/.opencode/bin/opencode" serve --hostname 0.0.0.0 --port ${PORT} ${cors.map((c) => `--cors ${JSON.stringify(c)}`).join(" ")}`],
     cwd: workDir(ws),
     detached: true,
     // OPENCODE_ENABLE_EXA: web search, off by default in OpenCode.

@@ -1,7 +1,7 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useSyncExternalStore, type ReactNode } from "react"
-import { oc, type Connection, type FileDiff } from "@/lib/oc"
+import { useMemo, type ReactNode } from "react"
+import { diffLines, mergeTurns, splitLines, turnsSignature, type EngineDiff, type SessionDiff } from "@/lib/diffs"
 import { useOptionalEngine } from "@/lib/engine-store"
 import { isWindowsPath } from "@/lib/file-actions"
 import { usePanel } from "@/lib/panel"
@@ -9,60 +9,51 @@ import { Brew } from "./brew"
 import { FileLink, useFileMenu } from "./file-link"
 
 /**
- * Files the agent changed in a session, from the engine's snapshot diff: the
+ * Files the agent changed in a session, from the engine's snapshot diffs: the
  * header button (desktop), the count badge, and the Changes tab of the
  * workspace panel. On a phone, or in a pane under ~560px, the tab is a list
  * you drill into; wider, the list sits left of the diff.
  */
 
-// ---- One fetch per session, shared by the button, the badge and the tab ----
+// ---- Diffs come with the messages already in the store: no extra request ----
 
-type Slot = { diffs: FileDiff[] | null; at: number; inflight: boolean }
-const slots = new Map<string, Slot>()
-const listeners = new Map<string, Set<() => void>>()
-/** Mounting the tab refetches unless a fetch just finished (the badge and the tab both ask on idle). */
-const FRESH_MS = 1500
-
-function subscribeSlot(key: string, f: () => void) {
-  let set = listeners.get(key)
-  if (!set) listeners.set(key, (set = new Set()))
-  set.add(f)
-  return () => void set.delete(f)
+type Turns = {
+  /** Each user turn's file diffs, oldest first, from `info.summary.diffs` (written once the turn settles). */
+  turns: EngineDiff[][]
+  /** The engine took snapshots in this chat (step-start parts carry one); false in a folder that is not a git repository. */
+  snapshots: boolean
+  loaded: boolean
+  /** Changes only when a summary changes (turnsSignature), unlike `turns`, which is rebuilt on every streamed part. */
+  sig: string
 }
 
-function loadDiffs(key: string, directory: string, conn: Connection | null, sessionID: string) {
-  const s = slots.get(key)
-  if (s && (s.inflight || Date.now() - s.at < FRESH_MS)) return
-  slots.set(key, { diffs: s?.diffs ?? null, at: Date.now(), inflight: true })
-  const done = (diffs: FileDiff[]) => {
-    slots.set(key, { diffs, at: Date.now(), inflight: false })
-    for (const f of listeners.get(key) ?? []) f()
-  }
-  oc(directory, conn)
-    .session.diff({ path: { id: sessionID } })
-    .then(
-      (r) => done(r.data ?? []),
-      () => done(s?.diffs ?? []),
-    )
-}
-
-/** The session's snapshot diff (null until the first answer). Refreshes whenever the agent goes idle. */
-function useDiffs(sessionID: string | null): FileDiff[] | null {
+function useTurns(sessionID: string | null): Turns {
   const engine = useOptionalEngine()
-  const directory = engine?.directory ?? ""
-  const connection = engine?.connection ?? null
-  const busy = !!sessionID && engine?.status[sessionID]?.type === "busy"
-  const key = sessionID && directory ? `${connection?.baseUrl ?? ""}|${directory}|${sessionID}` : ""
-  const sub = useCallback((f: () => void) => (key ? subscribeSlot(key, f) : () => {}), [key])
-  const diffs = useSyncExternalStore(
-    sub,
-    () => (key ? (slots.get(key)?.diffs ?? null) : null),
-    () => null,
-  )
-  useEffect(() => {
-    if (key && sessionID && !busy) loadDiffs(key, directory, connection, sessionID)
-  }, [key, busy, directory, connection, sessionID])
-  return diffs
+  const sm = sessionID ? engine?.messages[sessionID] : undefined
+  return useMemo(() => {
+    const turns: EngineDiff[][] = []
+    let snapshots = false
+    if (!sm) return { turns, snapshots, loaded: false, sig: "" }
+    for (const id of sm.order) {
+      const m = sm.byId[id]
+      if (!m) continue
+      if (m.info.role === "user" && m.info.summary?.diffs?.length) turns.push(m.info.summary.diffs as EngineDiff[])
+      if (!snapshots) for (const p of m.parts) if (p.type === "step-start" && p.snapshot) snapshots = true
+    }
+    return { turns, snapshots, loaded: sm.loaded, sig: turnsSignature(turns) }
+  }, [sm])
+}
+
+/**
+ * The session's diff, one entry per file (null until the messages are loaded).
+ * Merged again only when a turn's summary changes, not on every streamed token.
+ */
+function useDiffs(sessionID: string | null): SessionDiff[] | null {
+  const { turns, loaded, sig } = useTurns(sessionID)
+  // The signature stands in for `turns`: same signature, same merge result.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const diffs = useMemo(() => mergeTurns(turns), [sig])
+  return loaded ? diffs : null
 }
 
 /** Fallback when the engine has no snapshot diff: files the agent wrote or edited, from the tool calls. */
@@ -145,6 +136,7 @@ function ChangesView({ sessionID }: { sessionID: string }) {
   const panel = usePanel()!
   const diffs = useDiffs(sessionID)
   const touched = useTouched(sessionID)
+  const { snapshots } = useTurns(sessionID)
   const current = diffs?.find((d) => d.file === panel.diff) ?? null
   const totals = diffs?.reduce((a, d) => ({ add: a.add + d.additions, del: a.del + d.deletions }), { add: 0, del: 0 })
   // Split (list | diff) needs a desktop pane of 560px or more; otherwise the list drills into the diff.
@@ -169,7 +161,15 @@ function ChangesView({ sessionID }: { sessionID: string }) {
                 </FileLink>
               </div>
             ))}
-            <div className="px-3 pt-2 text-[11px] text-muted">No line diff available for this chat.</div>
+            <div className="px-3 pt-2 text-[11px] leading-snug text-muted">
+              {snapshots ? (
+                "Line changes show up once the turn settles."
+              ) : (
+                <>
+                  This folder is not a git repository, so line changes are not tracked. Run <span className="font-mono">git init</span> in it to turn that on; Home has it already.
+                </>
+              )}
+            </div>
           </>
         )}
         {diffs && diffs.length > 0 && totals && (
@@ -193,7 +193,7 @@ function Calm({ children }: { children: ReactNode }) {
 }
 
 /** Tap shows the diff; right-click, a long press or the ⋯ gives the file actions. */
-function DiffRow({ diff, active, onSelect }: { diff: FileDiff; active: boolean; onSelect(): void }) {
+function DiffRow({ diff, active, onSelect }: { diff: SessionDiff; active: boolean; onSelect(): void }) {
   const fm = useFileMenu(diff.file)
   const parts = diff.file.split(/[\\/]/)
   const name = parts.pop()
@@ -232,33 +232,7 @@ function DiffRow({ diff, active, onSelect }: { diff: FileDiff; active: boolean; 
   )
 }
 
-type Line = { t: " " | "+" | "-"; s: string }
-
-/** Small line diff (LCS on lines). Fine for the file sizes an agent edits. */
-function diffLines(a: string[], b: string[]): Line[] {
-  const n = a.length
-  const m = b.length
-  if (n * m > 4_000_000) {
-    // Too big for the table; show whole-file replace.
-    return [...a.map((s) => ({ t: "-" as const, s })), ...b.map((s) => ({ t: "+" as const, s }))]
-  }
-  const dp: Uint32Array[] = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1))
-  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1])
-  const out: Line[] = []
-  let i = 0
-  let j = 0
-  while (i < n && j < m) {
-    if (a[i] === b[j]) {
-      out.push({ t: " ", s: a[i] })
-      i++
-      j++
-    } else if (dp[i + 1][j] >= dp[i][j + 1]) out.push({ t: "-", s: a[i++] })
-    else out.push({ t: "+", s: b[j++] })
-  }
-  while (i < n) out.push({ t: "-", s: a[i++] })
-  while (j < m) out.push({ t: "+", s: b[j++] })
-  return out
-}
+type Line = ReturnType<typeof diffLines>[number]
 
 /** Unchanged runs longer than 8 lines collapse to 3 lines of context each side. */
 function collapse(rows: Line[]): (Line | { gap: number })[] {
@@ -281,8 +255,8 @@ function collapse(rows: Line[]): (Line | { gap: number })[] {
   return shown
 }
 
-function UnifiedDiff({ diff, wrap, onWrap, onBack }: { diff: FileDiff; wrap: boolean; onWrap(): void; onBack(): void }) {
-  const shown = useMemo(() => collapse(diffLines(diff.before.split("\n"), diff.after.split("\n"))), [diff.before, diff.after])
+function UnifiedDiff({ diff, wrap, onWrap, onBack }: { diff: SessionDiff; wrap: boolean; onWrap(): void; onBack(): void }) {
+  const shown = useMemo(() => collapse(diffLines(splitLines(diff.before), splitLines(diff.after))), [diff.before, diff.after])
   return (
     <>
       <div className="flex shrink-0 items-center gap-1 border-b border-line py-1 pr-2 pl-1 font-mono text-[11px] text-muted">
