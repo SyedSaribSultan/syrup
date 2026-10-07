@@ -35,6 +35,8 @@ type Learned = {
   tpm?: number
   remainingTokens?: number
   remainingTokensUntil?: number
+  /** The model rejected a thinking/reasoning-effort parameter; requests go plain from now on. */
+  noReasoningParam?: boolean
 }
 
 const PRIOR_ERR = 0.05
@@ -180,7 +182,12 @@ export class Health {
       l.maxPromptAt = this.now()
     }
     if (cls.learnedTpm) l.tpm = cls.learnedTpm
+    if (cls.learnedNoReasoningParam) l.noReasoningParam = true
     this.learned.set(c.id, l)
+  }
+
+  noReasoningParam(c: Candidate): boolean {
+    return !!this.learned.get(c.id)?.noReasoningParam
   }
 
   /** Success headers. Returns the cooldown set when the request budget is exhausted ("rpd" when it lasts over an hour). */

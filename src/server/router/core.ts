@@ -40,9 +40,17 @@ export type RouterTiming = {
   candidateCacheMs: number
 }
 
+/**
+ * Measured 2026-10-07 (scripts/bench-agent.mjs): with min 10 s / max 60 s and
+ * 2.5× the predicted TTFT, a one-word reply waited 16 s on a silent Gemini
+ * before falling over to a model that answered in under 2 s, and a planning
+ * turn waited 31 s then 35 s. Time to first token is what the user feels, so
+ * a backend with a fallback behind it now gets at most 25 s and 2× its
+ * prediction; the last candidate still gets its full two minutes.
+ */
 const DEFAULT_TIMING: RouterTiming = {
-  minDeadlineMs: 10_000,
-  maxDeadlineMs: 60_000,
+  minDeadlineMs: 8_000,
+  maxDeadlineMs: 25_000,
   lastDeadlineMs: 120_000,
   budgetMs: 90_000,
   idleMs: 90_000,
@@ -261,7 +269,8 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
       if (reqMax === undefined && reqMaxCompletion === undefined && (s.outTokens < 8192 || c.providerID === "anthropic")) out.max_tokens = s.outTokens
     }
 
-    if (ctx.alias === "fast" && c.reasoning && body.reasoning_effort === undefined && body.reasoning === undefined) {
+    // Skipped once a model has rejected the parameter (health.noReasoningParam): Gemma on Google's endpoint 400s on it.
+    if (ctx.alias === "fast" && c.reasoning && !health.noReasoningParam(c) && body.reasoning_effort === undefined && body.reasoning === undefined) {
       if (c.providerID === "google" || c.providerID === "openai") out.reasoning_effort = "low"
       else if ((c.providerID === "groq" || c.providerID === "cerebras") && /gpt-oss/.test(c.modelID)) out.reasoning_effort = "low"
       else if (c.providerID === "openrouter") out.reasoning = { effort: "low" }
@@ -886,10 +895,16 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
       let deadline: number
       if (!stream) deadline = Math.max(1000, budget - elapsed)
       else if (isLast) deadline = timing.lastDeadlineMs
-      else deadline = Math.min(clamp(2.5 * s.predTtftMs, timing.minDeadlineMs, timing.maxDeadlineMs), Math.max(budget - elapsed, timing.minDeadlineMs))
+      else deadline = Math.min(clamp(2 * s.predTtftMs, timing.minDeadlineMs, timing.maxDeadlineMs), Math.max(budget - elapsed, timing.minDeadlineMs))
+      const sentReasoningParam = alias === "fast" && s.c.reasoning && !health.noReasoningParam(s.c)
       const r = await attemptOnce(ctx, s, attempt, deadline, attempt === 1 ? pick.reason : "fallback")
       if (r.kind === "done" || r.kind === "aborted") return
       failures.push(r)
+      // The model refused only the thinking parameter: the same backend gets one more go, plain, and this costs no attempt.
+      if (r.cls.learnedNoReasoningParam && sentReasoningParam) {
+        tried.delete(s.c.id)
+        continue
+      }
       if (r.cls.reason !== "context" && r.cls.reason !== "tpm") counted++
     }
 

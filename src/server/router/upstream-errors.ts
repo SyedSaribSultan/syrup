@@ -35,6 +35,8 @@ export type Classified = {
   learnedMaxPrompt?: number
   /** Learned: tokens-per-minute limit. */
   learnedTpm?: number
+  /** Learned: this model rejects a thinking/reasoning-effort parameter; send it plain from now on. */
+  learnedNoReasoningParam?: boolean
 }
 
 export type UpstreamFailure = {
@@ -161,6 +163,10 @@ const CONTEXT_RE = /context[ _-](?:length|window)|maximum context|prompt is too 
 const KEY_REJECTED_RE = /API[_ ]?key (?:not valid|invalid|expired)|pass a valid API key|API_KEY_INVALID|invalid api[_ ]?key|incorrect api key/i
 const TPM_RE = /tokens per minute|\bTPM\b/i
 const OVERLOADED_RE = /overloaded|high demand|UNAVAILABLE|capacity|try again later/i
+/** A 403 that is about the key or account, not about one model (OpenRouter answers 403 for "this model is only available on …"). */
+const KEY_FORBIDDEN_RE = /unauthori[sz]ed|not authori[sz]ed|permission denied|forbidden for this (?:key|account)|account (?:is )?(?:disabled|suspended|blocked)|(?:key|account) (?:has been|is) (?:disabled|revoked|suspended)|insufficient permissions|verify your (?:account|organization)|no access to/i
+/** A model that refuses the thinking/reasoning-effort parameter outright (Google's Gemma models through the OpenAI-compatible endpoint). */
+const NO_REASONING_RE = /thinking(?: level| budget| config)? is not supported|does not support (?:thinking|reasoning)|reasoning(?:_effort)? (?:is )?not supported|unknown (?:parameter|field)[^.]*reasoning/i
 
 function fmtUntil(retryAt: number, now: number): string {
   const s = Math.round((retryAt - now) / 1000)
@@ -222,9 +228,20 @@ export function classifyFailure(f: UpstreamFailure): Classified {
   }
 
   const keyRejected = KEY_REJECTED_RE.test(msg) || (Array.isArray(err?.details) && err.details.some((d) => d?.reason === "API_KEY_INVALID"))
-  if (status === 401 || ((status === 400 || status === 403) && keyRejected) || (status === 403 && !/flagged|moderation/i.test(msg))) {
+  // 401, or a 400/403 whose words blame the key or account: every model on this key is off for a while. A 403 that
+  // says nothing about the key (a model gated to another plan, a blocked model) is this one model refusing us,
+  // below, so one such model never benches the whole provider.
+  if (status === 401 || ((status === 400 || status === 403) && keyRejected) || (status === 403 && KEY_FORBIDDEN_RE.test(msg) && !/flagged|moderation/i.test(msg))) {
     const retryAt = now + 10 * MIN
     return { reason: "auth", status: "error", scope: "key", retryAt, unhealthy: false, message: `key rejected (${status}): ${short(msg, 100)}` }
+  }
+  if (status === 403 && !/flagged|moderation/i.test(msg)) {
+    const retryAt = now + HOUR
+    return { reason: "error", status: "error", scope: "backend", retryAt, unhealthy: false, message: `model refused this key (403): ${short(msg, 100)}` }
+  }
+
+  if (status === 400 && NO_REASONING_RE.test(msg)) {
+    return { reason: "bad_request", status: "error", scope: "none", retryAt: null, unhealthy: false, learnedNoReasoningParam: true, message: `rejects the thinking parameter (400): ${short(msg, 100)}` }
   }
 
   if (status === 413 || (status === 400 && (CONTEXT_RE.test(msg) || /context_length_exceeded/i.test(String(err?.code ?? ""))))) {
@@ -245,8 +262,10 @@ export function classifyFailure(f: UpstreamFailure): Classified {
   }
 
   if (status === 404) {
-    const retryAt = now + HOUR
-    return { reason: "error", status: "error", scope: "backend", retryAt, unhealthy: true, message: `model not found (404): ${short(msg, 100)}` }
+    // The catalog lists a model the provider has retired ("no longer available"). It will not come back within the
+    // hour, and trying it costs a full attempt on every request, so it is out for the day. Not the model's health.
+    const retryAt = now + DAY
+    return { reason: "error", status: "error", scope: "backend", retryAt, unhealthy: false, message: `model not found (404): ${short(msg, 100)}` }
   }
 
   if (status >= 500 || status === 408 || status === 409 || OVERLOADED_RE.test(msg) || /UNAVAILABLE/.test(String(err?.status ?? ""))) {

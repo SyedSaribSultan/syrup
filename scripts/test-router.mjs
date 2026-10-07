@@ -456,8 +456,21 @@ await scenario("unit: classifyFailure covers every limit type", async () => {
   eq(auth.reason, "auth", "auth")
   eq(auth.scope, "key", "auth scope")
   eq(auth.retryAt, now + 600_000, "auth 10 min")
-  const nf = R.classifyFailure({ ...base, status: 404, body: "{}", providerID: "google" })
-  eq(nf.retryAt, now + 3_600_000, "404 1 h")
+  const nf = R.classifyFailure({ ...base, status: 404, body: JSON.stringify({ error: { message: "This model models/gemini-2.5-flash is no longer available" } }), providerID: "google" })
+  eq(nf.retryAt, now + 86_400_000, "404 out for the day")
+  eq(nf.scope, "backend", "404 cools only that model")
+  eq(nf.unhealthy, false, "404 is the catalog's fault, not the model's health")
+  const gated = R.classifyFailure({ ...base, status: 403, body: JSON.stringify({ error: { message: "thinkingmachines/inkling:free is only available on the Pro plan" } }), providerID: "openrouter" })
+  eq(gated.scope, "backend", "model-specific 403 cools only that model")
+  eq(gated.reason, "error", "model-specific 403 is not an auth failure")
+  eq(gated.retryAt, now + 3_600_000, "model-specific 403 1 h")
+  const keyBad = R.classifyFailure({ ...base, status: 403, body: JSON.stringify({ error: { message: "Unauthorized: this API key has been disabled" } }), providerID: "openrouter" })
+  eq(keyBad.reason, "auth", "403 blaming the key is auth")
+  eq(keyBad.scope, "key", "403 blaming the key cools the key")
+  const noThink = R.classifyFailure({ ...base, status: 400, body: JSON.stringify({ error: { message: "Thinking level is not supported for this model.", code: 400, status: "INVALID_ARGUMENT" } }), providerID: "google" })
+  eq(noThink.reason, "bad_request", "thinking rejection is a bad request")
+  eq(noThink.learnedNoReasoningParam, true, "thinking rejection is learned")
+  eq(noThink.scope, "none", "thinking rejection cools nothing")
   const o1 = R.classifyFailure({ ...base, status: 503, body: JSON.stringify({ error: { message: "The model is overloaded. Please try again later.", status: "UNAVAILABLE" } }), providerID: "google" })
   eq(o1.reason, "overloaded", "503 overloaded")
   eq(o1.retryAt, now + 30_000, "first overload 30 s")
@@ -1403,6 +1416,76 @@ await scenario("z4) sidecar key store refreshes keys from the app on a timer and
   } finally {
     app.closeAllConnections?.()
     app.close()
+  }
+})
+
+await scenario("z5) a 403 about one model cools that model only; the key's other models still serve", async () => {
+  // Google is the only key, so anything that answers proves the key was not benched.
+  const r = await makeRouter({ keys: [K.google] })
+  try {
+    mock.set("google/gemini-3.8-flash", status(403, { error: { message: "gemini-3.8-flash is only available on the paid tier" } }))
+    const res = await chat(r, { user: "plan the migration", headers: { "x-session-affinity": "ses_z5" } })
+    eq(res.status, 200, "status")
+    eq(res.headers.get("x-syrup-provider"), "google", "served by google on the same key")
+    assert(res.headers.get("x-syrup-model") !== "gemini-3.8-flash", "by another model")
+    const ev = r.events.find((e) => e.modelId === "gemini-3.8-flash")
+    eq(ev.reason, "error", "not an auth failure")
+    const st = await r.status()
+    assert(st.cooldowns.some((c) => c.scope === "b:google/gemini-3.8-flash#k_google"), "the model itself cools")
+    assert(!st.cooldowns.some((c) => c.scope.startsWith("k:google")), "the key does not cool")
+    const again = await chat(r, { user: "plan another migration", headers: { "x-session-affinity": "ses_z5b" } })
+    eq(again.status, 200, "second hard turn ok")
+    eq(mock.of("google/gemini-3.8-flash").length, 1, "the refused model is not tried again")
+  } finally {
+    await r.close()
+  }
+})
+
+await scenario("z6) a model that rejects the thinking parameter is retried plain at once, and stays plain", async () => {
+  const r = await makeRouter({ keys: [K.google] })
+  try {
+    const probe = await chat(r, { alias: "fast", user: "title this chat", headers: { "x-session-affinity": "ses_z6_probe" } })
+    eq(probe.status, 200, "probe status")
+    const model = mock.hits[0].key
+    eq(mock.hits[0].body.reasoning_effort, "low", "fast sends low effort to start with")
+    mock.reset()
+    mock.once(model, status(400, { error: { message: "Thinking level is not supported for this model.", code: 400, status: "INVALID_ARGUMENT" } }))
+    const res = await chat(r, { alias: "fast", user: "title this chat too", headers: { "x-session-affinity": "ses_z6" } })
+    eq(res.status, 200, "status")
+    eq(res.headers.get("x-syrup-model"), model.split("/").slice(1).join("/"), "the same model answered")
+    eq(mock.hits.length, 2, "exactly two upstream calls")
+    eq(mock.hits[0].body.reasoning_effort, "low", "first call carried the parameter")
+    eq(mock.hits[1].key, model, "second call went to the same model")
+    eq(mock.hits[1].body.reasoning_effort, undefined, "second call went plain")
+    const st = await r.status()
+    assert(!st.cooldowns.some((c) => c.scope.includes(model.split("/")[1])), "no cooldown for a parameter the router caused")
+    await chat(r, { alias: "fast", user: "and a third title", headers: { "x-session-affinity": "ses_z6c" } })
+    eq(mock.hits.at(-1).key, model, "later fast requests still use it")
+    eq(mock.hits.at(-1).body.reasoning_effort, undefined, "and never send the parameter again")
+  } finally {
+    await r.close()
+  }
+})
+
+await scenario("z7) a retired model (404) is out for the day, with no health penalty", async () => {
+  const clock = fakeClock()
+  const r = await makeRouter({ keys: [K.google, K.opencode], now: clock.now })
+  try {
+    mock.set("google/gemini-3.8-flash", status(404, { error: { message: "This model models/gemini-3.8-flash is no longer available", code: 404, status: "NOT_FOUND" } }))
+    const res = await chat(r, { user: "plan the migration", headers: { "x-session-affinity": "ses_z7" } })
+    eq(res.status, 200, "status")
+    assert(res.headers.get("x-syrup-model") !== "gemini-3.8-flash", "served by another model")
+    const ev = r.events.find((e) => e.modelId === "gemini-3.8-flash")
+    assert(ev.retryAt - ev.ts >= 23 * 3600_000, "cooldown lasts about a day")
+    const hits = mock.of("google/gemini-3.8-flash").length
+    clock.advance(2 * 3600_000)
+    await chat(r, { user: "plan another migration", headers: { "x-session-affinity": "ses_z7b" } })
+    eq(mock.of("google/gemini-3.8-flash").length, hits, "not tried again two hours later")
+    const st = await r.status()
+    const h = st.health.find((x) => x.id.includes("gemini-3.8-flash"))
+    assert(!h || h.errRate < 0.1, "error rate untouched")
+  } finally {
+    await r.close()
   }
 })
 
