@@ -1,3 +1,4 @@
+import fs from "node:fs"
 import { engine, engineAuthHeader } from "@/server/engine/opencode"
 import { ensureSarib } from "@/server/sarib"
 import { revokeLocalSessionShares } from "@/server/shares"
@@ -13,16 +14,29 @@ export const dynamic = "force-dynamic"
 
 const HOP_BY_HOP = new Set(["host", "connection", "content-length", "transfer-encoding", "keep-alive"])
 
+function isDirectory(p: string): boolean {
+  try {
+    return fs.statSync(p).isDirectory()
+  } catch {
+    return false
+  }
+}
+
 async function proxy(req: Request, ctx: { params: Promise<{ path: string[] }> }) {
   const { path } = await ctx.params
-  const { url: base } = await engine()
   const incoming = new URL(req.url)
+  // A workspace folder that was moved or deleted: the engine would accept the session and then fail the first
+  // prompt with a bare "Unexpected server error", so answer here in the engine's own error shape.
+  const dir = incoming.searchParams.get("directory")
+  if (dir && !isDirectory(dir)) {
+    return Response.json({ name: "NotFoundError", data: { message: `The folder ${dir} no longer exists. Pick another workspace, or put the folder back and reload.` } }, { status: 404 })
+  }
+  const { url: base } = await engine()
   const target = new URL(`${base}/${path.join("/")}`)
   target.search = incoming.search
 
   // Give workspaces with .sarib files the sarib tools. Before a prompt it is
   // awaited (bounded) so the turn already sees them; otherwise it runs in the background.
-  const dir = incoming.searchParams.get("directory")
   if (dir) {
     const ready = ensureSarib(dir)
     if (req.method === "POST" && /^session\/[^/]+\/(prompt_async|message)$/.test(path.join("/"))) {

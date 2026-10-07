@@ -104,6 +104,8 @@ export function Composer({ onSend, onStop, busy, autoFocus, placeholder }: Props
       await onSend(t, files)
       setText("")
       setFiles([])
+    } catch {
+      // The caller shows the error; the draft stays in the box so nothing typed is lost.
     } finally {
       setSending(false)
       // Keep typing on desktop; on a phone put the keyboard away so the answer is visible.

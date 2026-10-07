@@ -87,7 +87,9 @@ function Menu({ onDone }: { onDone(): void }) {
     const ok = await confirmDialog(
       mode === "cloud"
         ? { title: `Delete "${w.name}"?`, body: "This destroys its sandbox and every file in it. It cannot be undone. Its chats leave the list (the history stays in your account).", confirmLabel: "Delete", danger: true }
-        : { title: `Remove "${w.name}" from syrup?`, body: "The folder and its files stay on disk. Its chats leave the list and come back if you add the folder again.", confirmLabel: "Remove" },
+        : w.missing
+          ? { title: `Remove "${w.name}" from syrup?`, body: `${w.detail} is not on disk any more. Its chats come back if you add the folder again.`, confirmLabel: "Remove" }
+          : { title: `Remove "${w.name}" from syrup?`, body: "The folder and its files stay on disk. Its chats leave the list and come back if you add the folder again.", confirmLabel: "Remove" },
     )
     if (ok) await remove(w.id)
   }
@@ -135,8 +137,9 @@ function Menu({ onDone }: { onDone(): void }) {
                 <WorkspaceTile name={w.name} color={w.color} size={32} />
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-1.5">
-                    <span className="truncate text-[13px] font-medium text-ink">{w.name}</span>
+                    <span className={`truncate text-[13px] font-medium ${w.missing ? "text-ink-2 line-through decoration-warn/60" : "text-ink"}`}>{w.name}</span>
                     {isActive && <span className="shrink-0 rounded bg-surface px-1 py-px text-[10px] font-medium text-ink-2 shadow-card">Current</span>}
+                    {w.missing && <span className="shrink-0 rounded bg-warn/15 px-1 py-px text-[10px] font-medium text-warn">Folder not found</span>}
                   </span>
                   <span className="block truncate text-[11px] text-muted">{shortDetail(w.detail)}</span>
                 </span>

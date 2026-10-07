@@ -9,12 +9,15 @@ export const dynamic = "force-dynamic"
  * the browser is trusted to see the same file system the agent works in.
  */
 export async function GET(req: Request) {
-  const raw = new URL(req.url).searchParams.get("path") ?? ""
+  const params = new URL(req.url).searchParams
+  const raw = params.get("path") ?? ""
   const target = path.resolve(raw || os.homedir())
   let stat: fs.Stats | undefined
   try {
     stat = fs.statSync(target)
   } catch {}
+  // `probe=1`: only whether the folder is still there (the workspace list checks each of its folders on load).
+  if (params.get("probe")) return Response.json({ path: target, exists: !!stat?.isDirectory() })
   if (!stat?.isDirectory()) {
     return Response.json({ path: target, exists: false, dirs: [], parent: path.dirname(target) })
   }

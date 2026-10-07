@@ -6,7 +6,8 @@ import { useState } from "react"
 import { Brew } from "@/components/brew"
 import { Composer, type Attachment } from "@/components/composer"
 import { PanelToggle } from "@/components/side-panel"
-import { useEngine } from "@/lib/engine-store"
+import { engineError, useEngine } from "@/lib/engine-store"
+import { useWorkspaces } from "@/lib/workspaces"
 import { MenuButton } from "./app-shell"
 import { ModelPicker } from "./model-picker"
 
@@ -27,17 +28,22 @@ export function NewChat({ hrefFor, noKeys, error, onRetry }: Props) {
   const router = useRouter()
   const { createSession, send, directory, models, hasKeys, keysKnown, providers, ready } = useEngine()
   const [pending, setPending] = useState<{ text: string; files: Attachment[] } | null>(null)
+  const [sendError, setSendError] = useState<string | null>(null)
+  const { workspaces, activeId } = useWorkspaces()
+  const missing = !!workspaces?.find((w) => w.id === activeId)?.missing
   const freeCount = models.filter((m) => m.free && m.providerID !== "syrup").length
   const showKeys = keysKnown ? !hasKeys : !!noKeys
 
   async function onSend(text: string, files: Attachment[]) {
     if (!ready) setPending({ text, files })
+    setSendError(null)
     try {
       const s = await createSession()
       router.push(hrefFor(s.id))
       await send(s.id, text, files)
     } catch (err) {
       setPending(null)
+      setSendError(engineError(err))
       throw err
     }
   }
@@ -104,6 +110,19 @@ export function NewChat({ hrefFor, noKeys, error, onRetry }: Props) {
           </div>
           {!pending && <div className="order-4 mt-4 hidden justify-center text-xs text-muted expanded:order-3 expanded:flex">{where}</div>}
           <div className="order-2 space-y-3 pb-3 empty:hidden expanded:order-4 expanded:pb-0">
+            {(sendError || missing) && (
+              <div className="mx-auto max-w-[560px] rounded-xl border border-err/30 bg-err/5 px-4 py-3 text-[13px] leading-relaxed text-ink-2 expanded:mt-6">
+                {missing ? (
+                  <>
+                    <span className="font-medium text-err">This folder no longer exists.</span> Switch to another workspace from the top of the sidebar, or put the folder back and reload.
+                  </>
+                ) : (
+                  <>
+                    <span className="font-medium text-err">Couldn&apos;t start the chat.</span> {sendError}
+                  </>
+                )}
+              </div>
+            )}
             {error && (
               <div className="mx-auto max-w-[560px] rounded-xl border border-err/30 bg-err/5 px-4 py-3 text-[13px] leading-relaxed text-ink-2 expanded:mt-6">
                 <span className="font-medium text-err">Your workspace didn&apos;t start.</span> {error}

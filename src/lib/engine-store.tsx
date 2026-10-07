@@ -77,11 +77,21 @@ type Action =
 
 const empty: SessionMessages = { order: [], byId: {}, loaded: false }
 
+/** The sentence inside an engine error body ({ name, data: { message } }), a plain { error } or an Error. */
+export function engineError(e: unknown): string {
+  if (e instanceof Error) return e.message
+  const o = (e ?? {}) as { data?: { message?: string }; name?: string; error?: string; message?: string }
+  return o.data?.message ?? o.error ?? o.message ?? o.name ?? "The engine refused the request"
+}
+
 function reducer(s: State, a: Action): State {
   switch (a.type) {
     case "connected":
       return { ...s, connected: a.value }
     case "directory":
+      // The same folder again (boot runs twice in development; a workspace list re-picks the open one) keeps what is
+      // loaded: wiping it here left a chat on its skeleton when the wipe landed after its messages arrived.
+      if (a.directory === s.directory) return { ...s, defaultDirectory: a.defaultDirectory ?? s.defaultDirectory }
       // Switching workspace drops per-workspace state; providers and model stay.
       return {
         ...s,
@@ -479,7 +489,7 @@ export function EngineProvider({ children, connection, remote }: { children: Rea
     const res = await oc(dir, conn).session.create({ body: {} })
     if (!res.data) {
       clog("session.create.failed", { error: res.error }, { level: "error", directory: dir })
-      throw new Error("could not create session")
+      throw new Error(engineError(res.error))
     }
     clog("session.created", { id: res.data.id }, { sessionId: res.data.id, directory: dir })
     dispatch({ type: "session", session: res.data })
@@ -505,7 +515,11 @@ export function EngineProvider({ children, connection, remote }: { children: Rea
         path: { id: sessionID },
         body: { model: model ?? undefined, parts },
       })
-      if (res.error) clog("prompt.failed", { error: res.error }, { level: "error", sessionId: sessionID, directory: dir })
+      if (res.error) {
+        clog("prompt.failed", { error: res.error }, { level: "error", sessionId: sessionID, directory: dir })
+        // A refused prompt never produces a session.error event, so the chat would stay silent without this.
+        dispatch({ type: "error", sessionID, error: engineError(res.error) })
+      }
     },
     [whenReady],
   )

@@ -16,7 +16,15 @@ import { LIMIT_MESSAGE, MAX_WORKSPACES, nextColor, placeHome, type LocalEntry } 
  * Both modes have a Home workspace (src/lib/home.ts): listed first, never removed, the default for new chats.
  */
 
-export type WorkspaceItem = { id: string; name: string; color: number; detail: string; home: boolean }
+export type WorkspaceItem = {
+  id: string
+  name: string
+  color: number
+  detail: string
+  home: boolean
+  /** Local: the folder is gone from disk (moved or deleted). The switcher says so, and it is never made active. */
+  missing?: boolean
+}
 export type ChatItem = { id: string; title: string; workspaceId: string; updated: number }
 export type CloudUser = { name: string | null; email: string | null; image: string | null; admin: boolean }
 export type AddInput = { path: string } | { repoUrl?: string; name?: string }
@@ -178,6 +186,27 @@ export function LocalWorkspacesProvider({ children }: { children: ReactNode }) {
   const active = list?.find((w) => directory && samePath(w.path, directory)) ?? null
   const paths = list?.map((w) => w.path).join("\n") ?? ""
 
+  // Folders can disappear between visits. Each is probed on load and when the tab comes back; a missing one is
+  // marked in the switcher, and if it is the open workspace the app moves to Home instead of failing every request.
+  const [missing, setMissing] = useState<string[]>([])
+  useEffect(() => {
+    if (!paths) return
+    let alive = true
+    void Promise.all(
+      paths.split("\n").map(async (p) => {
+        const r = await fetch(`/api/workspace?probe=1&path=${encodeURIComponent(p)}`, { cache: "no-store" }).catch(() => null)
+        const j = r?.ok ? ((await r.json()) as { exists?: boolean }) : null
+        return j && j.exists === false ? p : null
+      }),
+    ).then((gone) => alive && setMissing(gone.filter((p): p is string => !!p)))
+    return () => {
+      alive = false
+    }
+  }, [paths, tick])
+  useEffect(() => {
+    if (active && home && missing.some((p) => samePath(p, active.path)) && !samePath(active.path, home)) setDirectory(home)
+  }, [active, home, missing, setDirectory])
+
   // Chats of the other workspaces. The engine groups non-git folders into one project, so filter by folder.
   useEffect(() => {
     if (!paths || !directory) return
@@ -198,7 +227,8 @@ export function LocalWorkspacesProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<Ctx>(() => {
     const isHome = (p: string) => !!home && samePath(p, home)
-    const workspaces = list?.map((w) => ({ id: w.path, name: isHome(w.path) ? "Home" : baseName(w.path), color: w.color, detail: w.path, home: isHome(w.path) })) ?? null
+    const workspaces =
+      list?.map((w) => ({ id: w.path, name: isHome(w.path) ? "Home" : baseName(w.path), color: w.color, detail: w.path, home: isHome(w.path), missing: missing.some((p) => samePath(p, w.path)) })) ?? null
     // Remember when each folder was last used: a full list makes room by dropping the stalest.
     const pick = (path: string) => {
       setDirectory(path)
@@ -233,7 +263,7 @@ export function LocalWorkspacesProvider({ children }: { children: ReactNode }) {
         if (list && !isHome(id)) save(list.filter((w) => w.path !== id))
       },
     }
-  }, [list, home, active, others, setDirectory, router, save])
+  }, [list, home, active, others, missing, setDirectory, router, save])
 
   return <WorkspacesContext.Provider value={value}>{children}</WorkspacesContext.Provider>
 }
