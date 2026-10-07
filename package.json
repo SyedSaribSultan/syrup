@@ -17,7 +17,9 @@
     "test:diffs": "node scripts/test-diffs.mjs",
     "bench:agent": "node scripts/bench-agent.mjs",
     "chat:export": "node scripts/chat-export.mjs",
-    "shots": "node scripts/shots.mjs"
+    "shots": "node scripts/shots.mjs",
+    "ui:harness": "node scripts/ui-harness.mjs",
+    "ui:weight": "node scripts/js-weight.mjs"
   },
   "dependencies": {
     "@auth/drizzle-adapter": "^1.11.3",
