@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Brew, Skel } from "@/components/brew"
 import { ChangesButton } from "@/components/changes"
+import { RouterProgress } from "@/components/router-progress"
 import { Composer } from "@/components/composer"
 import { useLogs } from "@/components/logs-modal"
 import { MessageView } from "@/components/message"
@@ -134,6 +135,7 @@ export function SessionView({ id }: { id: string }) {
           {awaiting && (
             <div className="py-2">
               <Brew mood="think" size="md" />
+              <RouterProgress sessionID={id} since={entries[entries.length - 1]?.info.time.created ?? 0} active />
             </div>
           )}
           {!narrow && <Prompts sessionID={id} />}

@@ -1,5 +1,5 @@
 import { and, desc, eq, gte, isNotNull, or } from "drizzle-orm"
-import { backendKey, isFreeVariant, type Answer, type AliasPick, type BackendState, type CoolReason, type KeyCooldown, type RouterStatus } from "@/lib/router-status"
+import { backendKey, isFreeVariant, type Answer, type AliasPick, type Attempt, type BackendState, type CoolReason, type KeyCooldown, type RouterStatus } from "@/lib/router-status"
 import { db, dbReady, schema } from "./db"
 import { pgSchema, withUser } from "./db/pg"
 import { BASE_URL, ENV_NAMES } from "./router/backends"
@@ -197,6 +197,16 @@ export function toAnswers(rows: AnswerRow[]): Answer[] {
     }))
 }
 
+/** How far back the live "waiting" line looks for attempts of a chat. */
+const LIVE_WINDOW_MS = 3 * 60_000
+const MAX_ATTEMPTS = 40
+
+type AttemptRow = { ts: number; alias: string; providerId: string; modelId: string; status: string; reason: string | null; error: string | null }
+
+function toAttempts(rows: AttemptRow[]): Attempt[] {
+  return [...rows].sort((a, b) => a.ts - b.ts).map((x) => ({ ts: x.ts, alias: aliasName(x.alias), providerId: x.providerId, modelId: x.modelId, status: x.status, reason: x.reason, error: x.error }))
+}
+
 // ---------------------------------------------------------------- local (SQLite)
 
 /** Mirrors LocalRouterStore.activeKeys without decrypting anything: the active vault key, else an env key. */
@@ -239,6 +249,18 @@ export async function localSessionAnswers(sessionId: string): Promise<Answer[]> 
   return toAnswers(rows)
 }
 
+export async function localSessionAttempts(sessionId: string): Promise<Attempt[]> {
+  await dbReady()
+  const r = schema.routerEvents
+  const rows = await db()
+    .select({ ts: r.ts, alias: r.alias, providerId: r.providerId, modelId: r.modelId, status: r.status, reason: r.reason, error: r.error })
+    .from(r)
+    .where(and(eq(r.sessionId, sessionId), gte(r.ts, Date.now() - LIVE_WINDOW_MS)))
+    .orderBy(desc(r.ts))
+    .limit(MAX_ATTEMPTS)
+  return toAttempts(rows)
+}
+
 // ---------------------------------------------------------------- cloud (Postgres, RLS)
 
 export async function cloudRouterStatus(userId: string): Promise<RouterStatus> {
@@ -278,4 +300,17 @@ export async function cloudSessionAnswers(userId: string, sessionId: string): Pr
       .limit(MAX_ANSWERS),
   )
   return toAnswers(rows.map((x) => ({ ...x, ts: x.ts.getTime() })))
+}
+
+export async function cloudSessionAttempts(userId: string, sessionId: string): Promise<Attempt[]> {
+  const r = pgSchema.routerEvents
+  const rows = await withUser(userId, (tx) =>
+    tx
+      .select({ ts: r.ts, alias: r.alias, providerId: r.providerId, modelId: r.modelId, status: r.status, reason: r.reason, error: r.error })
+      .from(r)
+      .where(and(eq(r.userId, userId), eq(r.sessionId, sessionId), gte(r.ts, new Date(Date.now() - LIVE_WINDOW_MS))))
+      .orderBy(desc(r.ts))
+      .limit(MAX_ATTEMPTS),
+  )
+  return toAttempts(rows.map((x) => ({ ...x, ts: x.ts.getTime() })))
 }

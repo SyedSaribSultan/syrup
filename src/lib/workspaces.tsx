@@ -304,6 +304,19 @@ export function CloudWorkspacesProvider({ user, children }: { user: CloudUser | 
     if (homeId && !elsewhere && document.visibilityState === "visible") prewarmSandbox(homeId)
   }, [homeId, elsewhere])
 
+  // The workspace the user was in most recently (a chat touched in the last day) is the likeliest next stop, so it
+  // warms too. One extra sandbox for ten idle minutes; with a quiet user base that is cheap, and it turns a 7–15 s
+  // wait into none. Only one, and never the one already open.
+  const [loadedAt] = useState(() => Date.now())
+  const recentId = useMemo(() => {
+    const cutoff = loadedAt - 24 * 3_600_000
+    const newest = [...chats].filter((c) => c.workspaceId !== homeId && c.updated >= cutoff).sort((a, b) => b.updated - a.updated)[0]
+    return newest && workspaces?.some((w) => w.id === newest.workspaceId) ? newest.workspaceId : null
+  }, [chats, homeId, workspaces, loadedAt])
+  useEffect(() => {
+    if (recentId && recentId !== activeId && document.visibilityState === "visible") prewarmSandbox(recentId)
+  }, [recentId, activeId])
+
   const value = useMemo<Ctx>(
     () => ({
       mode: "cloud",

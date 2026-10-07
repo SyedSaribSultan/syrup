@@ -9,6 +9,7 @@ import { providerName } from "@/lib/model-registry"
 import type { RatedModel, Rating } from "@/lib/use-feedback"
 import { answersFor, useSessionAnswers } from "@/lib/use-session-answers"
 import { Brew } from "./brew"
+import { RouterProgress } from "./router-progress"
 import { PartView } from "./parts"
 import { useReadOnly } from "./read-only"
 
@@ -117,6 +118,7 @@ export function MessageView({ entry, streaming, rating = null, onRate }: Props) 
         {streaming && visible.length === 0 && (
           <div className="py-2">
             <Brew mood="think" since={info.time.created} size="md" />
+            {routed && !ro && <RouterProgress sessionID={info.sessionID} since={info.time.created} active />}
           </div>
         )}
         {streaming && settled(visible[visible.length - 1]) && (

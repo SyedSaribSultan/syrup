@@ -55,7 +55,24 @@ export type Answer = {
   partial?: boolean
 }
 
-export type AnswersResponse = { answers: Answer[] }
+/** One router attempt in a chat, success or not: what the "waiting" line shows while the first token is still to come. */
+export type Attempt = {
+  ts: number
+  alias: string
+  providerId: string
+  modelId: string
+  /** "ok" | "rate_limited" | "error" | "timeout" | "aborted" */
+  status: string
+  reason: string | null
+  /** The router's one-line reason for a failure, or null. */
+  error: string | null
+}
+
+export type AnswersResponse = {
+  answers: Answer[]
+  /** Only with `?live=1`: every attempt of the last few minutes, oldest first, failures included. */
+  attempts?: Attempt[]
+}
 
 export function backendKey(providerId: string, modelId: string): string {
   return `${providerId}/${modelId}`

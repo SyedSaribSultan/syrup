@@ -10,6 +10,7 @@ import { engineError, useEngine } from "@/lib/engine-store"
 import { useWorkspaces } from "@/lib/workspaces"
 import { MenuButton } from "./app-shell"
 import { ModelPicker } from "./model-picker"
+import { WarmupStatus } from "./warm-up"
 
 type Props = {
   hrefFor(sessionId: string): string
@@ -95,7 +96,10 @@ export function NewChat({ hrefFor, noKeys, error, onRetry }: Props) {
                 {error ? (
                   <div className="text-[13px] text-muted">Not sent yet. It goes out as soon as the workspace starts.</div>
                 ) : (
-                  <Brew mood="wake" label="Sends as soon as your workspace is up" timerAfter={8} />
+                  <>
+                    <Brew mood="wake" label="Sends as soon as your workspace is up" timerAfter={8} />
+                    <WarmupStatus queued />
+                  </>
                 )}
               </div>
             ) : (
@@ -110,6 +114,11 @@ export function NewChat({ hrefFor, noKeys, error, onRetry }: Props) {
           </div>
           {!pending && <div className="order-4 mt-4 hidden justify-center text-xs text-muted expanded:order-3 expanded:flex">{where}</div>}
           <div className="order-2 space-y-3 pb-3 empty:hidden expanded:order-4 expanded:pb-0">
+            {!pending && !error && (
+              <div className="mx-auto w-full max-w-[560px] empty:hidden expanded:mt-6">
+                <WarmupStatus />
+              </div>
+            )}
             {(sendError || missing) && (
               <div className="mx-auto max-w-[560px] rounded-xl border border-err/30 bg-err/5 px-4 py-3 text-[13px] leading-relaxed text-ink-2 expanded:mt-6">
                 {missing ? (

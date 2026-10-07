@@ -271,6 +271,9 @@ export async function openWorkspace(userId: string, workspaceId: string): Promis
       version = (await waitHealthy(baseUrl, password, 60_000)).version
       await storePassword(userId, workspaceId, password)
       await saveSandbox(userId, workspaceId, { lastSessionStartedAt: new Date() })
+      // A healthy OpenCode still builds its per-folder instance (file watchers, skills, ~3 s) on the first request
+      // for the folder. Ask for it now, so a prewarmed workspace is truly ready when the first message comes.
+      void fetch(`${baseUrl}/session?directory=${encodeURIComponent(workDir(ws))}`, { headers: { authorization: basic(password) }, signal: AbortSignal.timeout(20_000) }).catch(() => {})
     }
 
     await saveSandbox(userId, workspaceId, { status: "running", region: sb.region, engineVersion: version ?? OPENCODE_VERSION })
