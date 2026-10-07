@@ -65,4 +65,10 @@ export interface RouterStore {
   catalog(): Promise<Catalog>
   /** Persist one routing attempt. Must never throw. */
   record(event: RouterEvent): Promise<void>
+  /**
+   * Attempts recorded since `sinceMs` (epoch), oldest first, by any router process for this user's keys.
+   * A fresh router replays them into its health memory, so a sandbox start or an app restart does not begin
+   * by trying models that were overloaded a minute ago. Optional; must never throw.
+   */
+  recent?(sinceMs: number): Promise<RouterEvent[]>
 }

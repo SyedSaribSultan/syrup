@@ -202,6 +202,9 @@ function sseOk(opts = {}) {
     res.writeHead(200, { "content-type": "text/event-stream", ...(opts.headers ?? {}) })
     const send = (o) => res.write(`data: ${JSON.stringify(o)}\n\n`)
     send({ id: "c", choices: [{ index: 0, delta: { role: "assistant", content: "" } }] })
+    // firstDelayMs: a slow first token (the role delta is already out, so this is pure time-to-first-content).
+    if (opts.firstDelayMs) await sleep(opts.firstDelayMs)
+    if (hit.closed) return
     if (opts.reasoning) {
       for (const part of opts.reasoning.match(/.{1,8}/g)) send({ id: "c", choices: [{ index: 0, delta: { reasoning_content: part } }] })
     }
@@ -292,7 +295,17 @@ const GOOGLE_PER_MINUTE = [
 // ------------------------------------------------------------------ router under test
 
 const SECRET = "test-secret"
-const TIMING = { minDeadlineMs: 800, maxDeadlineMs: 1500, lastDeadlineMs: 3000, budgetMs: 8000, idleMs: 2000, nonStreamMs: 5000 }
+const TIMING = { minDeadlineMs: 800, maxDeadlineMs: 1500, lastDeadlineMs: 3000, budgetMs: 8000, idleMs: 2000, nonStreamMs: 5000, hedgeMinMs: 300, hedgeMaxMs: 400 }
+
+/** A chat that already has one answered turn: the sticky/deadline paths, without the opening turn's speed pick and hedge. */
+function continuation(user) {
+  return [
+    { role: "system", content: "You are a coding agent." },
+    { role: "user", content: "hello" },
+    { role: "assistant", content: "Hi. What should I do?" },
+    { role: "user", content: user },
+  ]
+}
 
 async function makeRouter({ keys, catalog = CATALOG, timing = TIMING, now } = {}) {
   const events = []
@@ -581,7 +594,7 @@ await scenario("a2) with NVIDIA free, a normal turn prefers glm-5.3 when its pre
   const catalog = baseCatalog({ nvidia: [M("z-ai/glm-5.3", { context: 200_000, output: 131_072 })] })
   const r = await makeRouter({ keys: [K.google, K.opencode, K.nvidia], catalog })
   try {
-    const res = await chat(r, { user: "rename the variable", headers: { "x-session-affinity": "ses_a2b" } })
+    const res = await chat(r, { messages: continuation("rename the variable"), headers: { "x-session-affinity": "ses_a2b" } })
     eq(`${res.headers.get("x-syrup-provider")}/${res.headers.get("x-syrup-model")}`, "nvidia/z-ai/glm-5.3", "nvidia pick")
   } finally {
     await r.close()
@@ -676,7 +689,7 @@ await scenario("f) keep-alive comments without content past the deadline → abo
   try {
     mock.set("opencode/mimo-v2.6-flash-free", keepAliveForever())
     const t0 = Date.now()
-    const res = await chat(r, { user: "add a README file" })
+    const res = await chat(r, { messages: continuation("add a README file") })
     eq(res.status, 200, "status")
     assert(res.headers.get("x-syrup-model") !== "mimo-v2.6-flash-free", "failed over")
     assert(!res.text.includes("OPENROUTER PROCESSING"), "keep-alives never reached the client")
@@ -694,7 +707,7 @@ await scenario("g) a role-only delta then a stall is not a commit", async () => 
   const r = await makeRouter({ keys: [K.opencode] })
   try {
     mock.set("opencode/mimo-v2.6-flash-free", roleThenStall())
-    const res = await chat(r, { user: "add a README file" })
+    const res = await chat(r, { messages: continuation("add a README file") })
     eq(res.status, 200, "status")
     const second = `${res.headers.get("x-syrup-provider")}/${res.headers.get("x-syrup-model")}`
     assert(second !== "opencode/mimo-v2.6-flash-free", "failed over")
@@ -722,7 +735,7 @@ await scenario("h) context-length 400 → next candidate, no cooldown, learned l
     const hits = mock.of("opencode/mimo-v2.6-flash-free").length
     await chat(r, { user: `add a README file ${big}` })
     eq(mock.of("opencode/mimo-v2.6-flash-free").length, hits, "same-size prompt skips mimo")
-    await chat(r, { user: "tiny", headers: { "x-session-affinity": "ses_h_small" } })
+    await chat(r, { messages: continuation("tiny"), headers: { "x-session-affinity": "ses_h_small" } })
     eq(mock.of("opencode/mimo-v2.6-flash-free").length, hits + 1, "small prompt still uses mimo")
   } finally {
     await r.close()
@@ -1484,6 +1497,112 @@ await scenario("z7) a retired model (404) is out for the day, with no health pen
     const st = await r.status()
     const h = st.health.find((x) => x.id.includes("gemini-3.8-flash"))
     assert(!h || h.errRate < 0.1, "error rate untouched")
+  } finally {
+    await r.close()
+  }
+})
+
+await scenario("z8) a chat's opening turn goes to the adequate model that answers fastest; later turns weigh quality again", async () => {
+  const catalog = new Map([
+    [
+      "nvidia",
+      new Map([
+        ["moonshotai/kimi-k3", M("moonshotai/kimi-k3", { output: 131_072 })],
+        ["xiaomi/mimo-v2.6-pro", M("xiaomi/mimo-v2.6-pro", { output: 131_072 })],
+        ["meta/llama-3.1-8b-instruct", M("meta/llama-3.1-8b-instruct", { context: 131_072, output: 16_384 })],
+      ]),
+    ],
+  ])
+  // Deadlines long enough that a slow first token is measured, not timed out.
+  const r = await makeRouter({ keys: [K.nvidia], catalog, timing: { ...TIMING, minDeadlineMs: 4500, maxDeadlineMs: 5000 } })
+  try {
+    // Teach the router that kimi is slow to its first token: two answers that take 3.5 s to start. Kimi outranks
+    // mimo by ~11 quality points, so only a clear speed gap (~3 s predicted) may override it on an opening turn.
+    for (let i = 0; i < 2; i++) {
+      mock.once("nvidia/moonshotai/kimi-k3", sseOk({ firstDelayMs: 3500 }))
+      const taught = await chat(r, { messages: continuation("warm up"), headers: { "x-session-affinity": `ses_z8_teach${i}` } })
+      eq(taught.headers.get("x-syrup-model"), "moonshotai/kimi-k3", `teaching round ${i} used kimi`)
+    }
+    const opening = await chat(r, { user: "rename the variable", headers: { "x-session-affinity": "ses_z8_open" } })
+    eq(opening.status, 200, "opening status")
+    eq(opening.headers.get("x-syrup-model"), "xiaomi/mimo-v2.6-pro", "opening turn: the fast adequate model, not the slow strong one or the weak quick one")
+    eq(opening.headers.get("x-syrup-reason"), "best", "ranked first, not reached through a hedge")
+    const later = await chat(r, { messages: continuation("plan the migration"), headers: { "x-session-affinity": "ses_z8_later" } })
+    eq(later.headers.get("x-syrup-model"), "moonshotai/kimi-k3", "a hard continuation weighs quality again")
+    const rec = r.received()
+    eq(rec.at(-2).opening, true, "opening logged")
+    eq(rec.at(-1).opening, undefined, "continuation not logged as opening")
+  } finally {
+    await r.close()
+  }
+})
+
+await scenario("z9) a fresh router seeds its memory from attempts another process recorded", async () => {
+  const clock = fakeClock()
+  const t = clock.now()
+  const recent = [
+    { id: "p1", ts: t - 60_000, alias: "auto", providerId: "google", modelId: "gemini-3.8-flash", keyId: "k_google", tier: "free", status: "error", httpStatus: 503, attempts: 1, latencyMs: 900, inputTokens: 0, outputTokens: 0, cost: 0, error: "overloaded (503)", sessionId: "s_old", ttftMs: null, retryAt: t + 120_000, reason: "overloaded" },
+    { id: "p2", ts: t - 50_000, alias: "auto", providerId: "google", modelId: "gemini-3.5-flash-lite", keyId: "k_google", tier: "free", status: "ok", httpStatus: 200, attempts: 2, latencyMs: 4000, inputTokens: 16_000, outputTokens: 50, cost: 0, error: null, sessionId: "s_old", ttftMs: 3500, retryAt: null, reason: "fallback" },
+  ]
+  const events = []
+  const store = { catalog: async () => CATALOG, activeKeys: async () => new Map([K.google]), record: async (e) => void events.push(e), recent: async () => recent }
+  const router = R.createRouter({ store, log: () => {}, secret: SECRET, baseURLs, timing: TIMING, now: clock.now })
+  const server = http.createServer((req, res) => void router.handle(req, res, new URL(req.url ?? "/", "http://localhost")))
+  await new Promise((r) => server.listen(0, "127.0.0.1", r))
+  const url = `http://127.0.0.1:${server.address().port}`
+  try {
+    const st = await (await fetch(`${url}/v1/status`, { headers: { authorization: `Bearer ${SECRET}` } })).json()
+    assert(st.cooldowns.some((c) => c.scope === "b:google/gemini-3.8-flash#k_google" && c.reason === "overloaded"), "the other process's cooldown is in force here")
+    const res = await fetch(`${url}/v1/chat/completions`, { method: "POST", headers: { authorization: `Bearer ${SECRET}`, "content-type": "application/json", "x-session-affinity": "ses_z9" }, body: JSON.stringify({ model: "syrup/auto", stream: true, messages: [{ role: "user", content: "plan the migration" }] }) })
+    await res.text()
+    eq(res.status, 200, "status")
+    assert(res.headers.get("x-syrup-model") !== "gemini-3.8-flash", "the model that was overloaded a minute ago is not tried")
+    eq(mock.hits.filter((h) => h.model === "gemini-3.8-flash").length, 0, "no request reached it")
+    const st2 = await (await fetch(`${url}/v1/status`, { headers: { authorization: `Bearer ${SECRET}` } })).json()
+    const lite = st2.health.find((h) => h.id.includes("gemini-3.5-flash-lite"))
+    assert(lite && lite.ttftMs > 2000, `the other process's slow first token is remembered (${lite?.ttftMs} ms)`)
+  } finally {
+    server.closeAllConnections?.()
+    await new Promise((r) => server.close(r))
+  }
+})
+
+await scenario("z10) opening turn: a silent first backend is hedged, and the first token wins", async () => {
+  const r = await makeRouter({ keys: [K.opencode] })
+  try {
+    mock.set("opencode/mimo-v2.6-flash-free", roleThenStall())
+    const t0 = Date.now()
+    const res = await chat(r, { user: "add a README file", headers: { "x-session-affinity": "ses_z10" } })
+    eq(res.status, 200, "status")
+    const winner = `${res.headers.get("x-syrup-provider")}/${res.headers.get("x-syrup-model")}`
+    assert(winner !== "opencode/mimo-v2.6-flash-free", "the partner answered")
+    eq(res.content, `hello from ${winner}`, "only the winner's content reached the client")
+    eq(res.headers.get("x-syrup-reason"), "hedge", "answered by the hedge")
+    assert(Date.now() - t0 < 1200, `answered before the first backend's deadline (${Date.now() - t0} ms)`)
+    const lost = r.events.find((e) => e.modelId === "mimo-v2.6-flash-free")
+    eq(lost.status, "aborted", "the cut attempt is recorded as aborted")
+    eq(lost.reason, "hedged", "…because it lost the hedge")
+    const st = await r.status()
+    const mimo = st.health.find((h) => h.id.includes("mimo-v2.6-flash-free"))
+    assert(!mimo || mimo.errRate < 0.1, "no error-rate penalty for losing a race")
+    await waitFor(() => mock.of("opencode/mimo-v2.6-flash-free")[0]?.closed, 2000, "the cut upstream request was closed")
+    // A continuation in the same chat is not hedged: one upstream call.
+    mock.reset()
+    const two = await chat(r, { messages: continuation("and a LICENSE"), headers: { "x-session-affinity": "ses_z10" } })
+    eq(two.status, 200, "second turn ok")
+    eq(mock.hits.length, 1, "no hedge on a continuation")
+  } finally {
+    await r.close()
+  }
+})
+
+await scenario("z11) a hedge is not started when the first backend answers in time", async () => {
+  const r = await makeRouter({ keys: [K.opencode] })
+  try {
+    const res = await chat(r, { user: "add a README file", headers: { "x-session-affinity": "ses_z11" } })
+    eq(res.status, 200, "status")
+    eq(mock.hits.length, 1, "one upstream call")
+    eq(r.events.length, 1, "one event")
   } finally {
     await r.close()
   }

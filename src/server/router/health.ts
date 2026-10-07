@@ -1,4 +1,5 @@
 import type { Candidate } from "./backends"
+import type { RouterEvent } from "./store"
 import type { Classified, HeaderLearning } from "./upstream-errors"
 
 /**
@@ -49,11 +50,22 @@ const DECAY_HALF_LIFE_MS = 10 * 60_000
 /** A learned prompt cap is forgotten after this long, so one misread error cannot exclude a backend for good. */
 const LEARNED_PROMPT_TTL_MS = 60 * 60_000
 
+/** Failures that say something about the backend itself, worth replaying from a previous run. */
+const REPLAY_FAILURES = new Set(["overloaded", "timeout", "error", "network", "empty"])
+
+/** Candidate id and key scope as backends.ts builds them, from a recorded event. */
+function idsOf(e: Pick<RouterEvent, "providerId" | "modelId" | "keyId">): { id: string; keyScope: string } {
+  const tail = e.keyId ?? (e.providerId === "opencode" ? "public" : "env")
+  return { id: `${e.providerId}/${e.modelId}#${tail}`, keyScope: `${e.providerId}#${tail}` }
+}
+
 export class Health {
   private stats = new Map<string, Stats>()
   private cool = new Map<string, Cool>()
   private learned = new Map<string, Learned>()
   private inflight = new Map<string, number>()
+  /** Events from a previous run, replayed into a backend's stats the first time it is seen. */
+  private replay = new Map<string, RouterEvent[]>()
 
   constructor(private now: () => number) {}
 
@@ -63,6 +75,20 @@ export class Health {
     if (!s) {
       s = { ttft: c.info.ttftMs, tps: c.info.tps, err: PRIOR_ERR, samples: 0, overloads: 0, badRequests: 0, lastUsed: 0, decayedAt: t }
       this.stats.set(c.id, s)
+      const past = this.replay.get(c.id)
+      if (past) {
+        this.replay.delete(c.id)
+        for (const e of past) {
+          s.lastUsed = Math.max(s.lastUsed, e.ts)
+          if (e.status === "ok" && e.ttftMs !== null) {
+            this.ttftSample(s, e.ttftMs / promptFactor(e.inputTokens > 0 ? e.inputTokens : 16_000))
+            s.err = 0.8 * s.err
+            s.samples++
+          } else if (e.reason && REPLAY_FAILURES.has(e.reason)) s.err = 0.8 * s.err + 0.2
+        }
+        // Age the replayed figures as if they had been observed when they happened.
+        s.decayedAt = Math.min(t, s.lastUsed || t)
+      }
       return s
     }
     if (t > s.decayedAt) {
@@ -128,6 +154,38 @@ export class Health {
   /** Peak-EWMA: jump most of the way to slow observations, recover slowly from fast ones. */
   private ttftSample(s: Stats, normMs: number) {
     s.ttft = normMs > s.ttft ? 0.35 * s.ttft + 0.65 * normMs : 0.75 * s.ttft + 0.25 * normMs
+  }
+
+  // ---------------------------------------------------------------- memory from a previous run
+
+  /**
+   * Replays attempts another router process recorded (RouterStore.recent):
+   * cooldowns still in force are applied now; first-token times and failures
+   * join each backend's stats when that backend is first seen. A router that
+   * just started in a fresh sandbox then knows what was overloaded or slow a
+   * minute ago instead of finding out on the user's first message.
+   */
+  seed(events: readonly RouterEvent[]): { cooldowns: number; backends: number } {
+    const t = this.now()
+    let cooldowns = 0
+    for (const e of [...events].sort((a, b) => a.ts - b.ts)) {
+      const { id, keyScope } = idsOf(e)
+      if (e.retryAt !== null && e.retryAt > t) {
+        const key = e.reason === "auth" || e.httpStatus === 402 ? `k:${keyScope}` : `b:${id}`
+        const prev = this.cool.get(key)
+        if (!prev || prev.until < e.retryAt) {
+          this.cool.set(key, { until: e.retryAt, reason: e.reason ?? "error" })
+          cooldowns++
+        }
+      }
+      if ((e.status === "ok" && e.ttftMs !== null) || (e.reason && REPLAY_FAILURES.has(e.reason))) {
+        if (this.stats.has(id)) continue
+        const list = this.replay.get(id) ?? []
+        list.push(e)
+        this.replay.set(id, list)
+      }
+    }
+    return { cooldowns, backends: this.replay.size }
   }
 
   // ---------------------------------------------------------------- cooldowns

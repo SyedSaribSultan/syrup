@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, sql } from "drizzle-orm"
+import { and, asc, desc, eq, gte, isNull, sql } from "drizzle-orm"
 import { pgSchema, withUser } from "../db/pg"
 import type { RouterEvent } from "../router/store"
 import { invalidateShare } from "../share-cache"
@@ -136,6 +136,40 @@ export async function recordRouterEvents(userId: string, workspaceId: string, ev
       .values(events.map((e) => ({ ...e, userId, workspaceId, ts: new Date(e.ts), retryAt: e.retryAt ? new Date(e.retryAt) : null })))
       .onConflictDoNothing()
   })
+}
+
+/** The user's router attempts since `sinceMs` across all their workspaces, oldest first, in the router's own event shape. */
+export async function recentRouterEvents(userId: string, sinceMs: number, limit = 400): Promise<RouterEvent[]> {
+  const r = pgSchema.routerEvents
+  const rows = await withUser(userId, (tx) =>
+    tx
+      .select()
+      .from(r)
+      .where(and(eq(r.userId, userId), gte(r.ts, new Date(sinceMs))))
+      .orderBy(asc(r.ts))
+      .limit(limit),
+  )
+  return rows.map((x) => ({
+    id: x.id,
+    ts: x.ts.getTime(),
+    alias: x.alias,
+    providerId: x.providerId,
+    modelId: x.modelId,
+    keyId: x.keyId,
+    tier: x.tier,
+    status: x.status,
+    httpStatus: x.httpStatus,
+    attempts: x.attempts,
+    latencyMs: x.latencyMs,
+    inputTokens: x.inputTokens,
+    outputTokens: x.outputTokens,
+    cost: x.cost,
+    error: x.error,
+    sessionId: x.sessionId,
+    ttftMs: x.ttftMs,
+    retryAt: x.retryAt ? x.retryAt.getTime() : null,
+    reason: x.reason,
+  }))
 }
 
 /** Top-level chats across the user's live workspaces, newest first. Chats of deleted workspaces are left out. */

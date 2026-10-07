@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { applyEvents, recordRouterEvents } from "@/server/cloud/history"
+import { applyEvents, recentRouterEvents, recordRouterEvents } from "@/server/cloud/history"
 import { verifyIngestToken, type IngestClaims } from "@/server/cloud/ingest"
 import { activeKeyDetails } from "@/server/cloud/keys"
 import { pgMemoryStore } from "@/server/cloud/memory"
@@ -15,6 +15,7 @@ export const dynamic = "force-dynamic"
  *   POST /api/ingest/memory/<op>     search | list | get | save | update | delete
  *   GET  /api/ingest/keys?have=a,b   the user's active routable keys (same shape as SYRUP_KEYS)
  *   GET  /api/ingest/memory/version  { version } that changes whenever the user's memories do
+ *   GET  /api/ingest/router/recent?since=<epoch ms>  the user's router attempts since then (a new sandbox's router seeds its health memory)
  * The token binds every call to one user and one workspace; RLS does the rest.
  * (/api/ingest/logs has its own route.)
  */
@@ -87,6 +88,16 @@ export async function GET(req: Request, ctx: { params: Promise<{ op: string[] }>
   if (op.join("/") === "memory/version") {
     try {
       return Response.json({ version: await pgMemoryStore(claims.u).version() }, { headers: { "cache-control": "no-store" } })
+    } catch (err) {
+      return Response.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 })
+    }
+  }
+  if (op.join("/") === "router/recent") {
+    try {
+      const since = Number(new URL(req.url).searchParams.get("since"))
+      // At most an hour back: enough to know what is cooling or slow, small enough to answer fast.
+      const floor = Date.now() - 3_600_000
+      return Response.json({ events: await recentRouterEvents(claims.u, Number.isFinite(since) ? Math.max(since, floor) : floor) }, { headers: { "cache-control": "no-store" } })
     } catch (err) {
       return Response.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 })
     }

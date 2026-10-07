@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm"
+import { asc, eq, gte } from "drizzle-orm"
 import { db, dbReady, schema } from "../db"
 import { engine } from "../engine/opencode"
 import { slog } from "../log"
@@ -48,6 +48,18 @@ export class LocalRouterStore implements RouterStore {
       await db().insert(schema.routerEvents).values(e)
     } catch (err) {
       slog("router", "ledger.write_failed", err, { level: "warn" })
+    }
+  }
+
+  async recent(sinceMs: number): Promise<RouterEvent[]> {
+    try {
+      await dbReady()
+      const r = schema.routerEvents
+      const rows = await db().select().from(r).where(gte(r.ts, sinceMs)).orderBy(asc(r.ts)).limit(400)
+      return rows.map((x) => ({ ...x, tier: x.tier as RouterEvent["tier"] }))
+    } catch (err) {
+      slog("router", "ledger.read_failed", err, { level: "warn" })
+      return []
     }
   }
 }

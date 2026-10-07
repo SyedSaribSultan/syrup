@@ -5,7 +5,7 @@ import { ALIASES, BASE_URL, CandidateCache, type Alias, type Candidate } from ".
 import { ServedModels } from "./served"
 import { displayName, providerName } from "../../lib/model-registry"
 import { Health, type Cool } from "./health"
-import { applySticky, difficulty, dynamicBlock, estimatePromptTokens, rank, staticFit, type Exclusion, type Msg, type RequestShape, type Scored } from "./policy"
+import { applySticky, difficulty, dynamicBlock, estimatePromptTokens, isOpening, rank, staticFit, type Exclusion, type Msg, type RequestShape, type Scored } from "./policy"
 import { InterleavedReasoning, Signatures } from "./reasoning-cache"
 import { Sessions, sessionHeader, sessionKey, type SessionState } from "./sessions"
 import { chunkKind, SseScanner, StreamTap, type SseLine, type Usage } from "./sse"
@@ -38,6 +38,12 @@ export type RouterTiming = {
   nonStreamMs: number
   /** How long the per-(catalog, keys) candidate list is reused. */
   candidateCacheMs: number
+  /**
+   * A chat's opening turn is hedged: when the first backend has not produced a token after 0.8× its predicted
+   * time to first token (clamped to these bounds), a second backend starts too and the first token wins.
+   */
+  hedgeMinMs: number
+  hedgeMaxMs: number
 }
 
 /**
@@ -56,7 +62,14 @@ const DEFAULT_TIMING: RouterTiming = {
   idleMs: 90_000,
   nonStreamMs: 120_000,
   candidateCacheMs: 60_000,
+  hedgeMinMs: 1_500,
+  hedgeMaxMs: 4_000,
 }
+
+/** How far back a fresh router reads other processes' attempts to seed its health memory. */
+const SEED_WINDOW_MS = 15 * 60_000
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 
 const POWERED_BY = /You are powered by the model named (?:auto|fast)\. The exact model ID is syrup\/(?:auto|fast)/
 
@@ -192,12 +205,16 @@ type Ctx = {
   started: number
   res: http.ServerResponse
   clientGone: () => boolean
-  setCurrent: (ac: AbortController | null) => void
+  /** Abort controllers of the attempts in flight (two during a hedge); all aborted when the client goes away. */
+  controllers: Set<AbortController>
+  /** Candidate id of the attempt that committed the response, once one has. A hedged partner that sees it set stops. */
+  commit: { by: string | null }
 }
 
 type Failed = { kind: "failed"; c: Candidate; cls: Classified; httpStatus: number | null; body?: string }
 type StreamFail = { reason: "stream_error" | "stream_idle" | "truncated"; message: string }
-type AttemptResult = { kind: "done" } | { kind: "aborted" } | Failed
+/** "hedged": another attempt produced the first token first; this one was cut and says nothing about its backend's health. */
+type AttemptResult = { kind: "done" } | { kind: "aborted" } | { kind: "hedged" } | Failed
 
 export function createRouter({ store, log, secret, baseURLs, now = Date.now, timing: timingOverride }: RouterOptions): Router {
   const timing: RouterTiming = { ...DEFAULT_TIMING, ...timingOverride }
@@ -208,6 +225,21 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
   const sessions = new Sessions(now)
   const sigs = new Signatures()
   const reasoning = new InterleavedReasoning()
+
+  /**
+   * Done once at start, before the first request needs it: the model lists each key serves (otherwise fetched on the
+   * first request, 1.5 s of it in the user's way) and what other router processes learned in the last 15 minutes.
+   */
+  const warmup = (async () => {
+    try {
+      const [cat, keys] = await Promise.all([store.catalog(), store.activeKeys()])
+      const [, recent] = await Promise.all([served.filter(candidates.get(cat, keys)), store.recent ? store.recent(now() - SEED_WINDOW_MS) : Promise.resolve([])])
+      const seeded = health.seed(recent)
+      log("router", "warmup.done", { providers: [...keys.keys()], recentEvents: recent.length, ...seeded })
+    } catch (err) {
+      log("router", "warmup.failed", { message: err instanceof Error ? err.message : String(err) }, { level: "warn" })
+    }
+  })()
 
   // Strictly increasing, so an event recorded right after another (a cooldown after the answer that revealed it) sorts as newer.
   let lastTs = 0
@@ -456,7 +488,7 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
     const c = s.c
     const { res } = ctx
     const ac = new AbortController()
-    ctx.setCurrent(ac)
+    ctx.controllers.add(ac)
     let timedOut = false
     let idled = false
     let timer: ReturnType<typeof setTimeout> = setTimeout(() => {
@@ -465,6 +497,15 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
     }, deadlineMs)
     const { out, restored } = outboundBody(c, s, ctx)
     const attemptStart = now()
+    /** Another attempt of this request committed first (hedge): this one is cut, and its wait only teaches a first-token lower bound. */
+    const lostHedge = () => ctx.commit.by !== null && ctx.commit.by !== c.id
+    const hedged = (): AttemptResult => {
+      const waited = now() - attemptStart
+      health.failure(c, { reason: "timeout", status: "timeout", scope: "none", retryAt: null, unhealthy: false, message: "lost the first-token race" }, ctx.shape.promptTokens, waited)
+      record({ alias: ctx.alias, providerId: c.providerID, modelId: c.modelID, keyId: c.keyID, tier: c.tier, status: "aborted", httpStatus: null, attempts: attempt, latencyMs: now() - ctx.started, inputTokens: 0, outputTokens: 0, cost: 0, error: null, sessionId: ctx.sessionId, ttftMs: null, retryAt: null, reason: "hedged" })
+      log("router", "attempt.hedged", { reqID: ctx.reqID, attempt, backend: c.backend, waitedMs: waited, winner: ctx.commit.by }, { sessionId: ctx.sessionId })
+      return { kind: "hedged" }
+    }
     log(
       "router",
       "attempt.start",
@@ -478,7 +519,7 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
       ended = true
       clearTimeout(timer)
       health.end(c)
-      ctx.setCurrent(null)
+      ctx.controllers.delete(ac)
     }
 
     let upstream: Response
@@ -486,6 +527,7 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
       upstream = await fetch(`${c.baseURL}/chat/completions`, { method: "POST", headers: outboundHeaders(c, ctx), body: JSON.stringify(out), signal: ac.signal })
     } catch (err) {
       finish()
+      if (lostHedge()) return hedged()
       if (ctx.clientGone()) {
         aborted(ctx, c, attempt, attemptStart, null, {})
         return { kind: "aborted" }
@@ -501,6 +543,7 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
         text = await upstream.text()
       } catch {}
       finish()
+      if (lostHedge()) return hedged()
       if (ctx.clientGone()) {
         aborted(ctx, c, attempt, attemptStart, null, {})
         return { kind: "aborted" }
@@ -522,6 +565,7 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
         text = await upstream.text()
       } catch (err) {
         finish()
+        if (lostHedge()) return hedged()
         if (ctx.clientGone()) {
           aborted(ctx, c, attempt, attemptStart, null, {})
           return { kind: "aborted" }
@@ -530,6 +574,7 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
         return failed(ctx, c, attempt, attemptStart, cls, 200, timedOut ? deadlineMs : null)
       }
       finish()
+      if (lostHedge()) return hedged()
       let j: { error?: { code?: unknown }; choices?: unknown } | null = null
       try {
         j = JSON.parse(text)
@@ -545,6 +590,7 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
         return { kind: "aborted" }
       }
       if (chunkKind(j) !== "content") return failed(ctx, c, attempt, attemptStart, classifyEmpty(now(), emptyMessage(tap)), 200, null)
+      ctx.commit.by = c.id
       succeeded(ctx, c, attempt, attemptStart, reason, null, 0, tap, null)
       res.writeHead(200, responseHeaders(c, attempt, reason, ctx, contentType))
       res.end(text)
@@ -558,6 +604,7 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
         text = await upstream.text()
       } catch {}
       finish()
+      if (lostHedge()) return hedged()
       if (ctx.clientGone()) {
         aborted(ctx, c, attempt, attemptStart, null, {})
         return { kind: "aborted" }
@@ -613,6 +660,10 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
     }
 
     const commitNow = async () => {
+      // A hedged partner got there first: stop here, before anything is written.
+      if (lostHedge()) throw new Error("hedge lost")
+      ctx.commit.by = c.id
+      for (const other of ctx.controllers) if (other !== ac) other.abort()
       committed = true
       // From here on the first-token deadline no longer applies; only upstream silence does.
       armIdle()
@@ -650,6 +701,7 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
     }
 
     if (!committed) {
+      if (lostHedge()) return hedged()
       if (ctx.clientGone()) {
         aborted(ctx, c, attempt, attemptStart, null, tap.usage)
         return { kind: "aborted" }
@@ -725,13 +777,14 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
     const reqID = newId("rq", 6)
     // The response's close (not the request's, which ends once the body is read) tells us the client went away.
     let clientGone = false
-    let current: AbortController | null = null
+    const controllers = new Set<AbortController>()
     res.on("close", () => {
       if (!res.writableFinished) {
         clientGone = true
-        current?.abort()
+        for (const ac of controllers) ac.abort()
       }
     })
+    await warmup
     let raw: string
     try {
       raw = await readBody(req)
@@ -778,6 +831,7 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
       hard: diff.hard,
       hardWhy: diff.why,
       lastIsUser: messages[messages.length - 1]?.role === "user",
+      opening: isOpening(messages),
     }
 
     // Feasibility: static limits first, then what is cooling or busy right now.
@@ -820,6 +874,7 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
         image: shape.hasImage || undefined,
         hard: shape.hard,
         why: shape.hardWhy ?? undefined,
+        opening: shape.opening || undefined,
         session: sKey,
         sticky: session.sticky ?? undefined,
         pick: pick.reason,
@@ -869,7 +924,8 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
       started,
       res,
       clientGone: () => clientGone,
-      setCurrent: (ac) => (current = ac),
+      controllers,
+      commit: { by: null },
     }
     const budget = stream ? timing.budgetMs : timing.nonStreamMs
     const failures: Failed[] = []
@@ -897,15 +953,43 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
       else if (isLast) deadline = timing.lastDeadlineMs
       else deadline = Math.min(clamp(2 * s.predTtftMs, timing.minDeadlineMs, timing.maxDeadlineMs), Math.max(budget - elapsed, timing.minDeadlineMs))
       const sentReasoningParam = alias === "fast" && s.c.reasoning && !health.noReasoningParam(s.c)
-      const r = await attemptOnce(ctx, s, attempt, deadline, attempt === 1 ? pick.reason : "fallback")
-      if (r.kind === "done" || r.kind === "aborted") return
-      failures.push(r)
-      // The model refused only the thinking parameter: the same backend gets one more go, plain, and this costs no attempt.
-      if (r.cls.learnedNoReasoningParam && sentReasoningParam) {
-        tried.delete(s.c.id)
-        continue
+      const reason = attempt === 1 ? pick.reason : "fallback"
+
+      // The chat's opening turn, Auto, routine: hedge the first attempt. If its backend has said nothing after
+      // 0.8× its predicted first-token time, the next adequate free, non-scarce backend starts too and whichever
+      // produces a token first answers; the other is cut and recorded as "hedged" (no health penalty). One
+      // request of free quota, spent only on the turn where the user stares at a blank screen.
+      const partner = stream && alias === "auto" && shape.opening && !shape.hard && attempt === 1 ? usable.slice(1).find((x) => !x.c.scarce && !x.c.costs) : undefined
+      let results: AttemptResult[]
+      if (partner) {
+        const hedgeMs = clamp(0.8 * s.predTtftMs, timing.hedgeMinMs, timing.hedgeMaxMs)
+        const p1 = attemptOnce(ctx, s, attempt, deadline, reason)
+        const early = await Promise.race([p1, sleep(hedgeMs).then(() => null)])
+        if (early) results = [early]
+        else {
+          tried.add(partner.c.id)
+          attempt++
+          const d2 = Math.min(clamp(2 * partner.predTtftMs, timing.minDeadlineMs, timing.maxDeadlineMs), Math.max(budget - (now() - started), timing.minDeadlineMs))
+          log("router", "hedge.start", { reqID, first: s.c.backend, second: partner.c.backend, afterMs: Math.round(hedgeMs) }, { sessionId })
+          const p2 = attemptOnce(ctx, partner, attempt, d2, "hedge")
+          results = await Promise.all([p1, p2])
+        }
+      } else results = [await attemptOnce(ctx, s, attempt, deadline, reason)]
+
+      if (results.some((r) => r.kind === "done" || r.kind === "aborted")) return
+      let retryPlain = false
+      for (const r of results) {
+        if (r.kind !== "failed") continue
+        failures.push(r)
+        // The model refused only the thinking parameter: the same backend gets one more go, plain, and this costs no attempt.
+        if (r.cls.learnedNoReasoningParam && sentReasoningParam && r.c.id === s.c.id) {
+          tried.delete(s.c.id)
+          retryPlain = true
+          continue
+        }
+        if (r.cls.reason !== "context" && r.cls.reason !== "tpm") counted++
       }
-      if (r.cls.reason !== "context" && r.cls.reason !== "tpm") counted++
+      if (retryPlain) continue
     }
 
     if (clientGone) {

@@ -23,6 +23,18 @@ export type RequestShape = {
   hardWhy: string | null
   /** The last message is the user's (a new turn, not a tool-call continuation). */
   lastIsUser: boolean
+  /** The chat's very first turn: one user message, nothing answered yet. Nothing is cached and the screen is blank. */
+  opening: boolean
+}
+
+/** True for the first request of a chat: exactly one user message and no assistant message yet. */
+export function isOpening(messages: Msg[]): boolean {
+  let users = 0
+  for (const m of messages) {
+    if (m.role === "assistant" || m.role === "tool") return false
+    if (m.role === "user") users++
+  }
+  return users === 1
 }
 
 export function textOf(content: unknown): string {
@@ -180,14 +192,22 @@ export type Scored = {
 
 const GRADE_RANK: Record<Grade, number> = { small: 0, mid: 1, strong: 2, frontier: 3 }
 
+/** Quality a free model needs to be picked for its speed on a chat's opening turn. */
+const OPENING_QUALITY_FLOOR = 60
+
 /**
  * Orders feasible candidates, best first.
  * Auto: quality − time − risk − scarcity − paid, where time is cheap on hard turns and scarcity only applies to routine ones.
+ * On a chat's routine opening turn, time means the predicted first token and weighs four times more: the user is
+ * looking at a blank screen and nothing is cached yet, so the model that answers first wins among adequate ones.
  * Fast: least predicted wall time (first token weighted double), quality floor 50.
  */
 export function rank(shape: RequestShape, feasible: { c: Candidate; outTokens: number }[], session: SessionState, health: Health): Scored[] {
   let pool = feasible
   if (shape.alias === "fast" && pool.some((f) => f.c.info.quality >= 50)) pool = pool.filter((f) => f.c.info.quality >= 50)
+  const opening = shape.alias === "auto" && shape.opening && !shape.hard
+  // Speed must not promote a weak model over adequate ones; it ranks below them, but stays in the list as a fallback.
+  const adequateFree = opening && pool.some((f) => !f.c.costs && f.c.info.quality >= OPENING_QUALITY_FLOOR)
   const expectedOut = session.outEwma
   const scored = pool.map(({ c, outTokens }) => {
     const predTtftMs = health.predictTtftMs(c, shape.promptTokens)
@@ -201,7 +221,9 @@ export function rank(shape: RequestShape, feasible: { c: Candidate; outTokens: n
       const freeGood = c.costs && pool.some((f) => !f.c.costs && f.c.info.quality >= freeBar)
       const paid = c.costs ? (freeGood ? 40 : 0) + costTier(c.model) : 0
       const scarcity = !shape.hard && c.scarce ? 25 : 0
-      score = c.info.quality - (shape.hard ? 0.5 : 1.5) * (predMs / 1000) - err * 40 - scarcity - paid
+      const time = opening ? 6 * (predTtftMs / 1000) : (shape.hard ? 0.5 : 1.5) * (predMs / 1000)
+      const weak = adequateFree && c.info.quality < OPENING_QUALITY_FLOOR ? 30 : 0
+      score = c.info.quality - time - err * 40 - scarcity - paid - weak
     } else {
       const freeExists = c.costs && pool.some((f) => !f.c.costs)
       const paid = c.costs ? (freeExists ? 5 : 0) + costTier(c.model) : 0

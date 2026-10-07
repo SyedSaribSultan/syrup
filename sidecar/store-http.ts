@@ -136,6 +136,17 @@ export class HttpRouterStore implements RouterStore {
     return byProvider
   }
 
+  /** What this user's other sandboxes (and this one before a restart) learned lately, so routing starts informed. */
+  async recent(sinceMs: number): Promise<RouterEvent[]> {
+    try {
+      const r = await ingest<{ events?: RouterEvent[] }>(this.cfg, `/api/ingest/router/recent?since=${Math.round(sinceMs)}`, undefined, { method: "GET" })
+      return Array.isArray(r.events) ? r.events : []
+    } catch (err) {
+      this.log("router", "recent.failed", { message: err instanceof Error ? err.message : String(err) }, { level: "warn" })
+      return []
+    }
+  }
+
   async record(e: RouterEvent): Promise<void> {
     // A rejected key is the moment the user is most likely to have just replaced it.
     if (e.reason === "auth" && Date.now() - this.lastAuthRefresh >= this.authRefreshGapMs) {
