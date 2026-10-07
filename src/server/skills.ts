@@ -33,10 +33,67 @@ export type SkillInfo = {
   /** Rough prompt cost of listing this skill, per request. */
   tokens: number
   content: string
+  /**
+   * Other SKILL.md files with the same name (full paths). The engine loads one
+   * copy per name and may take a different one after a reload, so a name in
+   * two folders is why a skill sometimes "disappears".
+   */
+  duplicates: string[]
 }
 
 export function skillsDir() {
   return path.join(os.homedir(), ".config", "opencode", "skills")
+}
+
+/** Every folder the engine reads skills from: three global roots and the same three inside the workspace (opencode.ai/docs/skills). */
+function skillRoots(): string[] {
+  const home = os.homedir()
+  return [skillsDir(), path.join(home, ".claude", "skills"), path.join(home, ".agents", "skills"), ...[".opencode", ".claude", ".agents"].map((d) => path.join(env.workspace, d, "skills"))]
+}
+
+/** SKILL.md files under a root, up to two folders deep (skill packs), with the name the engine would give each. */
+function walkSkills(root: string): { name: string; file: string }[] {
+  const out: { name: string; file: string }[] = []
+  const walk = (dir: string, depth: number) => {
+    let entries: fs.Dirent[]
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const e of entries) {
+      if (!e.isDirectory() || e.name.startsWith(".")) continue
+      const sub = path.join(dir, e.name)
+      const md = path.join(sub, "SKILL.md")
+      if (fs.existsSync(md)) {
+        let name = e.name
+        try {
+          name = parseFrontmatter(fs.readFileSync(md, "utf8")).name?.trim() || e.name
+        } catch {}
+        out.push({ name, file: md })
+      } else if (depth < 2) walk(sub, depth + 1)
+    }
+  }
+  walk(root, 0)
+  return out
+}
+
+/** Where each skill name lives, across every root. */
+function skillLocations(): Map<string, string[]> {
+  const out = new Map<string, string[]>()
+  for (const root of skillRoots()) {
+    for (const { name, file } of walkSkills(root)) {
+      const list = out.get(name) ?? []
+      list.push(file)
+      out.set(name, list)
+    }
+  }
+  return out
+}
+
+function sameFile(a: string, b: string) {
+  const n = (p: string) => (process.platform === "win32" ? path.resolve(p).toLowerCase() : path.resolve(p))
+  return n(a) === n(b)
 }
 
 function under(file: string, root: string) {
@@ -56,6 +113,7 @@ export async function listSkills(): Promise<SkillInfo[]> {
   const [res, toggles] = await Promise.all([fetch(`${url}/skill`, { headers: { authorization: engineAuthHeader() } }), readToggles()])
   if (!res.ok) throw new Error(`engine: could not list skills (${res.status})`)
   const rows = (await res.json()) as { name: string; description?: string; location: string; content: string }[]
+  const where = skillLocations()
   return rows
     .map((r) => {
       const managed = under(r.location, skillsDir())
@@ -69,6 +127,7 @@ export async function listSkills(): Promise<SkillInfo[]> {
         enabled: toggles[r.name] ?? managed,
         tokens: promptTokens(r.name, description, r.location),
         content: r.content,
+        duplicates: path.isAbsolute(r.location) ? (where.get(r.name) ?? []).filter((f) => !sameFile(f, r.location)) : [],
       }
     })
     .sort((a, b) => a.name.localeCompare(b.name))
@@ -108,24 +167,7 @@ async function clearToggles(names: string[]) {
 
 /** Skills in the syrup-managed dir, read from disk so this works before the engine is up. */
 function managedNames(): string[] {
-  const names: string[] = []
-  const walk = (dir: string, depth: number) => {
-    let entries: fs.Dirent[]
-    try {
-      entries = fs.readdirSync(dir, { withFileTypes: true })
-    } catch {
-      return
-    }
-    for (const e of entries) {
-      if (!e.isDirectory() || e.name.startsWith(".")) continue
-      const sub = path.join(dir, e.name)
-      const md = path.join(sub, "SKILL.md")
-      if (fs.existsSync(md)) names.push(parseFrontmatter(fs.readFileSync(md, "utf8")).name?.trim() || e.name)
-      else if (depth < 2) walk(sub, depth + 1)
-    }
-  }
-  walk(skillsDir(), 0)
-  return names
+  return walkSkills(skillsDir()).map((s) => s.name)
 }
 
 /** OpenCode config holding only skill permissions. The engine gets it as OPENCODE_CONFIG and re-reads it whenever an instance boots. */

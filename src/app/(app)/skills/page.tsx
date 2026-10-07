@@ -5,7 +5,7 @@ import { Brew, Skel } from "@/components/brew"
 import { RowMenu } from "@/components/pages/row-menu"
 
 type Source = "syrup" | "claude" | "agents" | "project" | "builtin"
-type Skill = { name: string; description: string; location: string; managed: boolean; source: Source; enabled: boolean; tokens: number; content: string }
+type Skill = { name: string; description: string; location: string; managed: boolean; source: Source; enabled: boolean; tokens: number; content: string; duplicates: string[] }
 
 const GROUPS: { source: Source; label: string; hint: string }[] = [
   { source: "syrup", label: "Installed in syrup", hint: "On when installed" },
@@ -83,6 +83,7 @@ export default function SkillsPage() {
   }
 
   const on = skills?.filter((s) => s.enabled) ?? []
+  const duplicated = skills?.filter((s) => s.duplicates.length > 0) ?? []
   const needle = q.trim().toLowerCase()
   const shown = skills?.filter((s) => !needle || s.name.toLowerCase().includes(needle) || s.description.toLowerCase().includes(needle)) ?? []
 
@@ -157,6 +158,15 @@ export default function SkillsPage() {
           </span>
         </div>
         <p className="mt-1 max-w-[640px] text-[13px] text-muted">Every request lists the skills that are on, so each one costs tokens even when unused. Changes apply from the next message; running chats finish first.</p>
+
+        {duplicated.length > 0 && (
+          <div className="mt-4 rounded-xl border border-warn/40 bg-warn/5 px-4 py-3 text-[13px] leading-relaxed text-ink-2">
+            <span className="font-medium text-ink">
+              {duplicated.length} skill{duplicated.length === 1 ? " exists" : "s exist"} in more than one folder.
+            </span>{" "}
+            The engine loads one copy per name and may switch to the other after a reload, which makes a skill seem to vanish. Keep one copy of each; the rows below say where the others are.
+          </div>
+        )}
 
         {skills && skills.length > 0 && (
           <input
@@ -299,6 +309,11 @@ function SkillCard({ s, onChange, onToggle }: { s: Skill; onChange(): Promise<vo
             <div className="flex items-center gap-2">
               <span className={`font-mono text-[13px] font-medium ${s.enabled ? "text-ink" : "text-ink-2"}`}>{s.name}</span>
               <span className="text-[11px] text-muted">~{fmt(s.tokens)} tokens</span>
+              {s.duplicates.length > 0 && (
+                <span className="rounded bg-warn/15 px-1 py-px text-[10px] font-medium text-warn" title={s.duplicates.join("\n")}>
+                  {s.duplicates.length + 1} copies
+                </span>
+              )}
             </div>
             <div className={`mt-0.5 line-clamp-2 text-[13px] ${s.enabled ? "text-ink-2" : "text-muted"}`}>{s.description || "No description"}</div>
           </div>
@@ -319,6 +334,17 @@ function SkillCard({ s, onChange, onToggle }: { s: Skill; onChange(): Promise<vo
       </div>
       {open && (
         <div className="border-t border-line px-4 py-3">
+          {s.duplicates.length > 0 && (
+            <div className="mb-2 rounded-lg border border-warn/30 bg-warn/5 px-3 py-2 text-[12px] leading-relaxed text-ink-2">
+              <span className="font-medium text-warn">Also found at</span>
+              {s.duplicates.map((d) => (
+                <div key={d} className="mt-0.5 truncate font-mono text-[11px]" title={d}>
+                  {d}
+                </div>
+              ))}
+              <div className="mt-1 text-[11px] text-muted">The engine shows one of these at a time. Delete the copies you don&apos;t want so it stays put.</div>
+            </div>
+          )}
           <div className="mb-2 flex items-center gap-3 text-[11px] text-muted">
             <span className="truncate font-mono">{s.location}</span>
             <span className="flex-1" />

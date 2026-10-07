@@ -29,7 +29,8 @@ export async function listCloudSkills(userId: string): Promise<SkillInfo[]> {
   )
   return rows.map((r) => {
     const location = `${SANDBOX_SKILLS_DIR}/${r.name}/SKILL.md`
-    return { name: r.name, description: r.description, location, managed: true, source: "syrup", enabled: r.enabled, tokens: promptTokens(r.name, r.description, location), content: r.content }
+    // One folder per user in the sandbox and names are unique per user, so there is nothing to duplicate.
+    return { name: r.name, description: r.description, location, managed: true, source: "syrup", enabled: r.enabled, tokens: promptTokens(r.name, r.description, location), content: r.content, duplicates: [] }
   })
 }
 
