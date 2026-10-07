@@ -230,16 +230,21 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
    * Done once at start, before the first request needs it: the model lists each key serves (otherwise fetched on the
    * first request, 1.5 s of it in the user's way) and what other router processes learned in the last 15 minutes.
    */
-  const warmup = (async () => {
+  // In the sandbox the sidecar starts before OpenCode listens, so the catalog is not there on the first try: retry a
+  // few times in the background. `warmup` itself settles after the first try, so no request ever waits on a retry.
+  const WARMUP_TRIES = 6
+  async function warm(attempt: number): Promise<void> {
     try {
       const [cat, keys] = await Promise.all([store.catalog(), store.activeKeys()])
       const [, recent] = await Promise.all([served.filter(candidates.get(cat, keys)), store.recent ? store.recent(now() - SEED_WINDOW_MS) : Promise.resolve([])])
       const seeded = health.seed(recent)
-      log("router", "warmup.done", { providers: [...keys.keys()], recentEvents: recent.length, ...seeded })
+      log("router", "warmup.done", { attempt, providers: [...keys.keys()], recentEvents: recent.length, ...seeded })
     } catch (err) {
-      log("router", "warmup.failed", { message: err instanceof Error ? err.message : String(err) }, { level: "warn" })
+      log("router", "warmup.failed", { attempt, message: err instanceof Error ? err.message : String(err) }, { level: attempt < WARMUP_TRIES ? "info" : "warn" })
+      if (attempt < WARMUP_TRIES) setTimeout(() => void warm(attempt + 1), 2_000 * attempt).unref?.()
     }
-  })()
+  }
+  const warmup = warm(1)
 
   // Strictly increasing, so an event recorded right after another (a cooldown after the answer that revealed it) sorts as newer.
   let lastTs = 0
