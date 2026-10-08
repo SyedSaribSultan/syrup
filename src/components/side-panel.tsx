@@ -561,7 +561,7 @@ function Row({
       >
         <span className="flex w-3 shrink-0 justify-center text-muted">
           {dir && (
-            <svg width="8" height="8" viewBox="0 0 8 8" className={`transition-transform motion-reduce:transition-none ${open ? "rotate-90" : ""}`}>
+            <svg width="8" height="8" viewBox="0 0 8 8" className={`transition-transform ${open ? "rotate-90" : ""}`}>
               <path d="M2.5 1.2 5.6 4 2.5 6.8" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           )}

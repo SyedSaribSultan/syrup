@@ -12,6 +12,8 @@ import { THEME_KEY as KEY } from "./theme-script"
 export type Theme = "system" | "light" | "dark"
 
 const subs = new Set<() => void>()
+/** Counts theme switches, so an older switch never ends a newer one's transition-free frame. */
+let switches = 0
 
 function read(): Theme {
   try {
@@ -27,9 +29,21 @@ export function setTheme(t: Theme) {
     if (t === "system") localStorage.removeItem(KEY)
     else localStorage.setItem(KEY, t)
   } catch {}
-  if (t === "system") delete document.documentElement.dataset.theme
-  else document.documentElement.dataset.theme = t
+  const root = document.documentElement
+  // One frame with transitions off (globals.css, "Theme switch"), so the whole app changes colour at once
+  // instead of the elements with `transition` fading while the rest snap (docs/MOTION.md §4.8).
+  // Two frames: the first rAF runs before the next style pass, so removing it there would suppress nothing.
+  const switching = ++switches
+  root.dataset.themeSwitching = ""
+  if (t === "system") delete root.dataset.theme
+  else root.dataset.theme = t
   for (const f of subs) f()
+  requestAnimationFrame(() =>
+    requestAnimationFrame(() => {
+      // A newer switch (a quick second click) keeps it on for its own frame.
+      if (switching === switches) delete root.dataset.themeSwitching
+    }),
+  )
 }
 
 function subscribe(f: () => void) {

@@ -195,7 +195,9 @@ Defined once. Components use names, never numbers.
 - **Exits are one step faster than entrances:** slow → base, base → fast.
 - **Tailwind defaults:** set `--default-transition-duration` and `--default-transition-timing-function` in `@theme`. That moves all 111 existing `transition` classes onto the system in one edit. It also changes chevron rotations and hover reveals, which is intended.
   - Checked: both variables exist in Tailwind 4.3.3 (`node_modules/tailwindcss/theme.css:492-493`).
-- **Named utilities via `@utility`:** `motion-pop`, `motion-sheet`, `motion-layer`, `motion-fade`, `motion-collapse`, `motion-notice`. A component says what it is, not how long it takes.
+- **Named utilities via `@utility`:** `motion-pop`, `motion-sheet`, `motion-layer`, `motion-fade`, `motion-reveal`, `motion-collapse`, `motion-notice`. A component says what it is, not how long it takes.
+  - **Never pair one with a bare `transition` on the same element.** The built CSS puts `.transition` after every `motion-*` utility at the same specificity, so the bare transition wins and the utility's timing is dropped silently. `check-motion.mjs` fails the pair. A `motion-*` behind a variant the `transition` lacks (`transition max-expanded:motion-layer`) is fine.
+  - **`motion-reveal` (M0):** hover-revealed row actions. Hidden is transparent **and** `visibility: hidden`, so hidden actions stay out of the tab order and the accessibility tree, as when they were `display: none`. Visibility turns on at once when shown and off only after the fade. Shown is `visibility: inherit`, never `visible`: a visible child of a hidden parent shows, so inside the closed phone drawer the actions would be focusable.
 
 ## 4. Building blocks
 
@@ -340,8 +342,13 @@ Defined once. Components use names, never numbers.
 - **Reduced motion is not "one token":** Tailwind's `transition` uses one duration for every property.
   - `--motion-shift` → 0 and `--motion-slow` / `--motion-base` → `--motion-fast`, inside the named utilities only.
   - **Things whose closed state is off-screen** (drawer, sheet, phone panel) get a reduced-motion closed state: opacity 0 in place, not a slide.
+    - `translate` leaves their `transition-property` under reduced motion, so a swipe-close's offset snaps away instead of sliding back against the swipe (M0 review).
+  - **Visibility turns on at once when a layer opens** (a 0s duration for `visibility` in the open state; closing keeps it visible until the exit ends). A hidden → visible transition is still `hidden` in its first frame. That frame broke two things in M0 (review, 2026-10-08):
+    - the drawer's `focus()` on open failed, leaving focus on `<body>`
+    - Chromium had nothing painted to hand to the compositor, so the slide ran on the main thread
+  - **A closed or closing layer takes no pointer events** (§4.1), so a quick tap during the exit reaches the page.
   - The sidebar width changes instantly (its `transition-property` changes), and the two trees just crossfade.
-  - `loading.tsx` moves from `animate-pulse` to `.skel` / `.skel-in`, which respect reduced motion.
+  - `loading.tsx` moves from `animate-pulse` to `.skel` / `.skel-in`, which respect reduced motion. **`.skel-in` keeps its 160 ms wait** under reduced motion (a threshold, not motion) and shows without fading.
   - The per-component `motion-reduce:transition-none` classes go away.
   - **The warm-up mini-game ignores reduced motion:** its rAF loop (`warm-up.tsx:226-281`) moves spills on its own. Under reduced motion, don't auto-mount it, or start it paused until the first input. The game itself stays as shipped (ROADMAP decision 4).
 - **Performance rules:**
@@ -358,6 +365,19 @@ Defined once. Components use names, never numbers.
   - `animation:` / `transition:` in CSS outside the token and keyframe blocks
   - `src/lib/motion.ts` and `globals.css` disagreeing
 - **Allow-list** (motion §1 keeps): `.pulse`, `.orbit`, `.skel`, `.skel-in` and their reduced-motion block; the inline `transition: "none"` drag styles (`sheet.tsx:60`, `app-shell.tsx:61`).
+- **As built (M0, 2026-10-08):**
+  - **The motion block** in `globals.css` runs from `/* @motion-begin` to `/* @motion-end */`. It holds the tokens, the Tailwind defaults, the `motion-*` utilities, the theme-switch rule and the four loops. `transition` and `animation` may be written there and nowhere else in CSS.
+  - **Allow-lists** live in `ALLOW` at the top of the script, each entry with its reason. The `transition-none` list is empty today.
+  - **Also fails on:** every Tailwind `ease-*` class, not just `ease-[…]`; arbitrary `[transition:…]` / `[animation:…]` properties; inline `transition*` / `animation*` styles other than the two drag styles; any `will-change` left on (§8).
+  - **It also checks** that `--default-transition-duration` and `--default-transition-timing-function` read the tokens.
+  - **Tightened after the M0 review (2026-10-08).** It now also fails on:
+    - **Arbitrary overrides:** `[--tw-duration:…]`, `[--tw-ease:…]`, `[--motion-…:…]` and `[--ease-…:…]`.
+    - **Layout transitions:** `transition-all`, and `transition-[…]` naming a layout property (an empty `ALLOW.layoutTransition` waits for §6.2's three).
+    - **A bare `transition*` class paired with a `motion-*` utility** (§3).
+    - **JS that times things itself:** `.style.transition… =` assignments, `setProperty` of a motion property or a token, and the Web Animations API (`ALLOW.webAnimations`, empty).
+    - **Raw durations and curves inside the motion block.** Declarations read `var(--motion-…)` / `var(--ease-…)`; `0s` and `step-start` / `step-end` are allowed. The loops' literals are allow-listed by selector and value in `ALLOW.cssTiming`.
+    - **Token declarations outside the block's one `:root`.** The reduced-motion `:root` may only set `--motion-shift: 0px`.
+  - **A self-test** plants each of those forms, plus look-alikes that must pass, on every run. If the checker stops catching one, it fails before it checks `src`.
 - **Migrate the three raw timings:** `sheet.tsx:61`, `app-shell.tsx:62`, `usage/page.tsx:80`.
 - **New overlays must use Dialog, Sheet or Popover. New expanders use `<Collapse>`, new notices use `Notice`.** That's where the motion lives.
 
@@ -376,13 +396,16 @@ Taken by the founder on **2026-10-07** (ROADMAP.md decisions 9–12).
 
 Each phase ends usable and deployable.
 
-- **M0 — Tokens and cleanup.**
+- **M0 — Tokens and cleanup.** Built 2026-10-08, review findings fixed the same day. These UI harness scenarios check it:
+  - `motion-tokens`, `motion-theme-switch` and `motion-reduced(-open)`
+  - `motion-drawer-open`: focus on open, and the slide on the compositor
+  - `motion-row-actions-keyboard` and `motion-switcher-actions`: hidden actions stay out of the tab order
   - tokens in `:root` + `src/lib/motion.ts`
   - Tailwind defaults, reduced-motion base, `check-motion.mjs` in lint
   - migrate the three raw timings
   - `loading.tsx` → `.skel`
   - toggle knobs → `translate-x`
-  - display-toggled row actions → opacity
+  - display-toggled row actions → `motion-reveal` (opacity, with visibility so the tab order is unchanged)
   - theme-switch one-frame suppression
 - **M1 — Overlays.**
   - `usePresence`, then Dialog, Sheet and Popover (with `side`), the hand-off rule (§4.3), drawer scrim

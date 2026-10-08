@@ -77,7 +77,7 @@ export default function UsagePage() {
           </div>
         </div>
 
-        <div className={`transition-opacity duration-200 ${stale ? "opacity-50" : ""}`}>
+        <div className={`motion-fade ${stale ? "opacity-50" : ""}`}>
           <div className="grid grid-cols-2 gap-3 expanded:grid-cols-4">
             <Stat loading={loading} label="Spent" value={fmtCost(spent)} hint={data && spent === 0 ? "all free so far" : rt && rt.cost > 0 ? `${fmtCost(rt.cost)} via router` : undefined} accent />
             <Stat loading={loading} label="Tokens" value={fmtTokens(allTokens)} hint={t ? `${fmtTokens(t.input)} in · ${fmtTokens(t.output)} out` : undefined} />

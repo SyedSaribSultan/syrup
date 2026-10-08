@@ -116,10 +116,10 @@ export function Sidebar({ status, footer }: { status?: ReactNode; footer?: React
                 >
                   <WorkspaceDot color={colors.get(c.workspaceId) ?? 0} />
                   <span className="min-w-0 flex-1 truncate">{c.title || "Untitled"}</span>
-                  {busy ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent pulse" /> : <span className={`shrink-0 text-[11px] text-muted ${mine ? "group-focus-within:hidden group-hover:hidden pointer-coarse:hidden" : ""}`}>{fmtRelative(c.updated)}</span>}
+                  {busy ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent pulse" /> : <span className={`shrink-0 text-[11px] text-muted ${mine ? "transition group-focus-within:opacity-0 group-hover:opacity-0 pointer-coarse:hidden" : ""}`}>{fmtRelative(c.updated)}</span>}
                 </Link>
                 {mine && (
-                  <div className="absolute top-1/2 right-1.5 hidden -translate-y-1/2 items-center gap-0.5 group-focus-within:flex group-hover:flex pointer-coarse:flex">
+                  <div className="absolute top-1/2 right-1.5 flex -translate-y-1/2 items-center gap-0.5 motion-reveal">
                     <IconBtn title="Rename" onClick={() => void rename(c.id, c.title)}>
                       <path d="M2.5 11.5h9M8.6 2.9l2 2-6.1 6.1H2.5v-2l6.1-6.1Z" />
                     </IconBtn>

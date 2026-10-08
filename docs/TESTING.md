@@ -17,6 +17,7 @@ Run these in order. Each must exit 0. The UI harness needs the dev server runnin
 ```bash
 pnpm typecheck
 pnpm exec eslint src scripts sidecar
+node scripts/check-motion.mjs
 pnpm test:router
 pnpm test:diffs
 pnpm test:transcript
@@ -24,6 +25,7 @@ pnpm ui:harness --label round-2
 pnpm ui:weight --compare
 ```
 
+- **Motion:** `node scripts/check-motion.mjs` (also part of `pnpm lint`) fails on raw timings and on `src/lib/motion.ts` and `globals.css` disagreeing ([MOTION.md](MOTION.md) §9). It runs its own self-test first (`SELF_TEST` in the script). A new loophole gets a case there, as well as a rule.
 - **Screenshots:** open `screenshots/harness/<label>/` and look at every screen the round touched, at both widths. A green table is not enough: the harness checks errors, layout and assertions, not taste.
 - **Router changes:** also `pnpm bench:agent` before and after (ROADMAP §2, "First token first").
 - **Nothing new in the main chunk:** `pnpm ui:weight --compare` fails when initial JavaScript grows by more than 2 KB gzipped or a new chunk joins the initial load (§4).
@@ -128,6 +130,12 @@ All play in one fictional project, `acme-shop` (`C:\Users\dev\code\acme-shop`), 
 | `chat-streaming` | a busy chat | The last reply is still streaming and stops inside an unclosed ` ```python ` fence. Its text is a **known gap** today (§3.3) |
 | `chat-rich-fences` | a finished chat | Acceptance fixture for Rounds 2–3: two Mermaid diagrams, Vega-Lite, SVG, inline and display math, a 20-row CSV, a markmap. Valid input, so a renderer that fails here has a bug |
 | `panel-preview`, `panel-preview-csv` | chat + Preview | `docs/launch-plan.md` rendered as Markdown; `data/orders.csv` as a table |
+| `motion-tokens` | `/` | Motion M0: bare `transition` runs on the tokens (120 ms, `--ease-move`); the phone drawer is `motion-layer` and takes no taps while closed; sidebar row actions fade in on hover (desktop), and hidden ones are invisible |
+| `motion-row-actions-keyboard` | `/`, 1440 px only | Shift+Tab from a row's link skips the row above's hidden Rename/Delete; Tab then reaches them |
+| `motion-switcher-actions` | `/` + workspace switcher, 1440 px only | Only the hovered row's actions show; the others are invisible |
+| `motion-drawer-open` | `/`, 390 px only | ☰: the drawer takes the focus, and its slide runs on the compositor (Chromium trace) |
+| `motion-theme-switch` | `/` + settings menu | System → Dark starts no transition (the one-frame suppression); the dark screen |
+| `motion-reduced`, `motion-reduced-open` | `/`, 390 px only | Reduced motion: the closed drawer sits in place at opacity 0 and takes no taps; `translate` isn't transitioned; `.skel-in` keeps its 160 ms wait. ☰ fades the drawer in on the compositor, and it takes the focus |
 
 ---
 
@@ -191,6 +199,10 @@ All play in one fictional project, `acme-shop` (`C:\Users\dev\code\acme-shop`), 
 - **`steps`** run in order after the screen settles. Selectors are Playwright selectors (CSS, `text=…`, `:has-text()`). Any step or assertion can carry `widths: [390]`.
   - `{ click }`, `{ tap }`, `{ hover }`, `{ fill: [sel, text] }`, `{ type: [sel, text] }`, `{ press: key }` or `{ press: [sel, key] }`
   - `{ waitFor: sel }`, `{ wait: ms }`, `{ scroll: [sel, "top" | "bottom"] }`
+  - `{ watchTransitions: true }` records every CSS transition that starts from then on (for `{ transitions }` below)
+  - `{ focus: sel }` focuses the first match, where a keyboard check starts (then `{ press: "Shift+Tab" }`, …)
+  - `{ inject: html }` appends HTML to `<body>`, to check a CSS class on an element of its own (e.g. a `.skel-in` probe)
+  - `{ watchAnimations: true }` (Chromium) traces, from then on, which CSS transitions and animations run on the compositor (for `{ composited }` below)
   - `{ emit: event | event[] }` pushes engine events into the open stream, in the engine's shape. To finish `chat-streaming`'s turn, emit these in order:
     1. `message.part.updated` with its text part: the full text, now ending in a closing fence, with `time.end` set. That is how the engine ends a streamed part.
     2. `message.updated` with the message's `info` plus `time.completed`.
@@ -198,9 +210,9 @@ All play in one fictional project, `acme-shop` (`C:\Users\dev\code\acme-shop`), 
 
     The chat then shows the text, shows Send again and puts the thumbs under the reply. Read the parts from `scenario.engine.messages` after `defineScenario`.
   - **Clicking a tool row:** click its toggle, `div.cursor-pointer:has-text('…') > button[aria-expanded]`. The middle of a row can be its file link, which opens the file instead.
-- **`assert`:** `{ visible: sel }`, `{ hidden: sel }`, `{ text: "…" }` (visible text on the page), `{ count: sel, equals | min | max }`. Add `gap: "why"` to make one a known gap (§3.3).
+- **`assert`:** `{ visible: sel }`, `{ hidden: sel }`, `{ text: "…" }` (visible text on the page), `{ count: sel, equals | min | max }`. For motion: `{ style: sel, prop, equals | match }` (a computed style of the first match, hidden or not) and `{ transitions: { max, ignore } }` (how many transitions started since `watchTransitions`, not counting the properties in `ignore`). Also `{ focused: sel }` (the first match holds the focus) and `{ composited: ["translate"] }` (since `watchAnimations`, those properties animated and none fell back to the main thread; in WebKit it passes and says it wasn't checked). Playwright's `hidden` counts `visibility: hidden` as hidden but `opacity: 0` as visible, so `{ hidden }` also tells an invisible control from a merely transparent one. Add `gap: "why"` to make one a known gap (§3.3).
 - **`ready`:** extra selectors to wait for before anything else. Chat routes already wait for the messages, `/` for "Working in".
-- **Also:** `settleMs`, `widths`, `colorScheme: "dark"`, `reducedMotion: "reduce"`, `model` (the picked model), `panelPrefs`.
+- **Also:** `settleMs`, `widths`, `browsers: ["chromium"]` (skip the scenario in other browsers; WebKit, for one, leaves links out of the Tab order), `colorScheme: "dark"`, `reducedMotion: "reduce"`, `model` (the picked model), `panelPrefs`.
 
 ### 3.3 Known gaps
 

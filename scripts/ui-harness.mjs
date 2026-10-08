@@ -107,7 +107,7 @@ function validate(s) {
   if (!s.engine || typeof s.engine.directory !== "string") return `${s.name}: engine.directory is missing (use defineScenario from _kit.mjs)`
   for (const step of s.steps ?? []) if (!STEP_KINDS.some((k) => k in step)) return `${s.name}: unknown step ${JSON.stringify(step)}`
   for (const a of s.assert ?? []) {
-    if (!["visible", "hidden", "text", "count"].some((k) => k in a)) return `${s.name}: unknown assertion ${JSON.stringify(a)}`
+    if (![...ASSERT_KINDS, ...MOTION_ASSERT_KINDS].some((k) => k in a)) return `${s.name}: unknown assertion ${JSON.stringify(a)}`
     if ("gap" in a && !(typeof a.gap === "string" && a.gap.trim())) return `${s.name}: an assertion's gap must say, in words, why it fails today`
   }
   return null
@@ -568,6 +568,145 @@ export async function waitForStable(page, quietMs = 600, maxMs = 12_000) {
   return false
 }
 
+// ---------------------------------------------------------------- motion (docs/MOTION.md)
+
+/**
+ * Motion steps and assertions:
+ *   { watchTransitions: true }   from here on, record every CSS transition that starts (resets the record)
+ *   assert { transitions: { max: n, ignore?: ["outline-color"] } }   at most n transitions started since
+ *     watchTransitions, not counting the properties in `ignore`
+ *   assert { style: sel, prop: "transition-duration", equals: "0.12s" }   a computed style of the first match
+ *     (`match: "regex"` instead of `equals`). Hidden elements count: it reads styles, not visibility.
+ *   { focus: sel }   focus the first match (where a keyboard check starts)
+ *   assert { focused: sel }   the first match holds the focus (document.activeElement)
+ *   { inject: html }   append HTML to <body>, to check a CSS class on an element of its own (e.g. `.skel-in`)
+ *   { watchAnimations: true }   Chromium: from here on, trace which CSS transitions and animations run on the compositor
+ *   assert { composited: ["translate"] }   Chromium: since watchAnimations, these properties animated, and none of
+ *     those animations fell back to the main thread (MOTION.md §8). Not checked in WebKit: it passes there, saying so.
+ */
+const MOTION_STEP_KINDS = ["watchTransitions", "focus", "inject", "watchAnimations"]
+const MOTION_ASSERT_KINDS = ["style", "transitions", "focused", "composited"]
+
+/** Chromium trace sessions started by { watchAnimations }, per page; null where the browser can't trace. */
+const animationTraces = new WeakMap()
+
+async function watchAnimations(page) {
+  if (page.context().browser()?.browserType().name() !== "chromium") {
+    animationTraces.set(page, null)
+    return
+  }
+  const cdp = await page.context().newCDPSession(page)
+  const events = []
+  cdp.on("Tracing.dataCollected", (d) => events.push(...d.value))
+  await cdp.send("Tracing.start", { transferMode: "ReportEvents", traceConfig: { includedCategories: ["blink.animations", "devtools.timeline"], excludedCategories: ["*"] } })
+  animationTraces.set(page, { cdp, events, ended: false })
+}
+
+/** Ends the trace (once) and returns, per animated property, how many animations ran and which compositeFailed codes they hit. */
+async function animationReport(page) {
+  const t = animationTraces.get(page)
+  if (!t) return t
+  if (!t.ended) {
+    const done = new Promise((resolve) => t.cdp.once("Tracing.tracingComplete", resolve))
+    await t.cdp.send("Tracing.end")
+    await done
+    t.ended = true
+  }
+  const id = (e) => e.id2?.local ?? e.id
+  const names = new Map()
+  for (const e of t.events) if (e.name === "Animation" && e.ph === "b") names.set(id(e), e.args?.data?.displayName ?? "?")
+  const byProp = {}
+  for (const prop of names.values()) (byProp[prop] ??= { runs: 0, failed: [] }).runs++
+  for (const e of t.events) {
+    const code = e.name === "Animation" && e.ph === "n" ? e.args?.data?.compositeFailed : undefined
+    const prop = names.get(id(e))
+    if (code && prop) byProp[prop].failed.push(code)
+  }
+  return byProp
+}
+
+/** Short description of an element, for failure details. */
+const describeFocus = () => {
+  const el = document.activeElement
+  if (!el) return "nothing"
+  const label = el.getAttribute("aria-label") || el.getAttribute("title") || (el.textContent ?? "").trim().slice(0, 24)
+  return `${el.tagName.toLowerCase()}${label ? ` "${label}"` : ""}`
+}
+
+async function checkMotionAssertionMore(page, a) {
+  if ("focused" in a) {
+    const loc = page.locator(a.focused).first()
+    if (!(await loc.count())) return { ok: false, label: `focused ${a.focused}`, detail: "nothing matches" }
+    const ok = await loc.evaluate((el) => el === document.activeElement)
+    return { ok, label: `focused ${a.focused}`, detail: ok ? "" : `focus is on ${await page.evaluate(describeFocus)}` }
+  }
+  if ("composited" in a) {
+    const want = [a.composited].flat()
+    const label = `composited ${want.join(", ")}`
+    const report = await animationReport(page)
+    if (report === undefined) return { ok: false, label, detail: "no { watchAnimations: true } step ran before it" }
+    if (report === null) return { ok: true, label, detail: "not checked: the trace is Chromium only" }
+    const problems = []
+    for (const prop of want) {
+      const r = report[prop]
+      if (!r) problems.push(`no ${prop} animation ran (ran: ${Object.keys(report).join(", ") || "none"})`)
+      else if (r.failed.length) problems.push(`${prop} ran on the main thread (compositeFailed ${[...new Set(r.failed)].join(", ")})`)
+    }
+    return { ok: !problems.length, label, detail: problems.join("; ") }
+  }
+  return null
+}
+
+async function watchTransitions(page) {
+  await page.evaluate(() => {
+    const w = /** @type {any} */ (window)
+    w.__harnessTransitions = []
+    if (w.__harnessTransitionsOn) return
+    w.__harnessTransitionsOn = true
+    document.addEventListener(
+      "transitionrun",
+      (e) => {
+        const el = e.target
+        let name = String(el)
+        if (el instanceof Element) {
+          const cls = typeof el.className === "string" ? el.className.trim().split(/\s+/).slice(0, 3).join(".") : ""
+          const label = el.getAttribute("aria-label") || (el.textContent ?? "").trim().slice(0, 20)
+          name = `${el.tagName.toLowerCase()}${cls ? `.${cls}` : ""}${label ? ` "${label}"` : ""}`
+        }
+        w.__harnessTransitions.push(`${name}${e.pseudoElement ?? ""}: ${e.propertyName}`)
+      },
+      true,
+    )
+  })
+}
+
+async function checkMotionAssertion(page, a) {
+  try {
+    const more = await checkMotionAssertionMore(page, a)
+    if (more) return more
+    if ("transitions" in a) {
+      const max = a.transitions?.max ?? 0
+      const ignore = a.transitions?.ignore ?? []
+      const all = await page.evaluate(() => /** @type {any} */ (window).__harnessTransitions ?? null)
+      if (all === null) return { ok: false, label: `transitions ≤ ${max}`, detail: "no { watchTransitions: true } step ran before it" }
+      const run = all.filter((t) => !ignore.includes(t.slice(t.lastIndexOf(": ") + 2)))
+      const shown = [...new Set(run)].slice(0, 4).join("; ")
+      return { ok: run.length <= max, label: `transitions ≤ ${max}`, detail: run.length <= max ? "" : `${run.length} started: ${shown}` }
+    }
+    if ("style" in a) {
+      const loc = page.locator(a.style).first()
+      if (!(await loc.count())) return { ok: false, label: `style ${a.style}`, detail: "nothing matches" }
+      const value = await loc.evaluate((el, prop) => getComputedStyle(el).getPropertyValue(prop).trim(), a.prop)
+      const ok = a.match !== undefined ? new RegExp(a.match).test(value) : value === a.equals
+      const want = a.match !== undefined ? `~ /${a.match}/` : `= ${a.equals}`
+      return { ok, label: `style ${a.style} ${a.prop} ${want}`, detail: ok ? "" : `is "${value}"` }
+    }
+  } catch (err) {
+    return { ok: false, label: JSON.stringify(a), detail: err instanceof Error ? err.message.split("\n")[0] : String(err) }
+  }
+  return { ok: false, label: JSON.stringify(a), detail: "unknown assertion" }
+}
+
 // ---------------------------------------------------------------- panel and steps
 
 const TAB_LABEL = { changes: "Changes", files: "Files", preview: "Preview" }
@@ -599,7 +738,7 @@ async function openPanel(page, { tab = "files", file }) {
   })
 }
 
-const STEP_KINDS = ["click", "tap", "hover", "fill", "type", "press", "waitFor", "wait", "emit", "scroll"]
+const STEP_KINDS = ["click", "tap", "hover", "fill", "type", "press", "waitFor", "wait", "emit", "scroll", ...MOTION_STEP_KINDS]
 
 /**
  * Steps (all selectors are Playwright selectors: CSS, text=…, role=…):
@@ -623,6 +762,10 @@ async function runStep(page, step, handle) {
   else if ("emit" in step) {
     if (!handle.push(step.emit)) throw new Error("emit: the event stream is not connected")
   } else if ("scroll" in step) await page.locator(step.scroll[0]).first().evaluate((el, to) => (el.scrollTop = to === "top" ? 0 : el.scrollHeight), step.scroll[1])
+  else if ("watchTransitions" in step) await watchTransitions(page)
+  else if ("focus" in step) await page.locator(step.focus).first().focus()
+  else if ("inject" in step) await page.evaluate((html) => document.body.insertAdjacentHTML("beforeend", html), step.inject)
+  else if ("watchAnimations" in step) await watchAnimations(page)
   await page.waitForTimeout(120)
 }
 
@@ -700,7 +843,10 @@ export async function measureOverflow(page, deviceWidth) {
   }, deviceWidth)
 }
 
+const ASSERT_KINDS = ["visible", "hidden", "text", "count"]
+
 async function checkAssertion(page, a) {
+  if (MOTION_ASSERT_KINDS.some((k) => k in a)) return checkMotionAssertion(page, a)
   try {
     if ("visible" in a) {
       const n = await page.locator(a.visible).filter({ visible: true }).count()
@@ -980,6 +1126,8 @@ async function main() {
     for (const s of scenarios) {
       for (const width of o.widths) {
         if (s.widths && !s.widths.includes(width)) continue
+        // A scenario may name the browsers it means something in (e.g. a Tab walk through links: WebKit skips links).
+        if (s.browsers && !s.browsers.includes(o.browser)) continue
         process.stdout.write(`${pad(s.name, 24)} ${pad(width, 6)}`)
         const r = await runScenarioSettled(browser, s, width, { base: o.base, events, outDir, scale: o.scale, full: o.full, cloudFrame: o.cloudFrame })
         results.push(r)

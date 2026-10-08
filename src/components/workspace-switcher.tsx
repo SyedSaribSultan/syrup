@@ -143,12 +143,12 @@ function Menu({ onDone }: { onDone(): void }) {
                   </span>
                   <span className="block truncate text-[11px] text-muted">{shortDetail(w.detail)}</span>
                 </span>
-                <span className={`shrink-0 text-[11px] text-muted ${isActive && mode === "cloud" ? "" : "group-focus-within:invisible group-hover:invisible pointer-coarse:invisible"}`}>
+                <span className={`shrink-0 text-[11px] text-muted ${isActive && mode === "cloud" ? "" : "transition group-focus-within:opacity-0 group-hover:opacity-0 pointer-coarse:invisible"}`}>
                   {n} {n === 1 ? "chat" : "chats"}
                 </span>
               </button>
               {(mode === "local" || (!isActive && !w.home)) && (
-                <span className="absolute top-1/2 right-2 hidden -translate-y-1/2 items-center gap-0.5 group-focus-within:flex group-hover:flex pointer-coarse:flex">
+                <span className="absolute top-1/2 right-2 flex -translate-y-1/2 items-center gap-0.5 motion-reveal">
                   {mode === "local" && (
                     <button type="button" title={`Open folder in ${folderApp}`} aria-label="Open folder" onClick={() => void onReveal(w)} className="rounded-md p-1.5 text-muted transition hover:bg-surface hover:text-ink pointer-coarse:p-2.5">
                       <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round">
