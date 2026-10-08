@@ -17,6 +17,11 @@ function masterKey(): Buffer {
   if (master) return master
   if (env.vaultKey) {
     master = Buffer.from(env.vaultKey, "base64")
+  } else if (env.vaultDir !== env.configDir) {
+    // A borrowed vault (SYRUP_VAULT_HOME, `pnpm eval`): read its key, never create, move or replace one.
+    const file = path.join(env.vaultDir, "vault.key")
+    if (!fs.existsSync(file)) throw new Error(`no vault.key in SYRUP_VAULT_HOME (${env.vaultDir})`)
+    master = Buffer.from(fs.readFileSync(file, "utf8").trim(), "base64")
   } else {
     const dir = env.configDir
     const file = path.join(dir, "vault.key")

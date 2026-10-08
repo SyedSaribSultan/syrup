@@ -1,6 +1,6 @@
 # Answer quality
 
-Status: **agreed 2026-10-08 (decisions in §7); Q0 done; Q1 next.** This is the plan for making syrup's answers right, not only fast. It comes from one real chat that went wrong and five research reports on why. [ROADMAP.md](ROADMAP.md) gets a "Q" track once §7 is answered.
+Status: **agreed 2026-10-08 (decisions in §7); Q0 and Q1 done (Q1b, the judge, open); Q2 next.** This is the plan for making syrup's answers right, not only fast. It comes from one real chat that went wrong and five research reports on why. [ROADMAP.md](ROADMAP.md) gets a "Q" track once §7 is answered.
 
 Related: [ARCHITECTURE.md](ARCHITECTURE.md) (router, engine), [RENDERING.md](RENDERING.md) (rounds 2–8, which share files with this plan), [TESTING.md](TESTING.md) (the gate).
 
@@ -77,7 +77,7 @@ Reports, with a source for each claim: `scratchpad/quality-research/{numbers,gro
 | Local | 0.41 s | **21.5 s** | 0.34 s |
 | Vercel Sandbox | 0.45 s | **56 s** | **0.17 s** |
 
-  **Hard rule:** before OpenCode starts, prepare each config dir that has neither `node_modules` nor `package.json`: an empty `node_modules/`, plus a `package.json` and `package-lock.json` naming `@opencode-ai/plugin` 1.18.32. In the sandbox that is `/vercel/.config/opencode` and `/vercel/.opencode`; locally the XDG config dir and `~/.opencode` if it exists, and only when it holds no plugin or tool files of the user's. Never write into a workspace. A repo with its own `.opencode` folder pays ~20 s once.
+  **Hard rule:** before OpenCode starts, prepare each config dir that has neither `node_modules` nor `package.json`: an empty `node_modules/`, plus a `package.json` and `package-lock.json` naming `@opencode-ai/plugin` 1.18.32. In the sandbox that is `/vercel/.config/opencode` and `/vercel/.opencode` (syrup's own). Locally only the eval engine's private dirs; the user's real `~/.config/opencode` is never seeded (a seed would hide the real install from a tool the user adds later), and the one real install is triggered in the background at engine start instead. Never write into a workspace. A repo with its own `.opencode` folder pays ~20 s once.
 - **Verified on 1.18.32:** plugin tools named `websearch`/`webfetch` replace the built-ins; `tool.execute.before/after`, `tool.definition` (via `jsonSchema`), `experimental.chat.messages.transform` (fresh copies each step; storage and the UI keep the full text) and `experimental.chat.system.transform` (adds a second system message, so the web rules can start only after a web tool runs) all work; `opencode import` (CLI only) seeds earlier turns; `limit.input` makes compaction fire at ~100K, but the v1 SDK type needs widening, and auto-compaction then sends OpenCode's own "continue" request (the `experimental.compaction.autocontinue` hook can stop it).
 - **Not yet swept:** your other local chats, for false alarms. Exporting them in bulk was refused by the permission check; run `pnpm eval:check` on any exported chat to add it.
 
@@ -87,6 +87,16 @@ Reports, with a source for each claim: `scratchpad/quality-research/{numbers,gro
 - **First set: 20 cases.** K2, 7 number cases, 6 citation cases (conflicting, counterfactual, no-evidence sources), 6 coding cases (hidden tests, so context changes can't silently hurt coding).
 - **Tiers:** Tier 1 smoke (5 cases, ~20 requests, 5–8 min) for any round touching prompt, tools, context or routing; Tier 2 (20 × 3, ~250 requests) weekly or before a release, with a trend file. A quota error is never a failure.
 - **Judge:** a different model family, yes/no, quoting evidence that code verifies; used only for "is this claim supported"; trusted after ≥ 90% agreement with ~40 hand labels.
+
+### Q1 results (2026-10-08)
+
+- **`pnpm eval` runs** ([TESTING.md](TESTING.md) §1.2): an isolated syrup (`scripts/eval/host.ts`), earlier turns imported with `opencode import`, web results replayed by syrup's plugin, the answer checks on the live turn, hidden tests for coding, a baseline (`scripts/fixtures/eval-baseline.json`), and a table per run.
+- **First smoke run: 5 of 5 pass**, 29 model requests, 94 s, 0 Exa calls, 0 scarce-backend requests (all on Gemini Flash-Lite). The K2 replay's last turn converted correctly this time (~278–280 PKR per USD; 4.2M–8.4M PKR for $15k–30k).
+- **Known gap, recorded:** the K2 last turn sent **55k** input tokens against the 15k budget. It must fail until Q2, then the gap note goes.
+- **The plugin costs nothing when idle.** Measured on 1.18.32 with a fresh workspace, 3 rounds: first request 0.31 s with the plugin and prepared config dirs, 0.51 s without the plugin, 11.1 s with the plugin and nothing prepared. The tool list and system prompt the model receives are byte-identical with and without it; with the replay on, the web tools are identical to the built-ins too.
+- **Eval traffic stays off scarce backends** through `x-syrup-eval: 1` (router suite: eval1–eval3).
+- **Not built:** the judge (Q1b), the rest of the 20 cases (Tier 2), `--record missing`.
+- **Seen in the run, for later:** the citation case searched 7 times for the same page instead of opening it, and in a dry run before it, a K2 answer stated a "total budget" of 4.5M–9M PKR while its listed parts add up to 6.4M–12.8M, which no check flagged (the list-total check doesn't catch a total phrased as a sentence after the list). The smoke run's own answer (7.5M–14M+ against parts of 7.6M–15.4M) passed on the open-ended "+".
 
 ### Q2 — Context hygiene (1 day)
 

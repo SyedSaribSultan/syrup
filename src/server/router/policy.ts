@@ -25,7 +25,15 @@ export type RequestShape = {
   lastIsUser: boolean
   /** The chat's very first turn: one user message, nothing answered yet. Nothing is cached and the screen is blank. */
   opening: boolean
+  /**
+   * Keep off scarce free backends entirely (Gemini Flash, OpenRouter's daily cap, any free tier with ≤ 60 requests a day):
+   * set for eval traffic (`x-syrup-eval: 1`, docs/QUALITY.md §7 decision 4), so `pnpm eval` never eats the user's daily quota.
+   */
+  offScarce?: boolean
 }
+
+/** Request header an eval engine sends on every model request (engine/opencode.ts EVAL_HEADER). */
+export const EVAL_HEADER = "x-syrup-eval"
 
 /** True for the first request of a chat: exactly one user message and no assistant message yet. */
 export function isOpening(messages: Msg[]): boolean {
@@ -434,9 +442,10 @@ function paidHeldBack(shape: RequestShape, pool: readonly { c: Candidate }[], fl
  * blank screen and nothing is cached yet, so the model that answers first wins among adequate ones (openingFloor). A
  * hard opening asks more of "adequate" and escalates its session for what follows (difficulty).
  * Fast: least predicted wall time (first token weighted double), quality floor 50.
+ * Eval traffic (`offScarce`) never sees a scarce candidate at all, not even as a fallback.
  */
 export function rank(shape: RequestShape, feasible: { c: Candidate; outTokens: number }[], session: SessionState, health: Health): Scored[] {
-  let pool = feasible
+  let pool = shape.offScarce ? feasible.filter((f) => !f.c.scarce) : feasible
   if (shape.alias === "fast" && pool.some((f) => f.c.info.quality >= 50)) pool = pool.filter((f) => f.c.info.quality >= 50)
   const opening = shape.alias === "auto" && shape.opening
   // Speed must not promote a weak model over adequate ones; it ranks below them, but stays in the list as a fallback.

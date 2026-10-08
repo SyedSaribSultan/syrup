@@ -2990,6 +2990,56 @@ await scenario("unit: a hedge win is a race, not a retry; the waiting line names
   eq(R.describeDrops([at({ status: "error", reason: "overloaded", modelId: "a" }), at({ status: "timeout", reason: "timeout", modelId: "b" })], label), "B didn't answer in time, 1 other before it. Trying another model…", "several")
 })
 
+// ------------------------------------------------------------------ eval traffic (docs/QUALITY.md §7 decision 4)
+
+await scenario("eval1) x-syrup-eval keeps a hard turn off the scarce flagship; without it the same turn still takes it", async () => {
+  const r = await makeRouter({ keys: [K.google, K.opencode] })
+  try {
+    const plan = () => continuation("plan the architecture for the billing module")
+    const control = await chat(r, { messages: plan(), headers: { "x-session-affinity": "ses_eval1a" } })
+    eq(control.headers.get("x-syrup-model"), "gemini-3.8-flash", "control: a hard turn picks the scarce flagship")
+    mock.reset()
+    const ev = await chat(r, { messages: plan(), headers: { "x-session-affinity": "ses_eval1b", "x-syrup-eval": "1" } })
+    eq(ev.status, 200, "eval turn answered")
+    eq(mock.of("google/gemini-3.8-flash").length, 0, "no request spent on the 20-a-day model")
+    assert(ev.headers.get("x-syrup-model") !== "gemini-3.8-flash", "answered by a non-scarce model")
+    const rec = r.received().at(-1)
+    eq(rec.offScarce, true, "logged as eval traffic")
+    assert(!rec.top.some((t) => t.startsWith("google/gemini-3.8-flash")), `scarce backends are not even fallbacks (${rec.top.join(" | ")})`)
+    eq(r.received()[0].offScarce, undefined, "the control request is not eval traffic")
+  } finally {
+    await r.close()
+  }
+})
+
+await scenario("eval2) eval traffic with only scarce backends left is refused at once (400, no retry-after), nothing spent", async () => {
+  const catalog = new Map([["openrouter", new Map([["deepseek/deepseek-v4-flash:free", M("deepseek/deepseek-v4-flash:free", { context: 200_000, output: 32_000 })]])]])
+  const r = await makeRouter({ keys: [K.openrouterFree], catalog })
+  try {
+    const res = await chat(r, { messages: continuation("add a README file"), headers: { "x-session-affinity": "ses_eval2", "x-syrup-eval": "1" } })
+    eq(res.status, 400, "refused")
+    eq(res.json?.error?.type, "syrup_scarce_only", "says why")
+    eq(res.headers.get("retry-after"), null, "nothing invites a retry")
+    eq(mock.hits.length, 0, "the account's 50-a-day quota is untouched")
+    const plain = await chat(r, { messages: continuation("add a README file"), headers: { "x-session-affinity": "ses_eval2b" } })
+    eq(plain.status, 200, "the same request without the header is answered as before")
+  } finally {
+    await r.close()
+  }
+})
+
+await scenario("eval3) an eval title call with only scarce backends gets the router's own title, never an error", async () => {
+  const catalog = new Map([["openrouter", new Map([["deepseek/deepseek-v4-flash:free", M("deepseek/deepseek-v4-flash:free", { context: 200_000, output: 32_000 })]])]])
+  const r = await makeRouter({ keys: [K.openrouterFree], catalog })
+  try {
+    const res = await chat(r, { alias: "fast", messages: titleCall("convert the budget to PKR"), max_tokens: 32_000, headers: { "x-syrup-eval": "1" } })
+    syntheticTitle(res, "convert the budget to PKR", "eval title")
+    eq(mock.hits.length, 0, "no quota spent on a title")
+  } finally {
+    await r.close()
+  }
+})
+
 // ------------------------------------------------------------------ summary
 
 mock.server.closeAllConnections?.()

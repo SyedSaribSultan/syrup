@@ -105,8 +105,8 @@ function envSecrets(): string[] {
 
 async function localSecrets(): Promise<string[]> {
   const out = [env.internalSecret, ...envSecrets()]
-  await dbReady()
-  const rows = await db().select({ secret: schema.providerKeys.secret }).from(schema.providerKeys)
+  const { keysDb } = await import("./key-rows")
+  const rows = await (await keysDb()).select({ secret: schema.providerKeys.secret }).from(schema.providerKeys)
   const { open } = await import("./vault")
   for (const r of rows) {
     try {

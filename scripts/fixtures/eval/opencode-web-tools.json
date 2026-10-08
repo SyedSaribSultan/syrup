@@ -1,0 +1,79 @@
+{
+  "capturedFrom": "OpenCode 1.18.32, GET /experimental/tool?provider=syrup&model=auto, OPENCODE_ENABLE_EXA=1, 2026-10-08",
+  "note": "The built-in web tools the eval replay stands in for (src/server/engine/syrup-plugin.ts). Re-capture after an engine upgrade; scripts/test-plugin.mjs compares the plugin with this file.",
+  "tools": [
+    {
+      "id": "webfetch",
+      "description": "- Fetches content from a specified URL\n- Takes a URL and optional format as input\n- Fetches the URL content, converts to requested format (markdown by default)\n- Returns the content in the specified format\n- Use this tool when you need to retrieve and analyze web content\n\nUsage notes:\n  - IMPORTANT: if another tool is present that offers better web fetching capabilities, is more targeted to the task, or has fewer restrictions, prefer using that tool instead of this one.\n  - The URL must be a fully-formed valid URL\n  - HTTP URLs will be automatically upgraded to HTTPS\n  - Format options: \"markdown\" (default), \"text\", or \"html\"\n  - This tool is read-only and does not modify any files\n  - Results may be summarized if the content is very large\n",
+      "parameters": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "The URL to fetch content from"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "text",
+              "markdown",
+              "html"
+            ],
+            "description": "The format to return the content in (text, markdown, or html). Defaults to markdown.",
+            "default": "markdown"
+          },
+          "timeout": {
+            "type": "number",
+            "description": "Optional timeout in seconds (max 120)"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "id": "websearch",
+      "description": "- Search the web using the session's web search provider - performs real-time web searches and can scrape content from specific URLs\n- Provides up-to-date information for current events and recent data\n- Supports configurable result counts and returns the content from the most relevant websites\n- Use this tool for accessing information beyond knowledge cutoff\n- Searches are performed automatically within a single API call\n\nUsage notes:\n  - Supports live crawling modes when available: 'fallback' (backup if cached unavailable) or 'preferred' (prioritize live crawling)\n  - Search types when available: 'auto' (balanced), 'fast' (quick results), 'deep' (comprehensive search)\n  - Configurable context length for optimal LLM integration\n  - Domain filtering and advanced search options available\n\nThe current year is 2026. You MUST use this year when searching for recent information or current events\n- Example: If the current year is 2026 and the user asks for \"latest AI news\", search for \"AI news 2026\", NOT \"AI news 2025\"\n",
+      "parameters": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Websearch query"
+          },
+          "numResults": {
+            "type": "number",
+            "description": "Number of search results to return (default: 8)"
+          },
+          "livecrawl": {
+            "type": "string",
+            "enum": [
+              "fallback",
+              "preferred"
+            ],
+            "description": "Live crawl mode - 'fallback': use live crawling as backup if cached content unavailable, 'preferred': prioritize live crawling (default: 'fallback')"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "fast",
+              "deep"
+            ],
+            "description": "Search type - 'auto': balanced search (default), 'fast': quick results, 'deep': comprehensive search"
+          },
+          "contextMaxCharacters": {
+            "type": "number",
+            "description": "Maximum characters for context string optimized for LLMs (default: 10000)"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    }
+  ]
+}

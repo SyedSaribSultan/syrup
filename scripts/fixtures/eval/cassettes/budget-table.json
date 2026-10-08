@@ -1,0 +1,32 @@
+{
+  "format": "syrup.cassette",
+  "version": 1,
+  "case": "budget-table",
+  "synthetic": true,
+  "note": "Hand-written pages on example.org domains (synthetic, docs/QUALITY.md Q1). Every search answers with the same three results ('*'); the expected total follows from them: 4 nights x 18,000 + 3 days x 22,000 + 2 x 46,000 + 2 people x 5 days x 4,500 = PKR 275,000.",
+  "entries": [
+    {
+      "tool": "websearch",
+      "key": "*",
+      "output": "Title: Where to stay in Hunza: hotel prices for 2026\nURL: https://stay.example.org/hunza/hotel-prices-2026\nPublished: 2026-05-14T00:00:00.000Z\nAuthor: N/A\nHighlights:\nMid-range hotels in Karimabad charge PKR 18,000 per night for a double room in peak season (May to October), breakfast included. Budget guesthouses start at PKR 9,000 per night; luxury lodges at PKR 45,000.\n...\nPrices are per room, not per person, and include taxes.\n\nTitle: Car hire in Gilgit-Baltistan: daily rates 2026\nURL: https://drive.example.org/gilgit-hunza/car-with-driver\nPublished: 2026-04-02T00:00:00.000Z\nAuthor: N/A\nHighlights:\nA private car with driver for Hunza sightseeing costs PKR 22,000 per day, fuel included. A 4x4 jeep for the Khunjerab Pass day trip is PKR 30,000.\n...\nReturn flights Islamabad to Gilgit cost PKR 46,000 per person on the daily PIA service; the road journey takes 14 to 18 hours.\n\nTitle: Eating out in Hunza: what a day of meals costs\nURL: https://eat.example.org/hunza/food-budget\nPublished: 2026-06-20T00:00:00.000Z\nAuthor: N/A\nHighlights:\nBudget about PKR 4,500 per person per day for three meals at local restaurants and cafes in Karimabad and Aliabad."
+    },
+    {
+      "tool": "webfetch",
+      "key": "https://stay.example.org/hunza/hotel-prices-2026",
+      "title": "https://stay.example.org/hunza/hotel-prices-2026 (text/html)",
+      "output": "# Where to stay in Hunza: hotel prices for 2026\n\n| Hotel type | Price per night (double room, peak season) |\n|---|---|\n| Budget guesthouse | PKR 9,000 |\n| Mid-range hotel | PKR 18,000 |\n| Luxury lodge | PKR 45,000 |\n\nPrices are per room, not per person, include breakfast and taxes, and apply from May to October."
+    },
+    {
+      "tool": "webfetch",
+      "key": "https://drive.example.org/gilgit-hunza/car-with-driver",
+      "title": "https://drive.example.org/gilgit-hunza/car-with-driver (text/html)",
+      "output": "# Car hire in Gilgit-Baltistan: daily rates 2026\n\n| Service | Price |\n|---|---|\n| Car with driver, Hunza sightseeing, per day | PKR 22,000 |\n| 4x4 jeep, Khunjerab Pass day trip | PKR 30,000 |\n| Flight Islamabad–Gilgit, return, per person | PKR 46,000 |\n\nFuel is included in the car and jeep prices."
+    },
+    {
+      "tool": "webfetch",
+      "key": "https://eat.example.org/hunza/food-budget",
+      "title": "https://eat.example.org/hunza/food-budget (text/html)",
+      "output": "# Eating out in Hunza\n\nBudget about PKR 4,500 per person per day for three meals at local restaurants and cafes in Karimabad and Aliabad. Apricot cake and chapshuro are worth trying."
+    }
+  ]
+}

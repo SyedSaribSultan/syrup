@@ -22,6 +22,7 @@ pnpm test:router
 pnpm test:diffs
 pnpm test:transcript
 pnpm test:eval-checks
+pnpm test:plugin
 node scripts/fixtures/settled-blocks-check.mjs
 pnpm ui:harness --label round-2
 pnpm ui:weight --compare
@@ -31,7 +32,9 @@ pnpm ui:weight --compare
 - **Screenshots:** open `screenshots/harness/<label>/` and look at every screen the round touched, at both widths. A green table is not enough: the harness checks errors, layout and assertions, not taste.
 - **Answer checks (Tier 0, [QUALITY.md](QUALITY.md) Q0):** `pnpm test:eval-checks` runs the deterministic checks in `src/lib/answer-checks` (totals vs parts, currency magnitude, number provenance, cited links, the transcript parser) on committed files only: no app, no network, under a second. The real K2 export (`scripts/fixtures/eval/transcripts/k2.md`) must fail with exactly its known errors, its hand-corrected copy (`k2-fixed.md`) must pass, and every UI harness fixture chat must raise no error or warning.
 - **Checking any chat:** `pnpm eval:check <export.md|export.json>` prints each answer's findings (error, warning, hint) and exits 1 on any error. It reads every export form: the share link's `/md` and `/json`, `pnpm chat:export` (with or without `--json` and `--debug`). A real bad answer that no check flags: write the check first, then add the export to the goldens in `scripts/test-eval-checks.mjs`.
+- **syrup's OpenCode plugin and the config dirs:** `pnpm test:plugin` (no engine, under 2 s) checks the config-dir rule on temporary folders and the sandbox's build of it, that the plugin registers nothing while `SYRUP_EVAL_REPLAY` is unset, the replay tools (hit, fuzzy, fallback, miss, argument checks), and that they carry OpenCode 1.18.32's own tool definitions (`scripts/fixtures/eval/opencode-web-tools.json`; re-capture it after an engine upgrade).
 - **Router changes:** also `pnpm bench:agent` before and after (ROADMAP §2, "First token first").
+- **Prompt, tools, context handling, router policy or engine config changes:** also `pnpm eval --set smoke` before and after (§1.2). A regression there blocks the push until someone reads it.
 - **Nothing new in the main chunk:** `pnpm ui:weight --compare` fails when initial JavaScript grows by more than 2 KB gzipped or a new chunk joins the initial load (§4).
 
 ### 1.1 When a step fails
@@ -42,6 +45,73 @@ Other agents share this checkout and its dev server, so a failure is not always 
 - **A type or lint error in a file you didn't touch** (from `typecheck`, `eslint`, or `ui:weight`, whose `next build` type-checks): someone's edit is half-done. Wait, then run again. Don't "fix" their file.
 - **The dev server updated the page mid-run** (someone saved a file): the harness runs that scenario again by itself, up to twice, and says so under "Notes". If a failure ends with "dev server: pushed … during this run as well", run again once the edits stop.
 - **Run one `pnpm ui:weight` at a time.** Two production builds into the same `.next` collide.
+
+### 1.2 Answer-quality evals (`pnpm eval`)
+
+[QUALITY.md](QUALITY.md) Q1. Real models answer; the web is replayed from recordings. A run spends a little free model quota, never Exa's and never a scarce backend's.
+
+**Tiers**
+
+| Tier | Command | When | Cost (measured 2026-10-08) |
+|---|---|---|---|
+| 0 | `pnpm test:eval-checks` | every round (§1) | no app, no quota, under 1 s |
+| 1 | `pnpm eval --set smoke` | before and after any change to the prompt, tools, context handling, router policy or engine config | 5 cases, 29 model requests, 94 s |
+| 2 | `pnpm eval --set full --trials 3` | weekly, and before a release | every case × 3 (the set grows to ~20 cases) |
+
+**The gate rule**
+
+- **Exit 0:** nothing regressed. Cases that also failed in the baseline are listed, not blocking.
+- **Exit 1, "REGRESSION":** a case that passes in `scripts/fixtures/eval-baseline.json` fails now. **This blocks the push until someone reads the transcripts** (QUALITY.md §7, decision 3). Then fix it, or accept it with `pnpm eval --update-baseline` and say why in the commit.
+- **Exit 1, "GAP CLOSED":** a known gap passes now. Delete its `gap` note in the case file in the same change, so the check guards the fix (like the harness, §3.3).
+- **Quota is never a failure.** A trial whose model requests hit rate limits or cooling backends is "skipped (quota)". Only a quota-shaped error counts: an engine that keeps retrying anything else (a router crash, a 5xx) makes the trial an **error**, which fails like any other failure.
+- **Exit 3, "NOTHING MEASURED":** every trial was skipped or off-script. That is not a pass; run again later.
+- **One failing trial gets two more** (Tier 1; `--no-rerun` turns it off). The case fails when 2 of 3 fail.
+- **Exit 2:** the eval's syrup could not start (its `host.log` says why).
+
+**Commands**
+
+```bash
+pnpm eval --set smoke                       # Tier 1
+pnpm eval --case k2-pkr --trials 3          # one case (or a,b,c), N trials each; passes only if all pass
+pnpm eval --set smoke --model nvidia/<id>   # pin one model for an A/B; the default is syrup/auto
+pnpm eval --list                            # cases and their tags
+pnpm eval --update-baseline                 # run, then write the baseline from this run
+pnpm eval:report                            # the latest run's table again (or pnpm eval:report <run folder>)
+pnpm eval:report --trend                    # each case over the last 10 runs: result, input tokens, first text
+pnpm eval:record <export> --case <id>       # a cassette from an exported chat's web results, no network
+pnpm eval:check <export>                    # the answer checks on any exported chat (§1)
+```
+
+Other flags: `--no-rerun`, `--timeout <s>` per turn (default 300), `--keep` (leave the eval's syrup running), `--judge` (prints that the judge is Q1b).
+
+**What a run does**
+
+- **Its own syrup, isolated.** `scripts/eval/host.ts` runs syrup's real engine, router, vault and memory modules in a plain Node process (no Next.js). It uses free ports (never 3000, 3300, 4096, 4210, 4396 or 4410) and its own `SYRUP_HOME`, `SYRUP_DB`, OpenCode XDG folders and home, under `node_modules/.cache/syrup-eval/<stamp>/`. The dev server, its engine and your chats are never touched.
+- **Your keys, read where the dev server reads them.** The host reads the local vault read-only: `SYRUP_KEYS_DB` names `data/syrup.db`, `SYRUP_VAULT_HOME` the folder holding `vault.key`. Provider env variables work as in `pnpm dev`. Keys are decrypted in the host's memory only; nothing is copied, logged or printed, and transcripts are redacted.
+- **Off scarce backends.** The eval engine sends `x-syrup-eval: 1` on every model request. The router then never ranks a scarce free backend (Gemini Flash, OpenRouter's daily cap, any free tier with 60 or fewer requests a day), not even as a fallback. With only scarce backends left it refuses at once (`syrup_scarce_only`), and the trial is skipped.
+- **Web results replayed.** `SYRUP_EVAL_REPLAY` makes syrup's plugin answer `websearch` and `webfetch` from the case's cassette, with OpenCode's own tool definitions, so Exa is never called. A search matches by its words: exact, then the nearest recorded query, then a `"*"` entry. A page the cassette lacks answers 404, like a dead link. A trial with more than 30% misses is "off-script" and doesn't count.
+- **Earlier turns imported.** A case with `seed` imports user turns 1..N of an export with `opencode import` (`scripts/eval/seed.mjs`) and sends only the live turn. The K2 case costs one turn of requests, not seven.
+- **Checked as a user would read it.** The chat is exported as `syrup.transcript` v1 (redacted) and checked: the answer checks on the live turn only, hidden tests for coding cases, the live turn's largest input-token count, first text (as `bench:agent` measures it) and total time.
+- **Files.** `node_modules/.cache/syrup-eval/<stamp>/` holds `results.json`, one `<case>-<trial>.json` transcript per trial (read it, or run `pnpm eval:check` on it) and `host.log`.
+
+**The smoke set**
+
+| Case | Kind | Passes when |
+|---|---|---|
+| `k2-pkr` | numbers, research | The incident chat: turns 1–6 imported from `transcripts/k2.md`, "in PKR" live with its own search results. `eval:check` finds no error in the answer: PKR equals USD at the stated rate, totals equal their parts. **Known gap:** the last turn's input must be at most 15k tokens; it is ~55k until Q2 |
+| `budget-table` | numbers | From hand-written price pages, a Hunza trip table with a Total row that adds up to the total the pages imply (PKR 275,000) |
+| `counterfactual-fee` | citation | The only page says Spantik's 2026 fee is USD 1,370, a number no model remembers: the answer gives it and links that page |
+| `fix-failing-test` | coding | `util.py` has two bugs: fixed without touching `test_util.py`, and hidden tests (copied in afterwards) pass |
+| `add-slugify` | coding | `slugify()` written from a spec passes hidden edge-case tests |
+
+**Adding a case**
+
+1. Copy the closest module in `scripts/fixtures/eval/cases/`: one `defineCase({ … })` per file (`scripts/eval/kit.mjs`).
+2. Give it what it needs: `seed` (an export and how many user turns to import), `cassette` (`pnpm eval:record <export> --case <id>`, or hand-written pages marked `"synthetic": true`), `workspace` (files copied in; a `hidden/` folder is copied only after the agent finished).
+3. Pick checks: `answered`, `noErrors([answer check ids])`, `hasTotalRow`, `contains`, `untouched`, `hiddenTests`, `lastTurnInputTokens`, `judged` (Q1b). Any check takes `column`, `info: true` (shown, never fails) or `gap: "why"` (must fail today).
+4. Run it alone (`pnpm eval --case <id>`) and read its transcript. Then add it to the baseline with `--update-baseline`.
+
+**The judge (Q1b).** "Is this claim supported by what the agent read?" needs a model from another family, calibrated on ~40 hand labels before it is trusted. It is not built yet: `judged` checks report "–" and never pass or fail a case.
 
 ---
 

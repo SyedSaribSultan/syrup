@@ -1,8 +1,13 @@
+import fs from "node:fs"
+import os from "node:os"
+import path from "node:path"
+import { pathToFileURL } from "node:url"
 import { createOpencodeClient, type Config, type OpencodeClient } from "@opencode-ai/sdk/client"
 import { createOpencodeServer } from "@opencode-ai/sdk/server"
 import { env } from "../env"
 import { slog } from "../log"
 import { ALIASES } from "../router/backends"
+import { EVAL_HEADER } from "../router/policy"
 import { SYRUP_PROMPT } from "./prompt"
 
 export type Engine = {
@@ -32,8 +37,15 @@ type AgentPrompts = { agent?: Record<string, { prompt?: string }> }
 /** Config syrup hands to OpenCode: the SDK type plus the keys it lacks. */
 export type EngineConfig = Config & CompactionConfig & AgentPrompts
 
-/** The "syrup" provider (router), memory MCP and token-saving settings, shared by local mode and the sandbox sidecar config. */
-export function syrupEngineConfig(routerURL: string, secret: string): Pick<Config, "model" | "small_model" | "mcp" | "provider"> & CompactionConfig & AgentPrompts {
+export type EngineConfigOptions = {
+  /** syrup's OpenCode plugin as a file:// URL (engine/syrup-plugin.ts, built to .sidecar/syrup-plugin.js). */
+  plugin?: string
+  /** An eval engine (`pnpm eval`): every model request carries EVAL_HEADER, so eval traffic never spends scarce quota. */
+  eval?: boolean
+}
+
+/** The "syrup" provider (router), memory MCP, syrup's plugin and token-saving settings, shared by local mode and the sandbox sidecar config. */
+export function syrupEngineConfig(routerURL: string, secret: string, opts: EngineConfigOptions = {}): Pick<Config, "model" | "small_model" | "mcp" | "provider" | "plugin"> & CompactionConfig & AgentPrompts {
   const models: NonNullable<NonNullable<Config["provider"]>[string]["models"]> = {}
   for (const [id, a] of Object.entries(ALIASES)) {
     models[id] = {
@@ -47,6 +59,7 @@ export function syrupEngineConfig(routerURL: string, secret: string): Pick<Confi
       // have 200K–1M windows, and makes OpenCode compact before prompts get slow.
       // 32K output matches what OpenCode asks for per request anyway.
       limit: { context: 256_000, output: 32_000 },
+      ...(opts.eval ? { headers: { [EVAL_HEADER]: "1" } } : {}),
     }
   }
   return {
@@ -68,12 +81,21 @@ export function syrupEngineConfig(routerURL: string, secret: string): Pick<Confi
         models,
       },
     },
+    ...(opts.plugin ? { plugin: [opts.plugin] } : {}),
   }
+}
+
+/** The built plugin for local mode, or undefined (with a warning) when `.sidecar/` wasn't built: `pnpm dev` and `pnpm build` build it. */
+function localPlugin(): string | undefined {
+  const file = path.join(process.cwd(), ".sidecar", "syrup-plugin.js")
+  if (fs.existsSync(file)) return pathToFileURL(file).href
+  slog("engine", "plugin.missing", { file, fix: "node sidecar/build.mjs" }, { level: "warn" })
+  return undefined
 }
 
 /** OpenCode config injected at boot (local mode): router provider, memory MCP, memory index as instructions. */
 function engineConfig(routerURL: string, memoryIndex: string): EngineConfig {
-  return { ...syrupEngineConfig(routerURL, env.internalSecret), instructions: [memoryIndex] }
+  return { ...syrupEngineConfig(routerURL, env.internalSecret, { plugin: localPlugin(), eval: process.env.SYRUP_EVAL === "1" }), instructions: [memoryIndex] }
 }
 
 async function start(): Promise<Engine> {
@@ -92,6 +114,17 @@ async function start(): Promise<Engine> {
   }
 
   const config = engineConfig(routerURL, memoryIndex)
+  // Loading a plugin makes OpenCode install @opencode-ai/plugin into each config dir without node_modules before a
+  // workspace's first request (~21 s once). The eval engine's dirs are its own, so they are prepared (config-dirs.ts).
+  // The user's real ~/.config/opencode is never seeded: an empty seed looks installed, so a tool or plugin the user adds
+  // there later could not find @opencode-ai/plugin. Instead the one real install runs in the background right after
+  // spawn (warmEngine below), long before anyone types.
+  const evalEngine = process.env.SYRUP_EVAL === "1"
+  if (config.plugin?.length && evalEngine) {
+    const { localConfigDirs, prepareConfigDirs } = await import("./config-dirs")
+    const dirs = prepareConfigDirs(localConfigDirs())
+    slog("engine", "config_dirs", { dirs: dirs.map((d) => ({ dir: d.dir, action: d.action, reason: d.reason, ...(d.error && { error: d.error }) })) })
+  }
   // Every request to the engine must carry this password; the SDK passes process.env to the child.
   process.env.OPENCODE_SERVER_PASSWORD = env.internalSecret
   // Skill on/off switches live in a file the engine re-reads on every instance reload, so toggles apply without a respawn.
@@ -115,10 +148,26 @@ async function start(): Promise<Engine> {
   }
   console.log(`[syrup] opencode server at ${server.url} (workspace ${env.workspace})`)
   slog("engine", "spawned", { url: server.url, workspace: env.workspace, ms: Date.now() - t0, config })
+  if (config.plugin?.length && !evalEngine) warmEngine(server.url)
   return {
     url: server.url,
     client: createOpencodeClient({ baseUrl: server.url, directory: env.workspace, headers: { authorization: engineAuthHeader() } }),
     close: () => server.close(),
+  }
+}
+
+/**
+ * Boots the instance of the Home workspace (~/syrup) and of the launch folder in the background, so OpenCode's one-time
+ * install of @opencode-ai/plugin into an unprepared config dir (~21 s) happens before the first message, not during it.
+ * Fire and forget: a failure only means that first message waits as it would have anyway.
+ */
+function warmEngine(url: string) {
+  const headers = { authorization: engineAuthHeader() }
+  const t0 = Date.now()
+  for (const dir of new Set([path.join(os.homedir(), "syrup"), env.workspace])) {
+    void fetch(`${url}/path?directory=${encodeURIComponent(dir)}`, { headers, signal: AbortSignal.timeout(120_000) })
+      .then((r) => slog("engine", "warm", { dir, status: r.status, ms: Date.now() - t0 }))
+      .catch((err) => slog("engine", "warm.failed", { dir, err }, { level: "warn" }))
   }
 }
 

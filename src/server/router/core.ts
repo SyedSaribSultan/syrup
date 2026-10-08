@@ -5,7 +5,7 @@ import { ALIASES, BASE_URL, CandidateCache, type Alias, type Candidate } from ".
 import { ServedModels } from "./served"
 import { displayName, providerName } from "../../lib/model-registry"
 import { Health, type Cool } from "./health"
-import { appendTitleText, applySticky, difficulty, dynamicBlock, estimatePromptTokens, fallbackTitle, hasTitleText, hedgePartner, isOpening, isTitleCall, rank, staticFit, type Exclusion, type Msg, type RequestShape, type Scored } from "./policy"
+import { appendTitleText, applySticky, difficulty, dynamicBlock, estimatePromptTokens, EVAL_HEADER, fallbackTitle, hasTitleText, hedgePartner, isOpening, isTitleCall, rank, staticFit, type Exclusion, type Msg, type RequestShape, type Scored } from "./policy"
 import { InterleavedReasoning, Signatures } from "./reasoning-cache"
 import { Sessions, sessionHeader, sessionKey, type SessionState } from "./sessions"
 import { chunkKind, contentText, SseScanner, StreamTap, type SseLine, type Usage } from "./sse"
@@ -982,6 +982,7 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
       hardWhy: diff.why,
       lastIsUser: messages[messages.length - 1]?.role === "user",
       opening: isOpening(messages),
+      offScarce: req.headers[EVAL_HEADER] === "1",
     }
 
     // Feasibility: static limits first, then what is cooling or busy right now.
@@ -1025,6 +1026,7 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
         hard: shape.hard,
         why: shape.hardWhy ?? undefined,
         opening: shape.opening || undefined,
+        offScarce: shape.offScarce || undefined,
         title: title || undefined,
         session: sKey,
         sticky: session.sticky ?? undefined,
@@ -1044,6 +1046,16 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
       if (title) return titleFallback(res, { reqID, sessionId, stream, body }, TITLE_NO_MODEL)
       return json(res, 503, {
         error: { type: "syrup_no_backend", message: "syrup router: no connected provider can serve this request. Add an API key under Providers, or pick a model directly." },
+      })
+    }
+
+    if (pick.ordered.length === 0 && shape.offScarce && feasible.length > 0 && feasible.every((f) => f.c.scarce)) {
+      // Eval traffic and only scarce backends left: refuse at once (no retry-after), so the eval records "skipped (quota)"
+      // instead of OpenCode retrying, and the user's daily quota stays untouched.
+      if (title) return titleFallback(res, { reqID, sessionId, stream, body }, TITLE_NO_MODEL, { excluded })
+      log("router", "request.scarce_only", { reqID, alias, feasible: feasible.length }, { level: "warn", sessionId })
+      return json(res, 400, {
+        error: { type: "syrup_scarce_only", message: `syrup router: only scarce free backends could take this request (${feasible.length}), and eval traffic stays off them.` },
       })
     }
 

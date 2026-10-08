@@ -12,6 +12,7 @@ import { skillBundle, type SkillBundle } from "../cloud/skills"
 import { skillConfigJson } from "../skills-core"
 import { egressPolicy } from "./egress"
 import { sidecarStale, STOP_ENGINE_SCRIPT } from "./sidecar-version"
+import { OPENCODE_VERSION, SANDBOX_CONFIG_DIRS } from "./config-dirs"
 import { syrupEngineConfig } from "./opencode"
 import { getWorkspace, touchWorkspace, type SandboxRow, type Workspace } from "../cloud/workspaces"
 import { pgSchema, withUser } from "../db/pg"
@@ -30,7 +31,7 @@ import { slog } from "../log"
  * through the app's LLM relay (/api/ingest/llm), which adds the key per call.
  */
 
-export const OPENCODE_VERSION = "1.18.32"
+export { OPENCODE_VERSION }
 const PORT = 4096
 const IMAGE = "vercel/sandbox/universal"
 const REGION = "fra1"
@@ -65,18 +66,35 @@ function workDir(ws: Workspace) {
 const SIDECAR_PORT = 4210
 const SIDECAR_DIR = `${HOME}/.syrup`
 
-/** OpenCode config for the sandbox: syrup router + memory MCP via the sidecar, LSP off (biggest idle CPU burner), no auto-update, no sharing. */
+/** syrup's OpenCode plugin (engine/syrup-plugin.ts), written next to the sidecar on every start. */
+const PLUGIN_PATH = `${SIDECAR_DIR}/syrup-plugin.js`
+/** The config-dir preparation (engine/config-dirs.ts), run before every `opencode serve`. */
+const PREPARE_PATH = `${SIDECAR_DIR}/prepare-config-dirs.js`
+
+/** OpenCode config for the sandbox: syrup router + memory MCP via the sidecar, syrup's plugin, LSP off (biggest idle CPU burner), no auto-update, no sharing. */
 function engineConfig(secret: string): string {
-  return JSON.stringify({ ...syrupEngineConfig(`http://127.0.0.1:${SIDECAR_PORT}/v1`, secret), instructions: [`${SIDECAR_DIR}/MEMORY.md`], lsp: false, autoupdate: false, share: "disabled" })
+  return JSON.stringify({
+    ...syrupEngineConfig(`http://127.0.0.1:${SIDECAR_PORT}/v1`, secret, { plugin: `file://${PLUGIN_PATH}` }),
+    instructions: [`${SIDECAR_DIR}/MEMORY.md`],
+    lsp: false,
+    autoupdate: false,
+    share: "disabled",
+  })
 }
 
-/** The bundled sidecar (built by sidecar/build.mjs before `next build`). */
-function sidecarBundle(): { js: Buffer; hash: string } {
+/** The bundled sidecar, plugin and config-dir script (built by sidecar/build.mjs before `next build`). The hash covers all three. */
+function sidecarBundle(): { js: Buffer; plugin: Buffer; prepare: Buffer; hash: string } {
   const dir = path.join(process.cwd(), ".sidecar")
-  const js = fs.readFileSync(path.join(dir, "sidecar.js"))
-  const meta = JSON.parse(fs.readFileSync(path.join(dir, "sidecar.json"), "utf8")) as { hash: string }
-  return { js, hash: meta.hash }
+  const read = (f: string) => fs.readFileSync(path.join(dir, f))
+  const meta = JSON.parse(read("sidecar.json").toString("utf8")) as { hash: string }
+  return { js: read("sidecar.js"), plugin: read("syrup-plugin.js"), prepare: read("prepare-config-dirs.js"), hash: meta.hash }
 }
+
+/**
+ * Prepares the engine's config dirs before OpenCode starts (docs/QUALITY.md Q0 hard rule): without it, loading the plugin
+ * costs ~56 s on a workspace's first request in a sandbox. Runs on every start (a no-op once prepared); never fails the start.
+ */
+const PREPARE_CONFIG_DIRS = `node ${PREPARE_PATH} ${SANDBOX_CONFIG_DIRS.map((d) => `${d.create ? "--create" : "--existing"} ${d.dir}`).join(" ")} >/dev/null 2>&1 || true`
 
 /** Skill permissions for the engine (OPENCODE_CONFIG). Re-read whenever an instance boots, so a reload applies changes without a restart. */
 const SKILLS_CONFIG = `${SIDECAR_DIR}/engine-skills.json`
@@ -111,9 +129,9 @@ function skillFiles(bundle: SkillBundle): { files: { path: string; content: Buff
  */
 async function startSidecar(sb: Sandbox, userId: string, workspaceId: string, password: string, secret: string, sessionStart: number, extra: { path: string; content: Buffer }[] = []) {
   const t0 = Date.now()
-  const { js, hash } = sidecarBundle()
+  const { js, plugin, prepare, hash } = sidecarBundle()
   const [meta] = await Promise.all([activeKeyMeta(userId), sb.runCommand({ cmd: "mkdir", args: ["-p", SIDECAR_DIR] })])
-  await sb.writeFiles([{ path: `${SIDECAR_DIR}/sidecar.js`, content: js }, ...extra])
+  await sb.writeFiles([{ path: `${SIDECAR_DIR}/sidecar.js`, content: js }, { path: PLUGIN_PATH, content: plugin }, { path: PREPARE_PATH, content: prepare }, ...extra])
   await sb.runCommand({
     cmd: "node",
     args: [`${SIDECAR_DIR}/sidecar.js`],
@@ -211,7 +229,8 @@ async function startEngine(sb: Sandbox, ws: Workspace, userId: string, password:
   await sb.runCommand({
     cmd: "bash",
     // `[ -e .git ] || git init`: workspaces created before empty ones got a repository catch up on their next start.
-    args: ["-lc", `(${skills.apply})\n([ -e .git ] || git -c init.defaultBranch=main init -q)\nexec "$HOME/.opencode/bin/opencode" serve --hostname 0.0.0.0 --port ${PORT} ${cors.map((c) => `--cors ${JSON.stringify(c)}`).join(" ")}`],
+    // The config dirs are prepared after the skills swap (which creates ~/.config/opencode) and before OpenCode reads them.
+    args: ["-lc", `(${skills.apply})\n([ -e .git ] || git -c init.defaultBranch=main init -q)\n${PREPARE_CONFIG_DIRS}\nexec "$HOME/.opencode/bin/opencode" serve --hostname 0.0.0.0 --port ${PORT} ${cors.map((c) => `--cors ${JSON.stringify(c)}`).join(" ")}`],
     cwd: workDir(ws),
     detached: true,
     // OPENCODE_ENABLE_EXA: web search, off by default in OpenCode.

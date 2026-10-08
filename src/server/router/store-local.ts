@@ -1,6 +1,7 @@
 import { asc, eq, gte } from "drizzle-orm"
 import { db, dbReady, schema } from "../db"
 import { engine } from "../engine/opencode"
+import { keysDb } from "../key-rows"
 import { slog } from "../log"
 import { open } from "../vault"
 import { BASE_URL, ENV_NAMES, PAID_ONLY } from "./backends"
@@ -12,9 +13,8 @@ export class LocalRouterStore implements RouterStore {
   private catalogCache: { at: number; value: Catalog } | undefined
 
   async activeKeys(): Promise<Map<string, ActiveKey>> {
-    await dbReady()
     const out = new Map<string, ActiveKey>()
-    const rows = await db().select().from(schema.providerKeys).where(eq(schema.providerKeys.active, 1))
+    const rows = await (await keysDb()).select().from(schema.providerKeys).where(eq(schema.providerKeys.active, 1))
     for (const r of rows) {
       if (BASE_URL[r.providerId]) out.set(r.providerId, { id: r.id, secret: open(r.secret), tier: r.tier })
     }

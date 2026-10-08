@@ -2,6 +2,7 @@ import { and, desc, eq, gte, isNotNull, or } from "drizzle-orm"
 import { backendKey, isFreeVariant, type Answer, type AliasPick, type Attempt, type BackendState, type CoolReason, type KeyCooldown, type RouterStatus } from "@/lib/router-status"
 import { db, dbReady, schema } from "./db"
 import { pgSchema, withUser } from "./db/pg"
+import { keysDb } from "./key-rows"
 import { BASE_URL, ENV_NAMES } from "./router/backends"
 
 /**
@@ -215,7 +216,7 @@ function toAttempts(rows: AttemptRow[]): Attempt[] {
 /** Mirrors LocalRouterStore.activeKeys without decrypting anything: the active vault key, else an env key. */
 async function localActiveKeys(): Promise<ActiveKeys> {
   const k = schema.providerKeys
-  const rows = await db().select({ providerId: k.providerId, id: k.id }).from(k).where(eq(k.active, 1))
+  const rows = await (await keysDb()).select({ providerId: k.providerId, id: k.id }).from(k).where(eq(k.active, 1))
   const out = new Map<string, string | null>()
   for (const r of rows) if (BASE_URL[r.providerId]) out.set(r.providerId, r.id)
   for (const providerId of Object.keys(BASE_URL)) {

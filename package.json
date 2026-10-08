@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -H 127.0.0.1",
+    "dev": "node sidecar/build.mjs && next dev -H 127.0.0.1",
     "build": "node sidecar/build.mjs && next build",
     "start": "next start -H 127.0.0.1",
     "db:generate:pg": "drizzle-kit generate --config drizzle-pg.config.ts",
@@ -18,9 +18,13 @@
     "test:diffs": "node scripts/test-diffs.mjs",
     "test:guard": "node scripts/test-guard.mjs",
     "test:eval-checks": "node scripts/test-eval-checks.mjs",
+    "test:plugin": "node scripts/test-plugin.mjs",
     "bench:agent": "node scripts/bench-agent.mjs",
     "chat:export": "node scripts/chat-export.mjs",
+    "eval": "node scripts/eval.mjs",
     "eval:check": "node scripts/eval-check.mjs",
+    "eval:record": "node scripts/eval/record.mjs",
+    "eval:report": "node scripts/eval/report.mjs",
     "shots": "node scripts/shots.mjs",
     "ui:harness": "node scripts/ui-harness.mjs",
     "ui:weight": "node scripts/js-weight.mjs"

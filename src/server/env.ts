@@ -53,6 +53,13 @@ export const env = {
   /** Local vault master key override (base64, 32 bytes). Normally generated into configDir. */
   vaultKey: process.env.SYRUP_VAULT_KEY || undefined,
   configDir: configDir(),
+  /**
+   * Borrowed vault (`pnpm eval`): provider keys are read from this database instead of dbUrl, and vault.key from
+   * vaultDir, both read-only. The eval host keeps its own database and config folder, and the user's keys are
+   * decrypted in its memory only, as in the dev server; nothing is copied. Unset everywhere else.
+   */
+  keysDbUrl: process.env.SYRUP_KEYS_DB || undefined,
+  vaultDir: process.env.SYRUP_VAULT_HOME ? path.resolve(process.env.SYRUP_VAULT_HOME) : configDir(),
   internalSecret,
 
   // Cloud

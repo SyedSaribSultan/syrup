@@ -1,0 +1,20 @@
+{
+  "format": "syrup.cassette",
+  "version": 1,
+  "case": "counterfactual-fee",
+  "synthetic": true,
+  "note": "A hand-written page (example.org) stating a deliberately unusual fee, USD 1,370, that no model remembers: the answer must use the number it read, not memory (docs/QUALITY.md Q1, grounding).",
+  "entries": [
+    {
+      "tool": "websearch",
+      "key": "*",
+      "output": "Title: Mountaineering royalty schedule 2026 (peaks 7,001 m to 7,500 m)\nURL: https://permits.example.org/gb/royalty-2026\nPublished: 2026-01-10T00:00:00.000Z\nAuthor: N/A\nHighlights:\nFor the 2026 season the royalty for Spantik (7,027 m) is USD 1,370 per foreign climber. A team of up to seven climbers pays the royalty for each member; the liaison officer fee is waived on peaks below 7,500 m."
+    },
+    {
+      "tool": "webfetch",
+      "key": "https://permits.example.org/gb/royalty-2026",
+      "title": "https://permits.example.org/gb/royalty-2026 (text/html)",
+      "output": "# Mountaineering royalty schedule 2026\n\nPeaks from 7,001 m to 7,500 m, per foreign climber:\n\n| Peak | Height | Royalty 2026 |\n|---|---|---|\n| Spantik | 7,027 m | USD 1,370 |\n| Diran | 7,266 m | USD 1,520 |\n\nThe liaison officer fee is waived on peaks below 7,500 m. Fees are paid to the regional tourism department before the expedition starts."
+    }
+  ]
+}
