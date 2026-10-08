@@ -3,28 +3,15 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react"
 import { createPortal } from "react-dom"
 import { useEngine } from "@/lib/engine-store"
-import {
-  cloudExists,
-  cloudRead,
-  copyText,
-  download,
-  hostOS,
-  isExecutable,
-  isWindowsPath,
-  localFileAction,
-  resolveFile,
-  revealLabel,
-  type FileBody,
-  type LocalAction,
-  type WorkspaceFile,
-} from "@/lib/file-actions"
+import { cloudExists, cloudRead, copyText, download, hostOS, isExecutable, isWindowsPath, localFileAction, resolveFile, revealLabel, type LocalAction, type WorkspaceFile } from "@/lib/file-actions"
 import { usePanel } from "@/lib/panel"
 import { useDismiss } from "@/lib/use-dismiss"
 import { useLongPress } from "@/lib/use-long-press"
+import { restartEntrance, usePresence } from "@/lib/use-presence"
 import { useNarrow } from "@/lib/use-window-class"
-import { Brew } from "./brew"
 import { useReadOnly } from "./read-only"
 import { confirmDialog } from "./ui/dialog"
+import { Notice, useNotices } from "./ui/notice"
 import { MenuList, Sheet } from "./ui/sheet"
 
 /**
@@ -62,8 +49,9 @@ const anchorOf = (el: HTMLElement): Anchor => {
   return { left: r.left, top: r.top, bottom: r.bottom }
 }
 
-type Toast = { text: string; tone?: "warn"; at: number }
-export type MenuItem = { label: string; hint?: string; run(): void } | "sep"
+type Toast = { text: string; tone?: "warn"; anchor: Anchor | null }
+/** `handoff`: choosing it hands over to something that is not one of our overlays, so the menu skips its exit (docs/MOTION.md §4.3). */
+export type MenuItem = { label: string; hint?: string; run(): void; handoff?: boolean } | "sep"
 type Item = MenuItem
 
 /**
@@ -75,18 +63,41 @@ export function useFileMenu(path: string) {
   const panel = usePanel()
   const file = useMemo(() => resolveFile(directory, path), [directory, path])
   const cloud = !!connection
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
-  const [toast, setToast] = useState<Toast | null>(null)
-  const [viewing, setViewing] = useState<FileBody | "loading" | null>(null)
+  // Kept (open: false) while the menu plays its exit, dropped once it has gone.
+  const [menu, setMenu] = useState<{ x: number; y: number; open: boolean } | null>(null)
+  const toasts = useNotices<Toast>()
+  // The mention (or row) that was used: a toast shows next to it.
   const trigger = useRef<HTMLElement | null>(null)
-  const [anchor, setAnchor] = useState<Anchor | null>(null)
-  const flash = useCallback((text: string, tone?: "warn") => setToast({ text, tone, at: Date.now() }), [])
-  const hideToast = useCallback(() => setToast(null), [])
+  const { show: showToast, hide: hideToast, drop: dropToast, current: toast } = toasts
+  // Measured when the toast shows, not when the mention was clicked: the click's own handler shows some toasts before
+  // a re-render, and the page may have scrolled since.
+  const flash = useCallback(
+    (text: string, tone?: "warn") => {
+      const el = trigger.current
+      showToast({ text, tone, anchor: el?.isConnected ? anchorOf(el) : null })
+    },
+    [showToast],
+  )
 
   const closeMenu = useCallback((refocus = true) => {
-    setMenu(null)
+    setMenu((m) => (m?.open ? { ...m, open: false } : m))
     if (refocus) trigger.current?.focus()
   }, [])
+  const menuGone = useCallback(() => setMenu((m) => (m && !m.open ? null : m)), [])
+
+  // The open toast hides after a moment, or as soon as the page scrolls: it is anchored to where the mention was.
+  const toastId = toast?.id
+  const toastTone = toast?.tone
+  useEffect(() => {
+    if (toastId === undefined) return
+    const hide = () => hideToast(toastId)
+    const t = setTimeout(hide, toastTone ? 3500 : 1800)
+    window.addEventListener("scroll", hide, true)
+    return () => {
+      clearTimeout(t)
+      window.removeEventListener("scroll", hide, true)
+    }
+  }, [toastId, toastTone, hideToast])
 
   const missing = useCallback((f: WorkspaceFile) => flash(`${f.rel} doesn't exist yet`, "warn"), [flash])
 
@@ -100,18 +111,6 @@ export function useFileMenu(path: string) {
     },
     [file, directory, flash, missing],
   )
-
-  const view = useCallback(async () => {
-    if (!file) return
-    if (!(await cloudExists(directory, connection, file))) return missing(file)
-    setViewing("loading")
-    const body = await cloudRead(directory, connection, file)
-    if (body) setViewing(body)
-    else {
-      setViewing(null)
-      flash(`Could not read ${file.rel}`, "warn")
-    }
-  }, [file, directory, connection, flash, missing])
 
   const save = useCallback(async () => {
     if (!file) return
@@ -134,8 +133,7 @@ export function useFileMenu(path: string) {
     (x: number, y: number, el: HTMLElement) => {
       if (!file) return
       trigger.current = el
-      setAnchor(anchorOf(el))
-      setMenu({ x, y })
+      setMenu({ x, y, open: true })
     },
     [file],
   )
@@ -146,9 +144,9 @@ export function useFileMenu(path: string) {
     onClick(e: MouseEvent<HTMLElement>) {
       e.stopPropagation()
       trigger.current = e.currentTarget
-      setAnchor(anchorOf(e.currentTarget))
-      if (cloud && panel) panel.openFile(path)
-      else void (cloud ? view() : local("reveal"))
+      // In the cloud every mention sits inside the workspace's panel (workspace-view.tsx), which shows the file.
+      if (cloud) panel?.openFile(path)
+      else void local("reveal")
     },
     onContextMenu(e: MouseEvent<HTMLElement>) {
       if (!file) return
@@ -162,25 +160,42 @@ export function useFileMenu(path: string) {
   }
 
   let ui: ReactNode = null
-  if (file && (menu || toast || viewing)) {
+  if (file && (menu || toasts.items.length)) {
     const os = hostOS()
-    const inPanel: Item[] = panel ? [{ label: "Open in panel", run: () => panel.openFile(path) }] : []
-    const items: Item[] = cloud
-      ? [...(panel ? inPanel : [{ label: "View file", run: () => void view() }]), { label: "Download", run: () => void save() }]
-      : [
-          { label: revealLabel(os), run: () => void local("reveal") },
-          ...inPanel,
-          { label: "Open", hint: isExecutable(file.name, isWindowsPath(directory)) ? "runs it" : undefined, run: () => void local("open") },
-          { label: "Open containing folder", run: () => void local("folder") },
-        ]
-    items.push("sep", { label: "Copy path", run: () => void copy(file.abs, "path") }, { label: "Copy relative path", run: () => void copy(file.rel, "relative path") }, { label: "Copy file name", run: () => void copy(file.name, "file name") })
+    // Opening the panel hands over to it (the full-screen layer on phones), so the menu goes without its exit.
+    const inPanel: Item[] = panel ? [{ label: "Open in panel", run: () => panel.openFile(path), handoff: true }] : []
+    // One literal, not a push: the actions reach a ref (the toast's anchor, read when it shows), and the React compiler
+    // reads passing them to a function during render as reading that ref (react-hooks/refs).
+    const items: Item[] = [
+      ...(cloud
+        ? [...inPanel, { label: "Download", run: () => void save() }]
+        : [
+            { label: revealLabel(os), run: () => void local("reveal") },
+            ...inPanel,
+            { label: "Open", hint: isExecutable(file.name, isWindowsPath(directory)) ? "runs it" : undefined, run: () => void local("open") },
+            { label: "Open containing folder", run: () => void local("folder") },
+          ]),
+      "sep",
+      { label: "Copy path", run: () => void copy(file.abs, "path") },
+      { label: "Copy relative path", run: () => void copy(file.rel, "relative path") },
+      { label: "Copy file name", run: () => void copy(file.name, "file name") },
+    ]
     // Portaled content still bubbles React events to the mention's ancestors (e.g. a tool row that toggles on click).
     const stop = (e: MouseEvent) => e.stopPropagation()
     ui = createPortal(
       <div className="contents" onClick={stop} onContextMenu={stop}>
-        {menu && <Menu at={menu} title={file.rel} items={items} onClose={closeMenu} />}
-        {toast && <ToastView key={toast.at} toast={toast} anchor={anchor} onDone={hideToast} />}
-        {viewing && <Viewer file={file} body={viewing} onDownload={() => viewing !== "loading" && download(file.name, viewing)} onClose={() => setViewing(null)} />}
+        {menu && <Menu open={menu.open} at={menu} title={file.rel} items={items} onClose={closeMenu} onExited={menuGone} />}
+        {toasts.items.map((t) => (
+          <Notice
+            key={t.id}
+            open={t.open}
+            onExited={() => dropToast(t.id)}
+            place={t.anchor ? (el) => placeToast(el, t.anchor!) : undefined}
+            className={`fixed z-[70] max-w-[90vw] truncate rounded-lg ${t.anchor ? "" : "bottom-[calc(env(safe-area-inset-bottom)+96px)] left-1/2 -translate-x-1/2 expanded:bottom-6"} border border-line bg-surface px-3 py-2 text-[12px] shadow-card ${t.tone === "warn" ? "text-warn" : "text-ink-2"}`}
+          >
+            {t.text}
+          </Notice>
+        ))}
       </div>,
       document.body,
     )
@@ -189,64 +204,65 @@ export function useFileMenu(path: string) {
   return { file, cloud, bind, press, openAt, ui }
 }
 
-/** A short note next to the mention that was used; with no anchor, bottom centre (on phones above the composer and the home indicator). */
-function ToastView({ toast, anchor, onDone }: { toast: Toast; anchor: Anchor | null; onDone(): void }) {
-  const ref = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    const t = setTimeout(onDone, toast.tone ? 3500 : 1800)
-    // Anchored to where the mention was; once the page scrolls that is somewhere else.
-    window.addEventListener("scroll", onDone, true)
-    return () => {
-      clearTimeout(t)
-      window.removeEventListener("scroll", onDone, true)
-    }
-  }, [toast, onDone])
-  useLayoutEffect(() => {
-    const el = ref.current
-    if (!el || !anchor) return
-    const r = el.getBoundingClientRect()
-    el.style.left = `${Math.max(8, Math.min(anchor.left, window.innerWidth - r.width - 8))}px`
-    el.style.top = `${anchor.bottom + 6 + r.height > window.innerHeight - 8 ? anchor.top - 6 - r.height : anchor.bottom + 6}px`
-  }, [anchor])
-  return (
-    <div
-      ref={ref}
-      role="status"
-      className={`fixed z-[70] max-w-[90vw] truncate rounded-lg ${anchor ? "" : "bottom-[calc(env(safe-area-inset-bottom)+96px)] left-1/2 -translate-x-1/2 expanded:bottom-6"} border border-line bg-surface px-3 py-2 text-[12px] shadow-card ${toast.tone === "warn" ? "text-warn" : "text-ink-2"}`}
-    >
-      {toast.text}
-    </div>
-  )
+/**
+ * A toast next to the mention that was used: under it, or above it when there is no room below. It drops in under the
+ * mention and rises above it. With no anchor it sits bottom centre (on phones above the composer and the home indicator).
+ */
+function placeToast(el: HTMLElement, anchor: Anchor): "up" | "down" {
+  const r = el.getBoundingClientRect()
+  const above = anchor.bottom + 6 + r.height > window.innerHeight - 8
+  el.style.left = `${Math.max(8, Math.min(anchor.left, window.innerWidth - r.width - 8))}px`
+  el.style.top = `${above ? anchor.top - 6 - r.height : anchor.bottom + 6}px`
+  return above ? "up" : "down"
 }
 
 /** The file actions: an anchored menu at the pointer on desktop, an action sheet (big rows) on phones and tablets. */
-export function Menu(props: { at: { x: number; y: number }; title: string; items: Item[]; onClose(refocus?: boolean): void }) {
+export function Menu(props: { open: boolean; at: { x: number; y: number }; title: string; items: Item[]; onClose(refocus?: boolean): void; onExited(): void }) {
   const narrow = useNarrow()
   if (!narrow) return <PointerMenu {...props} />
   const done = () => props.onClose(false)
   return (
-    <Sheet open onClose={done} title={<span className="block truncate font-mono text-[13px] font-normal text-ink-2">{props.title.split(/[\\/]/).pop() || props.title}</span>} label={props.title}>
-      <MenuList items={props.items.map((it) => (it === "sep" ? ("divider" as const) : { label: it.label, hint: it.hint, onSelect: it.run }))} onDone={done} />
+    <Sheet open={props.open} onClose={done} onExited={props.onExited} title={<span className="block truncate font-mono text-[13px] font-normal text-ink-2">{props.title.split(/[\\/]/).pop() || props.title}</span>} label={props.title}>
+      <MenuList items={props.items.map((it) => (it === "sep" ? ("divider" as const) : { label: it.label, hint: it.hint, onSelect: it.run, handoff: it.handoff }))} onDone={done} />
     </Sheet>
   )
 }
 
-function PointerMenu({ at, title, items, onClose }: { at: { x: number; y: number }; title: string; items: Item[]; onClose(refocus?: boolean): void }) {
-  const ref = useRef<HTMLDivElement>(null)
+/**
+ * At the pointer; flipped up when there is no room below, clamped left near the right edge. It fades in and travels
+ * from that side, like a Popover (docs/MOTION.md §4.5). The side is known only after measuring, so the layout effect
+ * writes it before paint and restarts the entrance from it.
+ */
+function PointerMenu({ open, at, title, items, onClose, onExited }: { open: boolean; at: { x: number; y: number }; title: string; items: Item[]; onClose(refocus?: boolean): void; onExited(): void }) {
+  const p = usePresence<HTMLDivElement>(open, { onExited, handoff: true })
+  const { mounted, ref } = p
   const dismiss = useCallback(() => onClose(false), [onClose])
-  useDismiss(ref, true, dismiss)
+  useDismiss(ref, open, dismiss)
 
   // Keep it inside the viewport: flip up/left near the edges. Positioned through the DOM, no re-render.
+  // Each open (not each mount) plays the entrance and focuses the first item: a right-click on another row while the
+  // menu is open or still leaving opens it again at the new spot without unmounting it.
+  const entered = useRef(false)
   useLayoutEffect(() => {
     const el = ref.current
-    if (!el) return
+    if (!open || !mounted || !el) {
+      // Closing (it stays where it is while it fades) or gone: the next open plays the entrance again.
+      entered.current = false
+      return
+    }
     const r = el.getBoundingClientRect()
+    const up = at.y + r.height > window.innerHeight - 8
     el.style.left = `${Math.max(8, Math.min(at.x, window.innerWidth - r.width - 8))}px`
-    el.style.top = `${at.y + r.height > window.innerHeight - 8 ? Math.max(8, at.y - r.height) : at.y}px`
+    el.style.top = `${up ? Math.max(8, at.y - r.height) : at.y}px`
+    el.dataset.side = up ? "up" : "down"
+    if (entered.current) return
+    entered.current = true
+    restartEntrance(el)
     el.querySelector<HTMLElement>("[role=menuitem]")?.focus()
-  }, [at])
+  }, [at, mounted, open, ref])
 
   useEffect(() => {
+    if (!open) return
     window.addEventListener("scroll", dismiss, true)
     window.addEventListener("resize", dismiss)
     window.addEventListener("blur", dismiss)
@@ -255,7 +271,7 @@ function PointerMenu({ at, title, items, onClose }: { at: { x: number; y: number
       window.removeEventListener("resize", dismiss)
       window.removeEventListener("blur", dismiss)
     }
-  }, [dismiss])
+  }, [open, dismiss])
 
   function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
     const all = [...(ref.current?.querySelectorAll<HTMLElement>("[role=menuitem]") ?? [])]
@@ -272,8 +288,18 @@ function PointerMenu({ at, title, items, onClose }: { at: { x: number; y: number
     else if (e.key === "Tab") onClose(false)
   }
 
+  if (!mounted) return null
   return (
-    <div ref={ref} data-layer role="menu" aria-label={title} onKeyDown={onKeyDown} onContextMenu={(e) => e.preventDefault()} style={{ left: at.x, top: at.y }} className="fixed z-[60] w-[232px] overflow-hidden rounded-xl border border-line bg-surface p-1 shadow-card">
+    <div
+      {...p.props}
+      data-layer
+      role="menu"
+      aria-label={title}
+      onKeyDown={onKeyDown}
+      onContextMenu={(e) => e.preventDefault()}
+      style={{ left: at.x, top: at.y }}
+      className="fixed z-[60] w-[232px] overflow-hidden rounded-xl border border-line bg-surface p-1 shadow-card motion-pop"
+    >
       <div className="truncate px-2.5 pt-1 pb-1.5 font-mono text-[11px] text-muted" title={title}>
         {title}
       </div>
@@ -286,6 +312,7 @@ function PointerMenu({ at, title, items, onClose }: { at: { x: number; y: number
             type="button"
             role="menuitem"
             onClick={() => {
+              if (it.handoff) p.skipExit()
               onClose()
               it.run()
             }}
@@ -296,47 +323,6 @@ function PointerMenu({ at, title, items, onClose }: { at: { x: number; y: number
           </button>
         ),
       )}
-    </div>
-  )
-}
-
-/** Cloud file viewer: full-screen on phones and tablets, a centred dialog from the expanded breakpoint up. */
-function Viewer({ file, body, onDownload, onClose }: { file: WorkspaceFile; body: FileBody | "loading"; onDownload(): void; onClose(): void }) {
-  const ref = useRef<HTMLDivElement>(null)
-  useDismiss(ref, true, onClose)
-  const text = body !== "loading" && body.kind === "text" ? body.text : null
-  const clipped = text && text.length > 200_000 ? `${text.slice(0, 200_000)}\n… (truncated, download for the full file)` : text
-  const btn = "flex items-center rounded-lg px-2 py-1 text-xs text-ink-2 transition hover:bg-surface-2 hover:text-ink disabled:opacity-40 pointer-coarse:min-h-11 pointer-coarse:px-3 pointer-coarse:text-[13px]"
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-bg/70 backdrop-blur-sm expanded:p-4" role="dialog" aria-modal="true" aria-label={file.rel}>
-      <div
-        ref={ref}
-        data-layer
-        className="flex h-full w-full flex-col overflow-hidden bg-surface pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] expanded:h-auto expanded:max-h-[85vh] expanded:w-[min(880px,100%)] expanded:rounded-xl expanded:border expanded:border-line expanded:pt-0 expanded:pb-0 expanded:shadow-card"
-      >
-        <div className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-2">
-          <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-ink-2" title={file.abs}>
-            {file.rel}
-          </span>
-          <button type="button" onClick={onDownload} disabled={body === "loading"} className={btn}>
-            Download
-          </button>
-          <button type="button" autoFocus onClick={onClose} className={btn}>
-            Close
-          </button>
-        </div>
-        <div className="min-h-0 flex-1 overflow-auto overscroll-contain">
-          {body === "loading" ? (
-            <div className="flex min-h-[160px] items-center justify-center p-4">
-              <Brew mood="load" size="md" />
-            </div>
-          ) : clipped !== null ? (
-            <pre className="p-3 font-mono text-[12px] leading-relaxed whitespace-pre text-ink-2">{clipped || <span className="text-muted">(empty file)</span>}</pre>
-          ) : (
-            <div className="p-4 text-xs text-muted">Binary file. Use Download to save it.</div>
-          )}
-        </div>
-      </div>
     </div>
   )
 }

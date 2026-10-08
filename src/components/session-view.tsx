@@ -280,7 +280,7 @@ function ChatMenu({ id, title, totals, onShare }: { id: string; title: string; t
           <circle cx="12.5" cy="8" r="1.3" />
         </svg>
       </button>
-      <Popover open={open} onClose={close} title={title} className="absolute top-full right-0 z-30 mt-1.5 w-[220px] overflow-hidden rounded-xl border border-line bg-surface shadow-card">
+      <Popover open={open} onClose={close} title={title} side="down" className="absolute top-full right-0 z-30 mt-1.5 w-[220px] overflow-hidden rounded-xl border border-line bg-surface shadow-card">
         <MenuList items={items} onDone={close} />
       </Popover>
     </div>

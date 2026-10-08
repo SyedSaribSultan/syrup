@@ -183,7 +183,7 @@ function Toggle({ title, on, busy, onChange, onLabel, offLabel, children }: { ti
           className={`relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition disabled:opacity-50 pointer-coarse:after:absolute pointer-coarse:after:-inset-2.5 ${on ? "bg-accent" : "bg-line-2"}`}
           title={on ? onLabel : offLabel}
         >
-          <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition ${on ? "left-[22px]" : "left-0.5"}`} />
+          <span className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition ${on ? "translate-x-5" : "translate-x-0"}`} />
         </button>
       </div>
       <div className="mt-2 text-[11px] text-muted">{on ? onLabel : offLabel}</div>

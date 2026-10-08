@@ -6,6 +6,7 @@ import { Skel } from "./brew"
 import { confirmDialog } from "./ui/dialog"
 import { Popover } from "./ui/sheet"
 import { useDismiss } from "@/lib/use-dismiss"
+import { useOverlay } from "@/lib/use-presence"
 import { MAX_WORKSPACES } from "@/lib/workspace-limits"
 import { baseName, useAllChats, useWorkspaces, wsColor, wsTint, type WorkspaceItem } from "@/lib/workspaces"
 
@@ -63,7 +64,7 @@ export function WorkspaceSwitcher({ controls }: { controls?: ReactNode }) {
         </svg>
       </button>
 
-      <Popover open={open} onClose={close} label="Workspaces" className="absolute left-3 top-full z-30 mt-1.5 w-[328px] overflow-hidden rounded-xl border border-line bg-surface shadow-card">
+      <Popover open={open} onClose={close} label="Workspaces" side="down" className="absolute left-3 top-full z-30 mt-1.5 w-[328px] overflow-hidden rounded-xl border border-line bg-surface shadow-card">
         <Menu onDone={close} />
         {controls && (
           <div className="border-t border-line">
@@ -78,6 +79,8 @@ export function WorkspaceSwitcher({ controls }: { controls?: ReactNode }) {
 
 function Menu({ onDone }: { onDone(): void }) {
   const { mode, workspaces, activeId, full, open, remove, add } = useWorkspaces()
+  // Opening a workspace navigates (cloud) or swaps the whole screen (local): the menu closes without its exit (MOTION.md §4.3).
+  const overlay = useOverlay()
   const chats = useAllChats()
   const [browsing, setBrowsing] = useState(false)
   const counts = new Map<string, number>()
@@ -101,7 +104,19 @@ function Menu({ onDone }: { onDone(): void }) {
     setFolderErr(err === "missing" ? `${w.detail} no longer exists` : err)
   }
 
-  if (browsing) return <FolderBrowser onBack={() => setBrowsing(false)} onChoose={(path) => void add({ path }).then((err) => !err && onDone())} />
+  if (browsing)
+    return (
+      <FolderBrowser
+        onBack={() => setBrowsing(false)}
+        onChoose={(path) =>
+          void add({ path }).then((err) => {
+            if (err) return
+            overlay?.skipExit()
+            onDone()
+          })
+        }
+      />
+    )
 
   return (
     <div>
@@ -128,6 +143,7 @@ function Menu({ onDone }: { onDone(): void }) {
               <button
                 type="button"
                 onClick={() => {
+                  overlay?.skipExit()
                   open(w.id)
                   onDone()
                 }}
@@ -143,12 +159,12 @@ function Menu({ onDone }: { onDone(): void }) {
                   </span>
                   <span className="block truncate text-[11px] text-muted">{shortDetail(w.detail)}</span>
                 </span>
-                <span className={`shrink-0 text-[11px] text-muted ${isActive && mode === "cloud" ? "" : "group-focus-within:invisible group-hover:invisible pointer-coarse:invisible"}`}>
+                <span className={`shrink-0 text-[11px] text-muted ${isActive && mode === "cloud" ? "" : "transition group-focus-within:opacity-0 group-hover:opacity-0 pointer-coarse:invisible"}`}>
                   {n} {n === 1 ? "chat" : "chats"}
                 </span>
               </button>
               {(mode === "local" || (!isActive && !w.home)) && (
-                <span className="absolute top-1/2 right-2 hidden -translate-y-1/2 items-center gap-0.5 group-focus-within:flex group-hover:flex pointer-coarse:flex">
+                <span className="absolute top-1/2 right-2 flex -translate-y-1/2 items-center gap-0.5 motion-reveal">
                   {mode === "local" && (
                     <button type="button" title={`Open folder in ${folderApp}`} aria-label="Open folder" onClick={() => void onReveal(w)} className="rounded-md p-1.5 text-muted transition hover:bg-surface hover:text-ink pointer-coarse:p-2.5">
                       <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round">

@@ -278,7 +278,8 @@ function FileTree({ target }: { target: Target }) {
   const [dirs, setDirs] = useState<Record<string, Dir>>({})
   const [status, setStatus] = useState<Status | null>(null)
   const [drop, setDrop] = useState<string | null>(null)
-  const [menu, setMenu] = useState<{ x: number; y: number; entry: Entry | null } | null>(null)
+  // Kept (open: false) while the menu plays its exit, dropped once it has gone.
+  const [menu, setMenu] = useState<{ x: number; y: number; entry: Entry | null; open: boolean } | null>(null)
   const [more, setMore] = useState(false)
   const moreRef = useRef<HTMLDivElement>(null)
   const closeMore = useCallback(() => setMore(false), [])
@@ -395,6 +396,8 @@ function FileTree({ target }: { target: Target }) {
       items.push({ label: "Download as .zip", run: () => void zip(rel) })
       items.push({
         label: "Upload files here…",
+        // Hands over to the native file picker: the menu goes without its exit (docs/MOTION.md §4.3).
+        handoff: true,
         run: () => {
           pickFor.current = rel
           picker.current?.click()
@@ -411,7 +414,7 @@ function FileTree({ target }: { target: Target }) {
     ev.preventDefault()
     ev.stopPropagation()
     const r = (ev.currentTarget as HTMLElement).getBoundingClientRect()
-    setMenu({ x: ev.clientX || r.left, y: ev.clientY || r.bottom + 4, entry })
+    setMenu({ x: ev.clientX || r.left, y: ev.clientY || r.bottom + 4, entry, open: true })
   }
 
   function onDragOver(e: DragEvent) {
@@ -456,7 +459,7 @@ function FileTree({ target }: { target: Target }) {
             dropping={dir && drop === e.rel}
             onOpen={() => (dir ? panel.toggleFolder(e.rel) : panel.openFile(e.rel))}
             onMenu={(ev) => openMenu(ev, e)}
-            onMenuAt={(x, y) => setMenu({ x, y, entry: e })}
+            onMenuAt={(x, y) => setMenu({ x, y, entry: e, open: true })}
           />
           {open && rows(e.rel, depth + 1)}
         </div>
@@ -488,7 +491,7 @@ function FileTree({ target }: { target: Target }) {
             <circle cx="7" cy="7" r=".9" fill="currentColor" stroke="none" />
             <circle cx="11" cy="7" r=".9" fill="currentColor" stroke="none" />
           </IconButton>
-          <Popover open={more} onClose={closeMore} title={rootName} className="absolute top-full right-0 z-20 mt-1 w-[260px] rounded-xl border border-line bg-surface shadow-card">
+          <Popover open={more} onClose={closeMore} title={rootName} side="down" className="absolute top-full right-0 z-20 mt-1 w-[260px] rounded-xl border border-line bg-surface shadow-card">
             <MenuList
               onDone={closeMore}
               items={[
@@ -532,7 +535,14 @@ function FileTree({ target }: { target: Target }) {
       )}
       {menu &&
         createPortal(
-          <Menu at={{ x: menu.x, y: menu.y }} title={menu.entry?.rel || rootName} items={menuItems(menu.entry)} onClose={() => setMenu(null)} />,
+          <Menu
+            open={menu.open}
+            at={{ x: menu.x, y: menu.y }}
+            title={menu.entry?.rel || rootName}
+            items={menuItems(menu.entry)}
+            onClose={() => setMenu((m) => m && { ...m, open: false })}
+            onExited={() => setMenu((m) => (m && !m.open ? null : m))}
+          />,
           document.body,
         )}
     </>
@@ -580,7 +590,7 @@ function Row({
       >
         <span className="flex w-3 shrink-0 justify-center text-muted">
           {dir && (
-            <svg width="8" height="8" viewBox="0 0 8 8" className={`transition-transform motion-reduce:transition-none ${open ? "rotate-90" : ""}`}>
+            <svg width="8" height="8" viewBox="0 0 8 8" className={`transition-transform ${open ? "rotate-90" : ""}`}>
               <path d="M2.5 1.2 5.6 4 2.5 6.8" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           )}

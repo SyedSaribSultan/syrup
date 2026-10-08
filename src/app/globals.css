@@ -302,6 +302,331 @@ body {
   border-top: 1px solid var(--line);
 }
 
+/* @motion-begin
+ * ─── Motion (docs/MOTION.md §3, §8, §9) ─────────────────────────────────────────────────────────
+ * The only place in the app's CSS where `transition` and `animation` may be written.
+ * Components name what they are (a plain `transition`, or a `motion-*` utility below), never how long it takes.
+ * Never both on one element: the built CSS puts `.transition` after the motion-* utilities at the same specificity,
+ * so the bare transition would win and drop the utility's timing (check-motion fails the pair).
+ * src/lib/motion.ts exports the same numbers for JS; scripts/check-motion.mjs (part of `pnpm lint`) keeps the two in sync
+ * and fails on raw timings anywhere else.
+ */
+:root {
+  --motion-fast: 120ms; /* hover, press, chevrons, crossfades, all exits of small things */
+  --motion-base: 180ms; /* popovers, menus, dialogs, expand/collapse, notices */
+  --motion-slow: 240ms; /* sheets, drawer, workspace panel, sidebar ↔ rail */
+  --motion-shift: 4px; /* how far popovers and notices travel */
+  --ease-arrive: cubic-bezier(0.2, 0, 0, 1); /* entering: fast start, soft landing */
+  --ease-leave: cubic-bezier(0.3, 0, 1, 1); /* leaving: gets out of the way */
+  --ease-move: cubic-bezier(0.2, 0, 0, 1); /* changing size or place on screen */
+}
+
+/*
+ * Every bare `transition` (and transition-colors / -opacity / -transform) runs on the system: fast, move.
+ * `inline` so utilities read the tokens themselves rather than a copy resolved at :root.
+ */
+@theme inline {
+  --default-transition-duration: var(--motion-fast);
+  --default-transition-timing-function: var(--ease-move);
+}
+
+/* Reduced motion: nothing travels. Colour and opacity fades stay; slides become fades inside the utilities below. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-shift: 0px;
+  }
+}
+
+/* Opacity only, fast: dims and reveals (the usage page's "stale" dim). */
+@utility motion-fade {
+  transition-property: opacity;
+  transition-duration: var(--motion-fast);
+  transition-timing-function: var(--ease-move);
+}
+
+/*
+ * Hover-revealed row actions (sidebar chat rows, workspace switcher rows), inside a `group` row.
+ * Hidden until the row is hovered or holds focus; always shown on touch screens. Hidden is transparent AND invisible,
+ * so the actions stay out of the tab order and the accessibility tree until shown, as when they were display: none.
+ * Fades, fast. Visibility turns on at once (0s), so a Tab from the row's link lands on them even in the same frame,
+ * and turns off only when the fade-out ends.
+ * Shown is `visibility: inherit`, never `visible`: a visible child of a hidden parent shows, so inside the closed phone
+ * drawer the actions would be focusable and announced.
+ */
+@utility motion-reveal {
+  visibility: hidden;
+  opacity: 0;
+  transition-property: opacity, visibility;
+  transition-duration: var(--motion-fast);
+  transition-timing-function: var(--ease-move);
+  :where(.group):focus-within & {
+    visibility: inherit;
+    opacity: 1;
+    transition-duration: var(--motion-fast), 0s;
+  }
+  @media (hover: hover) {
+    :where(.group):hover & {
+      visibility: inherit;
+      opacity: 1;
+      transition-duration: var(--motion-fast), 0s;
+    }
+  }
+  @media (pointer: coarse) {
+    & {
+      visibility: inherit;
+      opacity: 1;
+    }
+  }
+}
+
+/*
+ * Overlays (MOTION.md §4.1, §5) are kept mounted by usePresence (src/lib/use-presence.ts), which sets data-state="open" |
+ * "closed" on them. Open is the element's normal look, so nothing is hidden before JS runs. Entrances start from the
+ * @starting-style rules at the end of this group (each ::backdrop has its own: a dialog's doesn't reach it). Closed fades
+ * out, takes no pointer events (usePresence adds `inert`), and is unmounted when its transition ends.
+ * A native <dialog> (Sheet, Dialog) leaves as a popover, no longer modal (useModalDialog, MOTION.md §4.2). While it
+ * switches between the two (`data-layer-swap`, for one synchronous call) it must not stop displaying, or its transition
+ * would start over; its new ::backdrop starts from the old one's opacity (`--backdrop-from`, set by the same call).
+ */
+
+/*
+ * A bottom sheet (components/ui/sheet.tsx, a native <dialog>): rises from below its own height, slow, arrive; its
+ * backdrop fades with it. Out: slides down, base, leave. A drag's offset is an inline translate with no transition, so
+ * the snap-back after a short drag, and the exit after a long one, continue from the finger.
+ * Reduced motion: nothing travels. It fades in place, fast; translate is not transitioned, so a drag's offset snaps away.
+ */
+@utility motion-sheet {
+  transition-property: translate;
+  transition-duration: var(--motion-slow);
+  transition-timing-function: var(--ease-arrive);
+  &::backdrop {
+    transition-property: opacity;
+    transition-duration: var(--motion-slow);
+    transition-timing-function: var(--ease-arrive);
+  }
+  &[data-state="closed"] {
+    translate: 0 100%;
+    pointer-events: none;
+    transition-duration: var(--motion-base);
+    transition-timing-function: var(--ease-leave);
+  }
+  &[data-state="closed"]::backdrop {
+    opacity: 0;
+    transition-duration: var(--motion-base);
+    transition-timing-function: var(--ease-leave);
+  }
+  &[data-layer-swap] {
+    display: block;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    & {
+      transition-property: opacity;
+      transition-duration: var(--motion-fast);
+    }
+    &::backdrop {
+      transition-duration: var(--motion-fast);
+    }
+    &[data-state="closed"] {
+      translate: none;
+      opacity: 0;
+      transition-duration: var(--motion-fast);
+    }
+    &[data-state="closed"]::backdrop {
+      transition-duration: var(--motion-fast);
+    }
+  }
+}
+
+/*
+ * A centred dialog (components/ui/dialog.tsx, a native <dialog>): the backdrop fades to its 40 %; the card fades and
+ * scales 0.98 → 1, base, arrive. Out: fades, fast, leave. `data-backdrop="instant"`: a queued dialog that replaces the
+ * one before it keeps the backdrop where it is (MOTION.md §4.3). Reduced motion: no scale, fades only, fast.
+ */
+@utility motion-dialog {
+  transition-property: opacity, scale;
+  transition-duration: var(--motion-base);
+  transition-timing-function: var(--ease-arrive);
+  &::backdrop {
+    transition-property: opacity;
+    transition-duration: var(--motion-base);
+    transition-timing-function: var(--ease-arrive);
+  }
+  &[data-state="closed"] {
+    opacity: 0;
+    pointer-events: none;
+    transition-duration: var(--motion-fast);
+    transition-timing-function: var(--ease-leave);
+  }
+  &[data-state="closed"]::backdrop {
+    opacity: 0;
+    transition-duration: var(--motion-fast);
+    transition-timing-function: var(--ease-leave);
+  }
+  &[data-backdrop="instant"][data-state="open"]::backdrop {
+    transition-duration: 0s;
+  }
+  &[data-layer-swap] {
+    display: block;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    & {
+      transition-property: opacity;
+      transition-duration: var(--motion-fast);
+    }
+    &::backdrop {
+      transition-duration: var(--motion-fast);
+    }
+  }
+}
+
+/*
+ * Popovers, menus, the model picker panel, PointerMenu and the Logs viewer: fade, plus --motion-shift of travel from
+ * `data-side` (up: rises from its trigger below; down: drops from its trigger above; right: slides out of the rail; none:
+ * fade only), base, arrive. transform-origin follows the side. Out: fades in place, fast, leave.
+ * The travel is `transform`, not `translate`, so it adds to a caller's own translate classes instead of replacing them.
+ * Reduced motion: --motion-shift is 0, so it only fades, fast.
+ */
+@utility motion-pop {
+  transition-property: opacity, transform;
+  transition-duration: var(--motion-base);
+  transition-timing-function: var(--ease-arrive);
+  &[data-side="up"] {
+    transform-origin: bottom;
+  }
+  &[data-side="down"] {
+    transform-origin: top;
+  }
+  &[data-side="right"] {
+    transform-origin: left;
+  }
+  &[data-state="closed"] {
+    opacity: 0;
+    pointer-events: none;
+    transition-duration: var(--motion-fast);
+    transition-timing-function: var(--ease-leave);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    & {
+      transition-duration: var(--motion-fast);
+    }
+  }
+}
+
+/*
+ * A toast (components/ui/notice.tsx): fades and travels --motion-shift from `data-side`, fast, arrive (a toast under its
+ * anchor drops, one above it or at the bottom of the screen rises). Out: fades, fast, leave. A new toast crossfades the
+ * old one. Reduced motion: fades only.
+ */
+@utility motion-notice {
+  transition-property: opacity, transform;
+  transition-duration: var(--motion-fast);
+  transition-timing-function: var(--ease-arrive);
+  &[data-state="closed"] {
+    opacity: 0;
+    pointer-events: none;
+    transition-timing-function: var(--ease-leave);
+  }
+}
+
+/* Entrances: where an overlay starts from on its first frame. */
+@starting-style {
+  .motion-sheet[data-state="open"] {
+    translate: 0 100%;
+  }
+  .motion-dialog[data-state="open"] {
+    opacity: 0;
+    scale: 0.98;
+  }
+  :is(.motion-pop, .motion-notice)[data-state="open"] {
+    opacity: 0;
+  }
+}
+/* The travel. Reduced motion has none (--motion-shift is 0 there too), so it doesn't even start a 0 px transform. */
+@media (prefers-reduced-motion: no-preference) {
+  @starting-style {
+    :is(.motion-pop, .motion-notice)[data-state="open"][data-side="up"] {
+      transform: translateY(var(--motion-shift));
+    }
+    :is(.motion-pop, .motion-notice)[data-state="open"][data-side="down"] {
+      transform: translateY(calc(var(--motion-shift) * -1));
+    }
+    :is(.motion-pop, .motion-notice)[data-state="open"][data-side="right"] {
+      transform: translateX(calc(var(--motion-shift) * -1));
+    }
+  }
+}
+@starting-style {
+  .motion-sheet[data-state="open"]::backdrop,
+  .motion-dialog[data-state="open"]::backdrop {
+    opacity: var(--backdrop-from, 0);
+  }
+  /* Only a dialog that has just become a popover for its exit has a new backdrop while closed: it carries on fading. */
+  .motion-sheet[data-state="closed"]::backdrop,
+  .motion-dialog[data-state="closed"]::backdrop {
+    opacity: var(--backdrop-from, 1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  @starting-style {
+    .motion-sheet[data-state="open"] {
+      translate: none;
+      opacity: 0;
+    }
+  }
+}
+
+/*
+ * A full-height layer that slides in from an edge and is off-screen when closed: the phone drawer (app-shell.tsx). Its
+ * scrim uses it too, so it fades on the drawer's timing (it is transparent when closed, so it only fades).
+ * Open is `data-open="true"` or `data-state="open"`; closed is `data-open="false"` or `data-state="closed"`.
+ * In: slow, arrive. Out: one step faster, base, leave.
+ * - Opening turns visibility on at once (0s). A hidden → visible transition is still `hidden` in its first frame,
+ *   so the layer could not take the focus its opener gives it, and Chromium, with nothing painted, could not run the
+ *   slide on the compositor. Closing keeps it visible until the slide ends.
+ * - Closed (and closing) takes no pointer events (MOTION.md §4.1): a quick tap during the exit reaches the page.
+ * Reduced motion: nothing travels. The closed state sits in place at opacity 0 (its own visibility rule still hides
+ * it) and only opacity fades, fast. translate is not transitioned, so a swipe's offset snaps away instead of sliding
+ * back. Use it only where the element is a layer (e.g. `max-expanded:motion-layer`), since it hides the closed state.
+ */
+@utility motion-layer {
+  transition-property: translate, opacity, visibility;
+  transition-duration: var(--motion-base);
+  transition-timing-function: var(--ease-leave);
+  &:where([data-open="false"], [data-state="closed"]) {
+    pointer-events: none;
+  }
+  &:where([data-open="true"], [data-state="open"]) {
+    transition-duration: var(--motion-slow), var(--motion-slow), 0s;
+    transition-timing-function: var(--ease-arrive);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    & {
+      transition-property: opacity, visibility;
+      transition-duration: var(--motion-fast);
+    }
+    &:where([data-open="true"], [data-state="open"]) {
+      transition-duration: var(--motion-fast), 0s;
+    }
+    &:where([data-open="false"], [data-state="closed"]) {
+      translate: none;
+      opacity: 0;
+    }
+  }
+}
+
+/*
+ * Theme switch (lib/theme.ts): for one frame nothing transitions, so the whole app changes colour at once instead of
+ * the ~100 elements with `transition` fading (shadows too) while the rest snap.
+ */
+:root[data-theme-switching],
+:root[data-theme-switching] *,
+:root[data-theme-switching] *::before,
+:root[data-theme-switching] *::after,
+:root[data-theme-switching] *::backdrop {
+  transition: none !important;
+}
+
+/* Loops that stay as they are (MOTION.md §1). Their periods are not tokens: they are rhythms, not transitions. */
 @keyframes pulse-dot {
   0%,
   100% {
@@ -325,7 +650,7 @@ body {
   animation: orbit 1s linear infinite;
 }
 
-/* Skeletons: shaped like the real content, breathing gently; groups appear late so fast loads never flash. */
+/* Skeletons: shaped like the real content, breathing gently; groups appear late (160 ms) so fast loads never flash. */
 .skel {
   background: var(--line);
   animation: skel-breathe 1.6s ease-in-out infinite;
@@ -335,7 +660,7 @@ body {
   50% { opacity: 1; }
 }
 .skel-in {
-  animation: skel-appear 240ms ease-out 160ms both;
+  animation: skel-appear var(--motion-slow) var(--ease-arrive) 160ms both;
 }
 @keyframes skel-appear {
   from { opacity: 0; }
@@ -343,8 +668,11 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .orbit, .pulse, .skel, .skel-in { animation: none; }
+  .orbit, .pulse, .skel { animation: none; }
+  /* The 160 ms wait is a don't-flash threshold, not motion, so it stays; only the fade goes (it jumps to 1 at the end). */
+  .skel-in { animation-timing-function: step-start; }
 }
+/* @motion-end */
 
 /* Behind image previews, so transparency reads as transparency. */
 .checker {

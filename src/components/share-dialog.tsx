@@ -72,7 +72,7 @@ export function ShareButton({ sessionId, open: openProp, onOpenChange, trigger =
           Share
         </button>
       )}
-      <Popover open={open} onClose={close} label="Share chat" className="absolute top-full right-0 z-30 mt-2 w-[min(440px,92vw)] rounded-xl border border-line bg-surface text-left shadow-card">
+      <Popover open={open} onClose={close} label="Share chat" side="down" className="absolute top-full right-0 z-30 mt-2 w-[min(440px,92vw)] rounded-xl border border-line bg-surface text-left shadow-card">
         <SharePanel sessionId={sessionId} />
       </Popover>
     </div>

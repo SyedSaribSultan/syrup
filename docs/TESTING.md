@@ -17,6 +17,7 @@ Run these in order. Each must exit 0. The UI harness needs the dev server runnin
 ```bash
 pnpm typecheck
 pnpm exec eslint src scripts sidecar
+node scripts/check-motion.mjs
 pnpm test:router
 pnpm test:diffs
 pnpm test:transcript
@@ -25,6 +26,7 @@ pnpm ui:harness --label round-2
 pnpm ui:weight --compare
 ```
 
+- **Motion:** `node scripts/check-motion.mjs` (also part of `pnpm lint`) fails on raw timings and on `src/lib/motion.ts` and `globals.css` disagreeing ([MOTION.md](MOTION.md) §9). It runs its own self-test first (`SELF_TEST` in the script). A new loophole gets a case there, as well as a rule.
 - **Screenshots:** open `screenshots/harness/<label>/` and look at every screen the round touched, at both widths. A green table is not enough: the harness checks errors, layout and assertions, not taste.
 - **Router changes:** also `pnpm bench:agent` before and after (ROADMAP §2, "First token first").
 - **Nothing new in the main chunk:** `pnpm ui:weight --compare` fails when initial JavaScript grows by more than 2 KB gzipped or a new chunk joins the initial load (§4).
@@ -139,6 +141,28 @@ All play in one fictional project, `acme-shop` (`C:\Users\dev\code\acme-shop`), 
 | `panel-saved-width` | chat + Files pane | A pane saved 1100 px wide (on a 1920 px monitor) opened at 1440 px: the chat keeps 440 px on open, after a resize to 1920 and back, and while the edge is dragged. The title keeps room (the token totals step aside while the pane is open). Phones: the full-screen layer |
 | `chat-rich-fences` | a finished chat | Acceptance fixture for Rounds 2–3: two Mermaid diagrams, Vega-Lite, SVG, inline and display math, a 20-row CSV, a markmap. Valid input, so a renderer that fails here has a bug |
 | `panel-preview`, `panel-preview-csv` | chat + Preview | `docs/launch-plan.md` rendered as Markdown; `data/orders.csv` as a table |
+| `motion-tokens` | `/` | Motion M0: bare `transition` runs on the tokens (120 ms, `--ease-move`); the phone drawer is `motion-layer` and takes no taps while closed; sidebar row actions fade in on hover (desktop), and hidden ones are invisible |
+| `motion-row-actions-keyboard` | `/`, 1440 px only | Shift+Tab from a row's link skips the row above's hidden Rename/Delete; Tab then reaches them |
+| `motion-switcher-actions` | `/` + workspace switcher, 1440 px only | Only the hovered row's actions show; the others are invisible |
+| `motion-drawer-open` | `/`, 390 px only | ☰: the drawer takes the focus, and its slide runs on the compositor (Chromium trace) |
+| `motion-theme-switch` | `/` + settings menu | System → Dark starts no transition (the one-frame suppression); the dark screen |
+| `motion-reduced`, `motion-reduced-open` | `/`, 390 px only | Reduced motion: the closed drawer sits in place at opacity 0 and takes no taps; `translate` isn't transitioned; `.skel-in` keeps its 160 ms wait. ☰ fades the drawer in on the compositor, and it takes the focus |
+| `motion-popovers` | a chat, 1440 px only | Motion M1 (`motion-overlays.mjs`): chat ⋯, composer +, Share, settings, workspace switcher and model picker each fade in from their side and leave on a 120 ms exit, gone within 300 ms |
+| `motion-panel-popovers` | chat + Preview, 1440 px only | The preview ⋯ and the file tree ⋯ drop from their buttons |
+| `motion-pointer-menu` | a chat, 1440 px only | Right-click on a file link: the menu drops from the pointer, or rises when opened near the bottom; Copy path plays its exit and the toast drops in under the link; Open in panel closes the menu without its exit |
+| `motion-confirm` | a chat | ⋯ → Delete chat: the menu (a sheet on phones) goes without an exit; the confirm fades and scales in over a fading backdrop; Cancel fades it out, and `close()` comes after the exit |
+| `motion-handoff` | a chat, 1440 px only | ⋯ → Rename and settings → Logs close their menu without its exit; the prompt and the Logs viewer play their own |
+| `motion-sheet`, `motion-sheet-handoff` | a chat, 390 px only | The phone sheet rises with its backdrop and slides out on base; focus goes back to ⋯. ☰ → settings sheet → Logs: the sheet goes at once, the Logs viewer fades and rises in |
+| `motion-drawer-scrim`, `motion-drawer-scrim-close` | a chat, 390 px only | The drawer's scrim fades in and out with the drawer, on the compositor; closed, it takes no taps |
+| `motion-overlays-reduced` | a chat | Reduced motion through `page.emulateMedia`: the sheet and the confirm fade in place (no travel, no scale), and their exit is 120 ms (`exitMs`, read from the CSS) |
+| `motion-open-*` | a chat | Each overlay left open (menu, confirm, PointerMenu, toast, model picker, Logs), so the screenshot shows it settled |
+| `motion-close-mid-entrance` | a chat | M1 review: Escape 30 ms after the chat ⋯ menu (popover, or sheet on phones) and the confirm appear, mid-entrance: each still plays its exit from where it got to, to its end |
+| `motion-dialog-focus-return` | a chat | M1 review: ⋯ from the keyboard → Delete chat → Escape, then ⋯ → Rename → Escape: focus goes back to ⋯ both times, though the menu that opened each dialog has gone |
+| `motion-tap-during-exit` | a chat, 390 px only | M1 review: a tap on ☰ while the chat ⋯ sheet slides out reaches the page and opens the drawer (the leaving sheet is no longer modal). The exit is stretched to 1.5 s so the tap is surely inside it |
+| `motion-click-during-dialog-exit` | a chat, 1440 px only | M1 review: a click on ⋯ while the Delete chat confirm fades out opens the menu |
+| `motion-sheet-reopen-during-exit` | a chat, 390 px only | M1 review: ⋯ again while its sheet slides out brings the same sheet back up, modal again with focus inside; Escape then closes it as usual |
+| `motion-pointer-menu-again` | chat + Files, 1440 px only | M1 review: right-click a tree row, then another while the menu is open: the menu moves, plays its entrance again and its first item has focus, so arrow keys work |
+| `motion-toast-anchor` | a long chat, 1440 px only | M1 review, local: a click on a mention whose file is missing (the reveal answers 404) shows the toast next to the mention, on the first click and again after the chat scrolled |
 
 ---
 
@@ -205,6 +229,10 @@ All play in one fictional project, `acme-shop` (`C:\Users\dev\code\acme-shop`), 
 - **`steps`** run in order after the screen settles. Selectors are Playwright selectors (CSS, `text=…`, `:has-text()`). Any step or assertion can carry `widths: [390]`.
   - `{ click }`, `{ tap }`, `{ hover }`, `{ fill: [sel, text] }`, `{ type: [sel, text] }`, `{ press: key }` or `{ press: [sel, key] }`
   - `{ waitFor: sel }`, `{ wait: ms }`, `{ scroll: [sel, "top" | "bottom"] }`
+  - `{ watchTransitions: true }` records every CSS transition that starts from then on (for `{ transitions }` below)
+  - `{ focus: sel }` focuses the first match, where a keyboard check starts (then `{ press: "Shift+Tab" }`, …)
+  - `{ inject: html }` appends HTML to `<body>`, to check a CSS class on an element of its own (e.g. a `.skel-in` probe)
+  - `{ watchAnimations: true }` (Chromium) traces, from then on, which CSS transitions and animations run on the compositor (for `{ composited }` below)
   - `{ emit: event | event[], every }` pushes engine events into the open stream, in the engine's shape. With `every` (ms) they go one at a time, like a model writing. The fake's stored state follows, so a reload afterwards reads it. To end a streaming turn, emit these in order (`chat-joined-midstream` does):
     1. `partEnd(part, { text })`: the whole text with `time.end` set. That is how the engine ends a streamed part.
     2. `message.updated` with the message's `info` plus `time.completed`.
@@ -226,9 +254,29 @@ All play in one fictional project, `acme-shop` (`C:\Users\dev\code\acme-shop`), 
   - `{ box: sel, minWidth | maxWidth }`: the first visible match's width in px.
   - `{ inView: sel, above }`: the last visible match lies inside the window, and with `above` (a selector) wholly above that element's top. For example, the end of a reply above the composer: `above: "div:has(> textarea[data-composer])"`. Assertions run before the full-page screenshot grows the window.
   - Add `gap: "why"` to make one a known gap (§3.3).
+- **Overlays (Motion M1):**
+  - `{ presence: { name, open, target, close } }` runs the `open` step(s), finds `target` (the element carrying `data-state`), records its entrance, runs the `close` step(s) and records its exit in the page. `open: []` means an earlier step opened it.
+  - `assert { presence: name }` checks it opened at full opacity with `data-state="open"`, ran the `entered` transitions (default `["opacity"]`), then stayed mounted with `data-state="closed"`, inert and without pointer events, for 40–300 ms (`min`, `within`).
+    - **A native `<dialog>` shown modal** must stop being modal as its exit starts (so the page takes taps again), stay in the top layer as a popover until it is gone, and be closed with `close()` while still in the page.
+    - **Every exit must run to its end:** the element must not be removed while one of the exit's own transitions still has more than a frame to go. It is measured as the exit starts and on every frame after. A transition left over from the entrance doesn't count.
+  - **WebKit:** the wall-clock bound is checked in Chromium only. Playwright's WebKit on Windows paints in software, and one 120 ms exit ends there anywhere from 150 to 550 ms after closing. In WebKit the overlay only has to be gone within a second (or the scenario's own `within`, when that is longer); the closed state, `inert`, pointer events, `exitMs` and `close()` order are checked the same.
+  - Options: `exitMs` (the exit transition's length), `side` (its `data-side`; `null` for none), `notEntered`, `backdrop: true` (the `::backdrop` ends opaque, and faded in; Chromium only), `skipped: true` (a hand-off: gone without ever showing `data-state="closed"`).
+  - **A close mid-entrance:** `{ presence: { …, closeAfter: ms } }` closes `ms` after the overlay appears, with no wait after each open and close step. Assert it with `midEntrance: true`.
+    - The check fails if the entrance had already ended at the close, because then nothing was tested.
+    - Opacity once open isn't checked, and `min` defaults to 0. The browser shortens a reversed transition by how far the entrance had got, so a barely-risen sheet is back down in about 10 ms.
+    - "Runs to its end" (above) is what catches an exit cut short.
+  - `{ watchEntrances: true }` records transitions from that point on. Use it before an overlay comes back that a later `{ presence: { open: [] } }` step checks. Otherwise the first `{ presence }` step starts the record.
+  - `{ media: { reducedMotion: "reduce" } }` calls `page.emulateMedia` mid-scenario. `{ contextMenu: sel }` right-clicks; `{ contextMenu: [sel, { x, y }] }` fires the event at those coordinates. `{ tapAt: [x, y] }` taps a point.
+  - **Added after the M1 review:**
+    - `{ tapThrough: sel }` and `{ clickThrough: sel }` tap or click the centre of the first match without Playwright's wait for it to take events. Whatever is on top there gets the event, so a leaving overlay must let it through.
+    - `{ checkpoint: { name, assert } }` runs any assertion mid-scenario and keeps the result. `assert { checkpoint: name }` reports it.
+    - `{ respond: { path, status, method?, body? } }` answers the app's requests to `path` with this from then on, for example a 404 from `/api/workspace/reveal`.
+    - `{ scrollBy: [sel, dy] }` scrolls the first match's nearest scroller by `dy` px. Negative scrolls up.
+    - `assert { distance: [selA, selB], max }` checks the gap between the two first matches' boxes is at most `max` px. Touching or overlapping counts as 0.
+  - **One `watchAnimations` trace per round of animations.** Chromium reuses an animation's trace id once it ends, so a trace across an open and a close can pin one animation's failure (a `visibility` transition, never composited) on another. `motion-drawer-scrim` is two scenarios for that reason.
 - **`ready`:** extra selectors to wait for before anything else. Chat routes already wait for the messages, `/` for "Working in".
 - **`block`:** URL globs whose requests fail, as offline or after a deploy removed old chunks (`["**/*use-typewriter*"]`). The browser's "Failed to load resource" for them is listed under Notes, not failed. A glob that blocks nothing fails the run, because the scenario would test nothing.
-- **Also:** `settleMs`, `widths`, `colorScheme: "dark"`, `reducedMotion: "reduce"`, `model` (the picked model), `panelPrefs`.
+- **Also:** `expectConsole: [{ match: /regex/, why }]` (console errors the scenario causes on purpose, such as a `{ respond }` 404: listed under Notes like the harness's known ones, not counted), `settleMs`, `widths`, `browsers: ["chromium"]` (skip the scenario in other browsers; WebKit, for one, leaves links out of the Tab order), `colorScheme: "dark"`, `reducedMotion: "reduce"`, `model` (the picked model), `panelPrefs`.
 
 ### 3.3 Known gaps
 

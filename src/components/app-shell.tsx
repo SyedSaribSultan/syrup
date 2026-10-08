@@ -28,7 +28,8 @@ export function AppShell({ sidebar, pageBar, children }: { sidebar: ReactNode; p
     // chat's widest unbreakable line (a code line, a tool command, the routed-model line), and the whole app,
     // header and composer included, grows wider than a phone screen.
     <div className="flex h-full min-h-0 min-w-0 flex-1">
-      {open && <div aria-hidden onClick={nav?.closeDrawer} className="fixed inset-0 z-40 bg-black/40 expanded:hidden" />}
+      {/* The scrim fades with the drawer (motion-layer: in slow + arrive, out base + leave) and takes no taps while closed. */}
+      <div aria-hidden data-open={open} onClick={nav?.closeDrawer} className="invisible fixed inset-0 z-40 bg-black/40 opacity-0 max-expanded:motion-layer data-[open=true]:visible data-[open=true]:opacity-100 expanded:hidden" />
       <div
         ref={drawer}
         tabIndex={-1}
@@ -59,7 +60,8 @@ export function AppShell({ sidebar, pageBar, children }: { sidebar: ReactNode; p
           setDx(0)
         }}
         style={dx ? { translate: `${dx}px 0`, transition: "none" } : undefined}
-        className="invisible fixed inset-y-0 left-0 z-50 flex w-[min(80vw,320px)] -translate-x-full bg-bg shadow-card outline-none transition-[translate,visibility] duration-200 ease-out motion-reduce:transition-none data-[open=true]:visible data-[open=true]:translate-x-0 expanded:visible expanded:static expanded:z-auto expanded:w-[264px] expanded:shrink-0 expanded:translate-x-0 expanded:shadow-none expanded:transition-none expanded:data-[collapsed=true]:w-16 expanded:max-large:data-[forced=true]:w-16"
+        // motion-layer only while it is a drawer: from `expanded` up it is a column, and sidebar ↔ rail stays instant until M3 (docs/MOTION.md §6.1).
+        className="invisible fixed inset-y-0 left-0 z-50 flex w-[min(80vw,320px)] -translate-x-full bg-bg shadow-card outline-none max-expanded:motion-layer data-[open=true]:visible data-[open=true]:translate-x-0 expanded:visible expanded:static expanded:z-auto expanded:w-[264px] expanded:shrink-0 expanded:translate-x-0 expanded:shadow-none expanded:data-[collapsed=true]:w-16 expanded:max-large:data-[forced=true]:w-16"
       >
         {sidebar}
       </div>

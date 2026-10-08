@@ -7,7 +7,7 @@
     "build": "node sidecar/build.mjs && next build",
     "start": "next start -H 127.0.0.1",
     "db:generate:pg": "drizzle-kit generate --config drizzle-pg.config.ts",
-    "lint": "eslint",
+    "lint": "eslint && node scripts/check-motion.mjs",
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",

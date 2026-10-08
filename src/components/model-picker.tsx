@@ -6,11 +6,12 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { useEngine } from "@/lib/engine-store"
 import { useDismiss } from "@/lib/use-dismiss"
 import { useKeyTiers, type KeyTiers } from "@/lib/use-key-tiers"
-import { useCoarsePointer, useNarrow } from "@/lib/use-window-class"
+import { useOverlay } from "@/lib/use-presence"
+import { useCoarsePointer } from "@/lib/use-window-class"
 import { useRouterStatus } from "@/lib/use-router-status"
 import { useSessionAnswers } from "@/lib/use-session-answers"
 import { Brew } from "./brew"
-import { Sheet } from "./ui/sheet"
+import { Popover } from "./ui/sheet"
 import { MAX_FAVORITES, modelKey, recordRecent, toggleFavorite, useModelPrefs } from "@/lib/model-prefs"
 import { costTier, displayName, providerName } from "@/lib/model-registry"
 import {
@@ -44,7 +45,6 @@ function useSessionId(): string | undefined {
  */
 export function ModelPicker({ variant = "composer" }: { variant?: "composer" | "bar" }) {
   const { models, model } = useEngine()
-  const narrow = useNarrow()
   const [open, setOpen] = useState(false)
   const [place, setPlace] = useState({ up: true, max: 560 })
   const ref = useRef<HTMLDivElement>(null)
@@ -115,13 +115,20 @@ export function ModelPicker({ variant = "composer" }: { variant?: "composer" | "
           <path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" strokeWidth="1.3" />
         </svg>
       </button>
-      {open && narrow ? (
-        <Sheet open onClose={close} size="full" label="Choose a model">
-          <Panel onClose={close} up={false} maxHeight={0} sessionId={sessionId} sheet />
-        </Sheet>
-      ) : (
-        open && <Panel onClose={close} up={place.up} maxHeight={place.max} sessionId={sessionId} />
-      )}
+      {/* A full-height sheet below the expanded breakpoint. On desktop: fixed height, positioned by its top edge, so
+          switching rows or filtering never moves the rows under the cursor. It opens up or down (`place`), and travels
+          in from that side (docs/MOTION.md §4.5). */}
+      <Popover
+        open={open}
+        onClose={close}
+        size="full"
+        label="Choose a model"
+        side={place.up ? "up" : "down"}
+        className={`absolute left-0 z-30 flex w-[420px] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-card ${place.up ? "" : "top-full mt-2"}`}
+        style={place.up ? { height: place.max, top: -(place.max + 8) } : { height: place.max }}
+      >
+        <Panel onClose={close} sessionId={sessionId} />
+      </Popover>
     </div>
   )
 }
@@ -129,8 +136,14 @@ export function ModelPicker({ variant = "composer" }: { variant?: "composer" | "
 /** Item key plus the model it shows, so the highlight follows a model that moves section (e.g. when starred). */
 type Cursor = { key: string | null; model: string | null }
 
-function Panel({ onClose, up, maxHeight, sessionId, sheet }: { onClose(): void; up: boolean; maxHeight: number; sessionId?: string; sheet?: boolean }) {
+function Panel({ onClose, sessionId }: { onClose(): void; sessionId?: string }) {
   const coarse = useCoarsePointer()
+  // "Add a provider key" and "Fix key" navigate: the picker closes without its exit (docs/MOTION.md §4.3).
+  const overlay = useOverlay()
+  const leave = () => {
+    overlay?.skipExit()
+    onClose()
+  }
   const { models, model, setModel, hasKeys, directory } = useEngine()
   const status = useRouterStatus(true)
   const answers = useSessionAnswers(sessionId)
@@ -205,11 +218,7 @@ function Panel({ onClose, up, maxHeight, sessionId, sheet }: { onClose(): void; 
   }
 
   return (
-    <div
-      className={sheet ? "flex h-full flex-col" : `absolute left-0 z-30 flex w-[420px] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-card ${up ? "" : "top-full mt-2"}`}
-      // Fixed height, positioned by its top edge: switching rows or filtering never moves the rows under the cursor.
-      style={sheet ? undefined : up ? { height: maxHeight, top: -(maxHeight + 8) } : { height: maxHeight }}
-    >
+    <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-center gap-2 border-b border-line px-3.5">
         <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" className="shrink-0 text-muted">
           <circle cx="6" cy="6" r="4.2" />
@@ -244,7 +253,7 @@ function Panel({ onClose, up, maxHeight, sessionId, sheet }: { onClose(): void; 
         ) : models.length === 0 ? (
           <div className="px-3.5 py-3 text-[13px] text-muted">
             No models yet.{" "}
-            <Link href="/settings/providers" onClick={onClose} className="text-accent hover:underline">
+            <Link href="/settings/providers" onClick={leave} className="text-accent hover:underline">
               Add a provider key
             </Link>
           </div>
@@ -264,7 +273,7 @@ function Panel({ onClose, up, maxHeight, sessionId, sheet }: { onClose(): void; 
               onPick={activate}
               onHover={point}
               onStar={star}
-              onClose={onClose}
+              onLeave={leave}
             />
           ))
         )}
@@ -298,10 +307,11 @@ type RowProps = {
   onPick(i: Item): void
   onHover(i: Item): void
   onStar(key: string): void
-  onClose(): void
+  /** Closes the picker for a link that navigates. */
+  onLeave(): void
 }
 
-function Row({ item, active, current, favorites, status, tiers, nowFor, onPick, onHover, onStar, onClose }: RowProps) {
+function Row({ item, active, current, favorites, status, tiers, nowFor, onPick, onHover, onStar, onLeave }: RowProps) {
   if (item.kind === "header") return <div className="px-3.5 pt-2.5 pb-1 text-[11px] font-medium text-muted">{item.label}</div>
 
   const common = {
@@ -380,7 +390,7 @@ function Row({ item, active, current, favorites, status, tiers, nowFor, onPick, 
               href="/settings/providers"
               onClick={(e) => {
                 e.stopPropagation()
-                onClose()
+                onLeave()
               }}
               className="ml-1 text-accent hover:underline"
             >

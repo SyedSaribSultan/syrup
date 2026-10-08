@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useParams } from "next/navigation"
 import { clog } from "@/lib/clientlog"
+import { usePresence, type Presence } from "@/lib/use-presence"
 import { useNarrow } from "@/lib/use-window-class"
 import { Skel } from "./brew"
 import { Sheet } from "./ui/sheet"
@@ -15,10 +16,12 @@ export function LogsProvider({ children }: { children: ReactNode }) {
   const params = useParams<{ id?: string }>()
   const open = useCallback(() => setOpen(true), [])
   const close = useCallback(() => setOpen(false), [])
+  // Fades in and out (docs/MOTION.md §5); an overlay, so a menu that opens it closes without its own exit (§4.3).
+  const presence = usePresence<HTMLDivElement>(isOpen, { handoff: true })
   return (
     <LogsContext.Provider value={{ open }}>
       {children}
-      {isOpen && <LogsModal sessionID={params?.id} onClose={close} />}
+      {presence.mounted && <LogsModal sessionID={params?.id} onClose={close} presence={presence} />}
     </LogsContext.Provider>
   )
 }
@@ -66,7 +69,7 @@ function pretty(s: string | null): string {
   }
 }
 
-export function LogsModal({ sessionID, onClose }: { sessionID?: string; onClose(): void }) {
+export function LogsModal({ sessionID, onClose, presence }: { sessionID?: string; onClose(): void; presence?: Presence<HTMLDivElement> }) {
   const [rows, setRows] = useState<Row[]>([])
   const [loaded, setLoaded] = useState(false)
   const [engineTail, setEngineTail] = useState<string[]>([])
@@ -224,9 +227,13 @@ export function LogsModal({ sessionID, onClose }: { sessionID?: string; onClose(
 
   // Phones: title, Filters and ✕ on the first line, the counts under them, then the copy buttons.
   // From medium up it is today's single wrapping bar. `order-*` does the reshuffle, so the DOM stays one list.
+  // Motion: the whole layer fades (motion-pop), base in and fast out; phones add a small rise. The blur radius never
+  // animates (docs/MOTION.md §8): it stays as it is while the layer's opacity changes.
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col bg-bg/95 pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] backdrop-blur-sm"
+      {...presence?.props}
+      data-side={narrow ? "up" : undefined}
+      className="fixed inset-0 z-50 flex flex-col bg-bg/95 pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] backdrop-blur-sm motion-pop"
       role="dialog"
       aria-modal="true"
       aria-label="Logs"
