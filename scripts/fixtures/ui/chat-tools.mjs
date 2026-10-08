@@ -105,6 +105,10 @@ export default defineScenario({
     { text: "Could not find oldString in the file." },
     { text: "shell tool terminated command after exceeding timeout 120000 ms" },
     { count: ".chat-log span.bg-err", equals: 1 },
+    // The failed edit has no title (1.18 keeps none on an error), yet its row names the file the way the others do:
+    // relative to the project, not C:\Users\dev\code\acme-shop\src\cart.ts.
+    { count: ".chat-log div.cursor-pointer:has(span.bg-err):has-text('src\\\\cart.ts')", equals: 1 },
+    { count: ".chat-log div.cursor-pointer:has(span.bg-err):has-text('acme-shop')", equals: 0 },
     { text: "Update plan" },
     { text: "Edited 2 files:" },
     { visible: ".chat-log [role=status]:has-text('Running')" },

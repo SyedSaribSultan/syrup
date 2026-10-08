@@ -25,7 +25,9 @@ await build({
       'export * from "./src/server/router/core"',
       'export * from "./src/server/router/upstream-errors"',
       'export { BASE_URL } from "./src/server/router/backends"',
-      'export { applySticky, difficulty, estimatePromptTokens, trailingToolFailures } from "./src/server/router/policy"',
+      'export { applySticky, difficulty, estimatePromptTokens, fallbackTitle, isTitleCall, trailingToolFailures } from "./src/server/router/policy"',
+      'export { describeDrops, droppedAttempt } from "./src/lib/router-status"',
+      'export { routerSwitch } from "./src/lib/router-answers"',
       'export { HttpRouterStore } from "./sidecar/store-http"',
     ].join("\n"),
     resolveDir: root,
@@ -123,6 +125,10 @@ const K = {
   opencode: ["opencode", { id: null, secret: "public", tier: "free" }],
   groq: ["groq", { id: "k_groq", secret: "groq-secret", tier: "free" }],
   nvidia: ["nvidia", { id: "k_nv", secret: "nv-secret", tier: "free" }],
+  openrouterFree: ["openrouter", { id: "k_or", secret: "or-secret", tier: "free" }],
+  openrouterPaid: ["openrouter", { id: "k_orp", secret: "orp-secret", tier: "paid" }],
+  anthropicPaid: ["anthropic", { id: "k_ant", secret: "ant-secret", tier: "paid" }],
+  zai: ["zai", { id: "k_zai", secret: "zai-secret", tier: "free" }],
 }
 
 // ------------------------------------------------------------------ mock upstream
@@ -188,7 +194,7 @@ const mock = (() => {
 })()
 await new Promise((r) => mock.server.listen(0, "127.0.0.1", r))
 mock.url = `http://127.0.0.1:${mock.server.address().port}`
-const baseURLs = Object.fromEntries(["google", "opencode", "groq", "nvidia", "openrouter", "openai", "anthropic"].map((p) => [p, `${mock.url}/${p}`]))
+const baseURLs = Object.fromEntries(["google", "opencode", "groq", "nvidia", "openrouter", "openai", "anthropic", "zai"].map((p) => [p, `${mock.url}/${p}`]))
 
 /** Normal OpenAI-style SSE answer. Content says who answered. */
 function sseOk(opts = {}) {
@@ -257,6 +263,40 @@ function roleThenStall() {
     await new Promise((resolve) => res.on("close", resolve))
   }
 }
+/** Accepts the request and never answers: no status line, no headers. */
+function hang() {
+  return async (req, res) => {
+    await new Promise((resolve) => res.on("close", resolve))
+  }
+}
+/** Sends the status line and headers, then never sends the body. */
+function headersThenHang(code, contentType) {
+  return async (req, res) => {
+    res.writeHead(code, { "content-type": contentType })
+    res.write(" ")
+    await new Promise((resolve) => res.on("close", resolve))
+  }
+}
+/** Waits, then behaves like `fn`. */
+function after(ms, fn) {
+  return async (req, res, hit) => {
+    await sleep(ms)
+    if (hit.closed) return
+    return fn(req, res, hit)
+  }
+}
+/** An answer with no visible content that stops at its output cap: hidden thinking used up the budget (Gemini's documented empty output). */
+function emptyAtCap() {
+  return async (req, res) => {
+    res.writeHead(200, { "content-type": "text/event-stream" })
+    const send = (o) => res.write(`data: ${JSON.stringify(o)}\n\n`)
+    send({ id: "c", choices: [{ index: 0, delta: { role: "assistant", content: "" } }] })
+    send({ id: "c", choices: [{ index: 0, delta: {}, finish_reason: "length" }] })
+    send({ id: "c", choices: [], usage: { prompt_tokens: 600, completion_tokens: 512 } })
+    res.write("data: [DONE]\n\n")
+    res.end()
+  }
+}
 
 const GOOGLE_PER_DAY = [
   {
@@ -295,7 +335,7 @@ const GOOGLE_PER_MINUTE = [
 // ------------------------------------------------------------------ router under test
 
 const SECRET = "test-secret"
-const TIMING = { minDeadlineMs: 800, maxDeadlineMs: 1500, lastDeadlineMs: 3000, budgetMs: 8000, idleMs: 2000, nonStreamMs: 5000, hedgeMinMs: 300, hedgeMaxMs: 400 }
+const TIMING = { minDeadlineMs: 800, maxDeadlineMs: 1500, lastDeadlineMs: 3000, budgetMs: 8000, idleMs: 2000, nonStreamMs: 5000, hedgeMinMs: 300, hedgeMaxMs: 400, leashMs: 500 }
 
 /** A chat that already has one answered turn: the sticky/deadline paths, without the opening turn's speed pick and hedge. */
 function continuation(user) {
@@ -398,6 +438,70 @@ function toolTurn(id, result) {
 }
 
 const QUALITY_STRONG_FREE = new Set(["opencode/mimo-v2.6-flash-free", "opencode/big-pickle", "opencode/muse-spark-1.3-contributor-free"])
+
+/** OpenCode 1.18's title prompt (its hidden "title" agent, title.txt), opening lines plus filler to its real size (~2.1 KB). */
+const TITLE_PROMPT = [
+  "You are a title generator. You output ONLY a thread title. Nothing else.",
+  "",
+  "<task>",
+  "Generate a brief title that would help the user find this conversation later.",
+  "",
+  "Follow all rules in <rules>",
+  "Use the <examples> so you know what a good title looks like.",
+  "Your output must be:",
+  "- A single line",
+  "- ≤50 characters",
+  "- No explanations",
+  "</task>",
+].join("\n").padEnd(2096, "\n- Keep exact technical terms, numbers and filenames")
+
+/** OpenCode's chat-title request (session/prompt.ts): the title prompt, the fixed ask, then the chat's first message, no tools. */
+function titleCall(first = "add a README file") {
+  return [
+    { role: "system", content: TITLE_PROMPT },
+    { role: "user", content: "Generate a title for this conversation:\n" },
+    { role: "user", content: first },
+  ]
+}
+
+/**
+ * A title the router let go: a normal 200 completion (never an error, which would leave OpenCode's timestamp title for
+ * good) whose text is the router's own title made from the first message. Checks the exact wire shape OpenCode's AI SDK
+ * parses: SSE chunks with role and content, a "stop" chunk, a usage chunk and [DONE]; or one chat.completion JSON.
+ */
+function syntheticTitle(res, expected, name = "title") {
+  eq(res.status, 200, `${name}: a normal answer, not an error`)
+  eq(res.headers.get("x-syrup-title"), "synthetic", `${name}: marked synthetic`)
+  eq(res.headers.get("retry-after"), null, `${name}: nothing invites a retry`)
+  if (res.json) {
+    assert(/application\/json/.test(res.headers.get("content-type") ?? ""), `${name}: JSON for a non-streaming request`)
+    eq(res.json.object, "chat.completion", `${name}: a chat.completion`)
+    eq(res.json.choices?.[0]?.message?.role, "assistant", `${name}: from the assistant`)
+    eq(res.json.choices[0].message.content, expected, `${name}: the title`)
+    eq(res.json.choices[0].finish_reason, "stop", `${name}: finished`)
+    assert(res.json.usage && res.json.usage.completion_tokens === 0, `${name}: usage, no tokens spent`)
+    return
+  }
+  assert(/text\/event-stream/.test(res.headers.get("content-type") ?? ""), `${name}: SSE for a streaming request`)
+  const data = res.text
+    .split("\n")
+    .filter((l) => l.startsWith("data: "))
+    .map((l) => l.slice(6))
+  eq(data.at(-1), "[DONE]", `${name}: ends with [DONE]`)
+  const chunks = data.slice(0, -1).map((d) => JSON.parse(d))
+  assert(chunks.every((c) => c.object === "chat.completion.chunk" && typeof c.id === "string" && c.id === chunks[0].id), `${name}: chat.completion.chunk objects with one id`)
+  eq(chunks[0].choices[0].delta.role, "assistant", `${name}: the first chunk names the role`)
+  eq(res.content, expected, `${name}: the title`)
+  eq(chunks.filter((c) => c.choices[0]?.finish_reason === "stop").length, 1, `${name}: one "stop"`)
+  assert(chunks.at(-1).usage && chunks.at(-1).choices.length === 0, `${name}: a usage chunk last`)
+}
+
+/** An agent-sized system prompt of about `tokens` tokens (the router estimates ~3.6 characters per token). */
+function agentSystem(tokens) {
+  return { role: "system", content: `You are a coding agent.\n${"Use the tools to read and edit files. ".repeat(Math.ceil((tokens * 3.6) / 37))}` }
+}
+
+const READ_TOOL = { type: "function", function: { name: "read", description: "Read a file", parameters: { type: "object", properties: { path: { type: "string" } } } } }
 
 // ------------------------------------------------------------------ scenarios
 
@@ -513,21 +617,23 @@ await scenario("unit: turn difficulty heuristics", async () => {
 })
 
 await scenario("unit: substantial asks are hard, judged from the latest user message for every step of the turn", async () => {
-  const s = { key: "x", sticky: null, stickyAt: 0, stickyByFallback: false, outEwma: 600, escalatedUntil: 0, lastSeen: 0 }
+  // A fresh session per judgment: a hard opening now escalates its session (decision 13), so a shared one would carry
+  // the first verdict into the others. What follows a hard opening is covered by the escalation unit test.
+  const fresh = () => ({ key: "x", sticky: null, stickyAt: 0, stickyByFallback: false, outEwma: 600, escalatedUntil: 0, lastSeen: 0 })
   const brief =
     "I'm working on a big project and need sample brands to test an image generator that is meant to be good at ads. " +
     "Help me create a whole campaign: one large document with prompts for image ads and video ads. Start with one product, " +
     "a new cereal inspired by a superhero series that just came out. Build the full brand around it, the product, the packaging, " +
     "the look and the voice, and give me very detailed prompts for each format so I can compare how the generator handles them. " +
     "Keep it to one product for now and we can add more brands later once this one works."
-  const d = R.difficulty("auto", [{ role: "user", content: brief }], s, 0)
+  const d = R.difficulty("auto", [{ role: "user", content: brief }], fresh(), 0)
   eq(d.hard, true, "a long, detailed creative brief is hard")
   assert(d.why?.startsWith("work:"), `why: ${d.why}`)
-  eq(R.difficulty("auto", [{ role: "user", content: "write a haiku about rain" }], s, 0).hard, false, "one work signal is routine")
-  eq(R.difficulty("auto", [{ role: "user", content: "create a complete README for this repo" }], s, 0).hard, true, "produce + depth is hard")
+  eq(R.difficulty("auto", [{ role: "user", content: "write a haiku about rain" }], fresh(), 0).hard, false, "one work signal is routine")
+  eq(R.difficulty("auto", [{ role: "user", content: "create a complete README for this repo" }], fresh(), 0).hard, true, "produce + depth is hard")
   const continuing = [{ role: "user", content: brief }, { role: "assistant", content: "Here is the campaign. # 1. Brand" }]
-  eq(R.difficulty("auto", continuing, s, 0).hard, true, "a continuation step keeps the turn's verdict")
-  eq(R.difficulty("auto", [...continuing, { role: "user", content: "thanks!" }], s, 0).hard, false, "the next user message is judged on its own")
+  eq(R.difficulty("auto", continuing, fresh(), 0).hard, true, "a continuation step keeps the turn's verdict")
+  eq(R.difficulty("auto", [...continuing, { role: "user", content: "thanks!" }], fresh(), 0).hard, false, "the next user message is judged on its own")
 })
 
 await scenario("unit: a failover backend never carries into the next user turn", async () => {
@@ -569,16 +675,17 @@ await scenario("gemini: a request ending with a partial answer gets a continue t
   }
 })
 
-await scenario("a) normal turn → non-scarce strong free model; plan/debug turn → gemini-3.8-flash", async () => {
+await scenario("a) normal turn → non-scarce strong free model; a later plan/debug turn → gemini-3.8-flash", async () => {
   const r = await makeRouter({ keys: [K.google, K.opencode] })
   try {
     const normal = await chat(r, { user: "add a README file", headers: { "x-session-affinity": "ses_a1" } })
     eq(normal.status, 200, "normal status")
     const pick = `${normal.headers.get("x-syrup-provider")}/${normal.headers.get("x-syrup-model")}`
     assert(QUALITY_STRONG_FREE.has(pick), `normal turn picked ${pick}, wanted a strong keyless Zen model`)
-    const planned = await chat(r, { user: "plan the architecture for the billing module", headers: { "x-session-affinity": "ses_a2" } })
+    // Later turns: a hard opening is answered by a quick strong model first (decision 13, z12–z14).
+    const planned = await chat(r, { messages: continuation("plan the architecture for the billing module"), headers: { "x-session-affinity": "ses_a2" } })
     eq(`${planned.headers.get("x-syrup-provider")}/${planned.headers.get("x-syrup-model")}`, "google/gemini-3.8-flash", "plan turn")
-    const debug = await chat(r, { user: "debug the failing login test", headers: { "x-session-affinity": "ses_a3" } })
+    const debug = await chat(r, { messages: continuation("debug the failing login test"), headers: { "x-session-affinity": "ses_a3" } })
     eq(debug.headers.get("x-syrup-model"), "gemini-3.8-flash", "debug turn")
     const rec = r.received()
     eq(rec[0].hard, false, "normal logged not hard")
@@ -611,7 +718,8 @@ await scenario("b) the same session sticks to its backend; a hard turn escalates
     const okEvents = r.events.filter((e) => e.status === "ok")
     eq(okEvents[0].reason, "best", "first turn reason")
     eq(okEvents[1].reason, "sticky", "second turn reason")
-    const three = await chat(r, { messages: [{ role: "system", content: "You are a coding agent." }, { role: "user", content: "debug why the build fails" }], headers: h })
+    // The chat's real history, so this is a later hard turn: a one-message list would be a hard opening (decision 13).
+    const three = await chat(r, { messages: [{ role: "system", content: "You are a coding agent." }, { role: "user", content: "add a README file" }, { role: "assistant", content: "done" }, { role: "user", content: "now add a license" }, { role: "assistant", content: "done" }, { role: "user", content: "debug why the build fails" }], headers: h })
     eq(three.headers.get("x-syrup-model"), "gemini-3.8-flash", "hard turn escalates")
     eq(r.events.filter((e) => e.status === "ok")[2].reason, "escalated", "escalated reason")
   } finally {
@@ -746,7 +854,8 @@ await scenario("i) 401 cools the provider key; other providers serve", async () 
   const r = await makeRouter({ keys: [K.google, K.opencode] })
   try {
     mock.set("google/gemini-3.8-flash", status(401, { error: { message: "API key not valid" } }))
-    const res = await chat(r, { user: "plan the migration", headers: { "x-session-affinity": "ses_i" } })
+    // A later hard turn, so the frontier Google model is tried first (a hard opening goes to a quick model, decision 13).
+    const res = await chat(r, { messages: continuation("plan the migration"), headers: { "x-session-affinity": "ses_i" } })
     eq(res.status, 200, "status")
     eq(res.headers.get("x-syrup-provider"), "opencode", "served by another provider")
     eq(mock.hits.filter((h) => h.provider === "google").length, 1, "no second google model tried with the rejected key")
@@ -754,7 +863,7 @@ await scenario("i) 401 cools the provider key; other providers serve", async () 
     eq(ev.reason, "auth", "auth reason")
     const st = await r.status()
     assert(st.cooldowns.some((c) => c.scope === "k:google#k_google" && c.reason === "auth"), "key-scope cooldown")
-    await chat(r, { user: "plan again", headers: { "x-session-affinity": "ses_i2" } })
+    await chat(r, { messages: continuation("plan again"), headers: { "x-session-affinity": "ses_i2" } })
     eq(mock.hits.filter((h) => h.provider === "google").length, 1, "google not called while the key cools")
   } finally {
     await r.close()
@@ -1065,7 +1174,8 @@ await scenario("t) a rejected Google key (HTTP 400 API_KEY_INVALID) cools the wh
   try {
     mock.set("google/gemini-3.8-flash", status(400, GOOGLE_BAD_KEY))
     mock.set("google/gemini-3.5-flash-lite", status(400, GOOGLE_BAD_KEY))
-    const res = await chat(r, { user: "plan the migration", headers: { "x-session-affinity": "ses_t" } })
+    // A later hard turn, so the frontier Google model is tried first (a hard opening goes to a quick model, decision 13).
+    const res = await chat(r, { messages: continuation("plan the migration"), headers: { "x-session-affinity": "ses_t" } })
     eq(res.status, 200, "served")
     eq(res.headers.get("x-syrup-provider"), "opencode", "another provider served")
     eq(mock.hits.filter((h) => h.provider === "google").length, 1, "one google attempt, then the key is skipped")
@@ -1485,14 +1595,15 @@ await scenario("z7) a retired model (404) is out for the day, with no health pen
   const r = await makeRouter({ keys: [K.google, K.opencode], now: clock.now })
   try {
     mock.set("google/gemini-3.8-flash", status(404, { error: { message: "This model models/gemini-3.8-flash is no longer available", code: 404, status: "NOT_FOUND" } }))
-    const res = await chat(r, { user: "plan the migration", headers: { "x-session-affinity": "ses_z7" } })
+    // Later hard turns, so the frontier Google model is tried first (a hard opening goes to a quick model, decision 13).
+    const res = await chat(r, { messages: continuation("plan the migration"), headers: { "x-session-affinity": "ses_z7" } })
     eq(res.status, 200, "status")
     assert(res.headers.get("x-syrup-model") !== "gemini-3.8-flash", "served by another model")
     const ev = r.events.find((e) => e.modelId === "gemini-3.8-flash")
     assert(ev.retryAt - ev.ts >= 23 * 3600_000, "cooldown lasts about a day")
     const hits = mock.of("google/gemini-3.8-flash").length
     clock.advance(2 * 3600_000)
-    await chat(r, { user: "plan another migration", headers: { "x-session-affinity": "ses_z7b" } })
+    await chat(r, { messages: continuation("plan another migration"), headers: { "x-session-affinity": "ses_z7b" } })
     eq(mock.of("google/gemini-3.8-flash").length, hits, "not tried again two hours later")
     const st = await r.status()
     const h = st.health.find((x) => x.id.includes("gemini-3.8-flash"))
@@ -1606,6 +1717,1208 @@ await scenario("z11) a hedge is not started when the first backend answers in ti
   } finally {
     await r.close()
   }
+})
+
+// ------------------------------------------------------------------ round 1: hard turns answer fast, escalate after (decision 13)
+
+await scenario("unit: a hard opening escalates its session through the user's next turn, however long the user takes; a routine opening or a hard later turn does not", async () => {
+  const fresh = () => ({ key: "x", sticky: null, stickyAt: 0, stickyByFallback: false, outEwma: 600, escalatedUntil: 0, escalatedThroughUser: 0, lastSeen: 0 })
+  const plan = [{ role: "user", content: "Plan the auth module" }]
+  const reply = [...plan, { role: "assistant", content: "Here is the plan." }, { role: "user", content: "ok, do it" }]
+  const s = fresh()
+  eq(R.difficulty("auto", plan, s, 0).why, "keyword:plan", "the hard opening itself")
+  eq(s.escalatedThroughUser, 2, "escalates its session through the next user turn (decision 13: the next turn, not a clock)")
+  eq(s.escalatedUntil, 0, "no time window")
+  eq(R.difficulty("auto", reply, s, 60_000).why, "escalated", "a routine-sounding reply is still hard")
+  eq(R.difficulty("auto", reply, s, 11 * 60_000).why, "escalated", "even when the user read the plan for 11 minutes")
+  eq(R.difficulty("auto", [...reply, ...toolTurn("c_e1", "ok")], s, 12 * 60_000).why, "escalated", "and so are that turn's own tool steps")
+  const next = [...reply, { role: "assistant", content: "Done." }, { role: "user", content: "thanks" }]
+  eq(R.difficulty("auto", next, s, 13 * 60_000).hard, false, "the user turn after the reply is judged on its own")
+  eq(s.escalatedThroughUser, 0, "and ends the escalation")
+  eq(R.difficulty("auto", reply, s, 14 * 60_000).hard, false, "a shorter history (a compaction) does not revive it")
+  const routine = fresh()
+  R.difficulty("auto", [{ role: "user", content: "add a readme" }], routine, 0)
+  eq(routine.escalatedThroughUser + routine.escalatedUntil, 0, "a routine opening escalates nothing")
+  const later = fresh()
+  eq(R.difficulty("auto", [{ role: "user", content: "hi" }, { role: "assistant", content: "hello" }, { role: "user", content: "plan the auth module" }], later, 0).hard, true, "a hard later turn is hard")
+  eq(later.escalatedThroughUser + later.escalatedUntil, 0, "but escalates nothing: it is ranked quality-first from its first step, as before")
+  const fast = fresh()
+  R.difficulty("fast", plan, fast, 0)
+  eq(fast.escalatedThroughUser + fast.escalatedUntil, 0, "Fast never escalates")
+})
+
+await scenario("z12) a hard opening is answered fast by a strong model: not the slow frontier one, not a weak quick one", async () => {
+  const catalog = baseCatalog()
+  catalog.set("nvidia", new Map([["meta/llama-3.1-8b-instruct", M("meta/llama-3.1-8b-instruct", { context: 131_072, output: 16_384 })]]))
+  const r = await makeRouter({ keys: [K.google, K.opencode, K.nvidia], catalog })
+  try {
+    const res = await chat(r, { user: "plan the architecture for the billing module", headers: { "x-session-affinity": "ses_z12" } })
+    eq(res.status, 200, "status")
+    eq(`${res.headers.get("x-syrup-provider")}/${res.headers.get("x-syrup-model")}`, "opencode/mimo-v2.6-flash-free", "the quickest model of the strong grade answers")
+    eq(res.headers.get("x-syrup-reason"), "best", "ranked first, not reached through a hedge")
+    eq(mock.of("google/gemini-3.8-flash").length, 0, "the slow frontier model is not asked")
+    eq(mock.of("nvidia/meta/llama-3.1-8b-instruct").length, 0, "nor the weak quick one")
+    const rec = r.received()[0]
+    eq(rec.opening, true, "logged as an opening")
+    eq(rec.why, "keyword:plan", "logged as hard")
+  } finally {
+    await r.close()
+  }
+  mock.reset()
+  // Google alone, with an agent-sized prompt (~12K tokens: the agent prompt and tool schemas), where the quick model's
+  // head start outweighs its lower quality. Flash-Lite (quality 60) is below the strong grade: a hard opening goes to
+  // the strong model, while a routine one still goes to the quick one.
+  const r2 = await makeRouter({ keys: [K.google] })
+  try {
+    const agent = { role: "system", content: `You are a coding agent.\n${"Use the tools to read and edit files. ".repeat(1_200)}` }
+    const hard = await chat(r2, { messages: [agent, { role: "user", content: "debug why the login test fails" }], headers: { "x-session-affinity": "ses_z12b" } })
+    eq(hard.headers.get("x-syrup-model"), "gemini-3.8-flash", "hard opening: the strong floor keeps the quick mid model below")
+    const routine = await chat(r2, { messages: [agent, { role: "user", content: "add a README file" }], headers: { "x-session-affinity": "ses_z12c" } })
+    eq(routine.headers.get("x-syrup-model"), "gemini-3.5-flash-lite", "routine opening: unchanged")
+  } finally {
+    await r2.close()
+  }
+})
+
+await scenario("z13) a hard opening is hedged too, by a partner that clears the routine floor; a weak model is never raced for one", async () => {
+  const r = await makeRouter({ keys: [K.opencode] })
+  try {
+    mock.set("opencode/mimo-v2.6-flash-free", roleThenStall())
+    const t0 = Date.now()
+    const res = await chat(r, { user: "plan the architecture for the billing module", headers: { "x-session-affinity": "ses_z13" } })
+    eq(res.status, 200, "status")
+    eq(res.headers.get("x-syrup-reason"), "hedge", "answered by the partner")
+    eq(res.headers.get("x-syrup-model"), "big-pickle", "the next strong, free, non-scarce backend")
+    assert(Date.now() - t0 < 1200, `answered before the first backend's deadline (${Date.now() - t0} ms)`)
+    const lost = r.events.find((e) => e.modelId === "mimo-v2.6-flash-free")
+    eq(lost.status, "aborted", "the silent one is cut")
+    eq(lost.reason, "hedged", "as a lost race")
+    eq(lost.retryAt, null, "with no cooldown")
+  } finally {
+    await r.close()
+  }
+  // The only other backend is weak: a hard opening does not race it (it stays a fallback); a routine opening still does.
+  const catalog = new Map([
+    ["opencode", new Map([["mimo-v2.6-flash-free", M("mimo-v2.6-flash-free", { context: 200_000, output: 32_000 })]])],
+    ["nvidia", new Map([["meta/llama-3.1-8b-instruct", M("meta/llama-3.1-8b-instruct", { context: 131_072, output: 16_384 })]])],
+  ])
+  for (const [user, reason] of [
+    ["plan the architecture for the billing module", "fallback"],
+    ["add a README file", "hedge"],
+  ]) {
+    mock.reset()
+    const r2 = await makeRouter({ keys: [K.opencode, K.nvidia], catalog })
+    try {
+      mock.set("opencode/mimo-v2.6-flash-free", roleThenStall())
+      const res = await chat(r2, { user, headers: { "x-session-affinity": "ses_z13b" } })
+      eq(res.headers.get("x-syrup-model"), "meta/llama-3.1-8b-instruct", `${user}: the weak model answers in the end`)
+      eq(res.headers.get("x-syrup-reason"), reason, `${user}: ${reason === "hedge" ? "raced (routine: unchanged)" : "only after the deadline, never raced"}`)
+      eq(r2.logs.some((l) => l.event === "hedge.start"), reason === "hedge", `${user}: hedge started`)
+    } finally {
+      await r2.close()
+    }
+  }
+})
+
+await scenario("z14) after a quick hard opening, the next request goes to the strongest grade: mid-turn, or on a routine-sounding reply", async () => {
+  const sys = { role: "system", content: "You are a coding agent." }
+  // A: the quick answer calls a tool, and the very next step is already the frontier model's.
+  const r = await makeRouter({ keys: [K.google, K.opencode] })
+  try {
+    const h = { "x-session-affinity": "ses_z14a" }
+    mock.once("opencode/mimo-v2.6-flash-free", sseOk({ text: "Let me run the test first.", toolCall: "call_z14" }))
+    const ask = [sys, { role: "user", content: "debug why the login test fails" }]
+    const one = await chat(r, { messages: ask, headers: h })
+    eq(one.headers.get("x-syrup-model"), "mimo-v2.6-flash-free", "the quick strong model answers first")
+    const step = [...ask, ...toolTurn("call_z14", "FAIL login.test.ts: expected 200, got 401")]
+    const two = await chat(r, { messages: step, headers: h })
+    eq(two.headers.get("x-syrup-model"), "gemini-3.8-flash", "the next step is the frontier model's")
+    eq(two.headers.get("x-syrup-reason"), "escalated", "escalated")
+    const call = mock.hits.at(-1).body.messages[2].tool_calls[0]
+    eq(call.extra_content?.google?.thought_signature, "skip_thought_signature_validator", "the quick model's tool call carries Google's documented skip value")
+    const three = await chat(r, { messages: [...step, ...toolTurn("call_z14b", "export function login() {}")], headers: h })
+    eq(three.headers.get("x-syrup-model"), "gemini-3.8-flash", "the rest of the turn stays there")
+    eq(three.headers.get("x-syrup-reason"), "sticky", "sticky")
+  } finally {
+    await r.close()
+  }
+  mock.reset()
+  // B: the quick answer ends the turn; the user's routine-sounding reply goes to the frontier model.
+  const r2 = await makeRouter({ keys: [K.google, K.opencode] })
+  try {
+    const h = { "x-session-affinity": "ses_z14b" }
+    const ask = [sys, { role: "user", content: "plan the billing module" }]
+    eq((await chat(r2, { messages: ask, headers: h })).headers.get("x-syrup-model"), "mimo-v2.6-flash-free", "quick first answer")
+    const reply = await chat(r2, { messages: [...ask, { role: "assistant", content: "1. Model the invoices…" }, { role: "user", content: "ok, do it" }], headers: h })
+    eq(reply.headers.get("x-syrup-model"), "gemini-3.8-flash", "the reply goes to the frontier model")
+    eq(reply.headers.get("x-syrup-reason"), "escalated", "escalated")
+    eq(r2.received().at(-1).why, "escalated", "because the session is escalated, not because of the reply's words")
+  } finally {
+    await r2.close()
+  }
+  mock.reset()
+  // C: a chat that opened routine keeps today's rules: a hard later turn escalates, and the routine reply after it does not stay there.
+  const r3 = await makeRouter({ keys: [K.google, K.opencode] })
+  try {
+    const h = { "x-session-affinity": "ses_z14c" }
+    const open = [sys, { role: "user", content: "add a README file" }]
+    eq((await chat(r3, { messages: open, headers: h })).headers.get("x-syrup-model"), "mimo-v2.6-flash-free", "routine opening")
+    const hardTurn = [...open, { role: "assistant", content: "Done." }, { role: "user", content: "debug the failing build" }]
+    const hard = await chat(r3, { messages: hardTurn, headers: h })
+    eq(hard.headers.get("x-syrup-model"), "gemini-3.8-flash", "a hard later turn goes to the frontier model at once")
+    eq(hard.headers.get("x-syrup-reason"), "escalated", "escalated, as before")
+    await chat(r3, { messages: [...hardTurn, { role: "assistant", content: "Fixed." }, { role: "user", content: "ok thanks" }], headers: h })
+    eq(r3.received().at(-1).hard, false, "the reply after it is routine")
+    eq(r3.received().at(-1).note, "released_scarce", "and leaves the scarce frontier model at the turn boundary, as before")
+  } finally {
+    await r3.close()
+  }
+})
+
+// ------------------------------------------------------------------ round 1: a title is optional (decision 16)
+
+await scenario("unit: title calls are recognised by OpenCode's two fixed texts; the waiting line skips lost hedges and let-go titles", async () => {
+  eq(R.isTitleCall(titleCall(), undefined), true, "OpenCode's title call")
+  eq(R.isTitleCall(titleCall(), []), true, "an empty tools list is no tools")
+  eq(R.isTitleCall(titleCall(), [READ_TOOL]), false, "with tools it is not")
+  const [system, ask, first] = titleCall()
+  eq(R.isTitleCall([system, { role: "user", content: [{ type: "text", text: ask.content }] }, first], undefined), true, "the ask as a text part")
+  eq(R.isTitleCall([{ role: "system", content: "You are a coding agent." }, ask, first], undefined), false, "another system prompt")
+  eq(R.isTitleCall([system, { role: "user", content: "Generate a short 2-3 word name that describes this task:\nfix the bug" }], undefined), false, "another ask")
+  eq(R.isTitleCall([ask, first], undefined), false, "the ask alone")
+  eq(R.isTitleCall([{ role: "user", content: system.content }, ask, first], undefined), false, "the title prompt as a user message")
+  eq(R.isTitleCall([system, { role: "assistant", content: ask.content }, first], undefined), false, "the ask as an assistant message")
+  eq(R.isTitleCall([system, { role: "user", content: "Generate a title for this conversation: and then fix the bug" }, first], undefined), false, "the ask with more after it")
+  eq(R.isTitleCall([{ role: "system", content: `You are a coding agent.\n${system.content}` }, ask, first], undefined), false, "the title prompt further down another system prompt")
+  eq(R.droppedAttempt({ status: "timeout", reason: "timeout" }), true, "a timeout is a dropped model")
+  eq(R.droppedAttempt({ status: "error", reason: null }), true, "so is an unexplained error")
+  eq(R.droppedAttempt({ status: "aborted", reason: "hedged" }), false, "a lost race is not")
+  eq(R.droppedAttempt({ status: "aborted", reason: "title_skipped" }), false, "a let-go title is not")
+  eq(R.droppedAttempt({ status: "ok", reason: "best" }), false, "an answer is not")
+})
+
+await scenario("z15) a title call silent for its leash is let go at the leash with a title made from its first message: one backend, no cooldown, no penalty, no row in the chat", async () => {
+  const r = await makeRouter({ keys: [K.opencode] })
+  try {
+    mock.set("opencode/mimo-v2.6-flash-free", roleThenStall())
+    const t0 = Date.now()
+    const res = await chat(r, { alias: "fast", messages: titleCall(), headers: { "x-session-affinity": "ses_z15" } })
+    const took = Date.now() - t0
+    syntheticTitle(res, "add a README file")
+    assert(took >= TIMING.leashMs - 50 && took < TIMING.leashMs + 700, `let go at the leash (${took} ms)`)
+    eq(mock.hits.length, 1, "no second backend is tried")
+    await waitFor(() => mock.hits[0].closed, 2000, "the upstream request was closed")
+    eq(r.events.length, 1, "one row")
+    const ev = r.events[0]
+    eq(ev.status, "aborted", "recorded as aborted")
+    eq(ev.reason, "title_skipped", "because the title was let go")
+    assert(/^synthetic title from the first message \(no first token within 0\.5s\)$/.test(ev.error ?? ""), `the row says the title was synthetic (${ev.error})`)
+    eq(R.droppedAttempt(ev), false, "the waiting line does not call it a dropped model")
+    eq(ev.retryAt, null, "no cooldown")
+    eq(ev.sessionId, null, "kept out of the chat's rows")
+    eq(r.logs.find((l) => l.event === "attempt.title_skipped")?.opts?.sessionId, "ses_z15", "the log keeps the session")
+    const st = await r.status()
+    assert(!st.cooldowns.some((c) => c.scope.includes("mimo")), "the backend is not cooling")
+    const mimo = st.health.find((x) => x.id.includes("mimo-v2.6-flash-free"))
+    assert(mimo && mimo.errRate < 0.1, "no error-rate penalty")
+    eq(mimo.ttftMs, 2000, "a wait shorter than its first-token estimate (the prior) teaches nothing: it is only a lower bound")
+    // The chat's own first turn is not hurt: the backend the title gave up on still serves it first.
+    mock.reset()
+    const turn = await chat(r, { user: "add a README file", headers: { "x-session-affinity": "ses_z15" } })
+    eq(turn.headers.get("x-syrup-model"), "mimo-v2.6-flash-free", "the next real turn still goes there")
+  } finally {
+    await r.close()
+  }
+  mock.reset()
+  // A backend expected to answer well within the leash (Groq's prior: 350 ms) that stays silent past it: the wait
+  // raises its first-token estimate, and still costs it no cooldown and no error rate.
+  const r2 = await makeRouter({ keys: [K.groq] })
+  try {
+    mock.set("groq/openai/gpt-oss-120b", roleThenStall())
+    syntheticTitle(await chat(r2, { alias: "fast", messages: titleCall(), headers: { "x-session-affinity": "ses_z15b" } }), "add a README file", "let go")
+    const st = await r2.status()
+    const groq = st.health.find((x) => x.id.includes("gpt-oss-120b"))
+    assert(groq && groq.ttftMs > 500, `the estimate rose to the lower bound's side (${groq?.ttftMs} ms)`)
+    assert(groq.errRate < 0.1 && !st.cooldowns.length, "no error rate, no cooldown")
+  } finally {
+    await r2.close()
+  }
+})
+
+await scenario("z16) only title calls are leashed: a Fast call with tools, a large or a small tool-less Fast call, and a title on Auto keep the normal deadlines and failover", async () => {
+  const cases = [
+    { name: "a title-shaped Fast call with tools", alias: "fast", messages: titleCall(), extra: { tools: [READ_TOOL] } },
+    { name: "a large tool-less Fast call", alias: "fast", messages: [{ role: "system", content: "Summarize the text." }, { role: "user", content: "x ".repeat(20_000) }] },
+    { name: "a small tool-less Fast call that is not a title", alias: "fast", messages: [{ role: "system", content: "You are a helpful AI assistant tasked with summarizing conversations." }, { role: "user", content: "Provide a detailed summary of our conversation above." }] },
+    { name: "a title on Auto", alias: "auto", messages: titleCall() },
+  ]
+  for (const k of cases) {
+    mock.reset()
+    const r = await makeRouter({ keys: [K.opencode] })
+    try {
+      mock.set("opencode/mimo-v2.6-flash-free", roleThenStall())
+      const res = await chat(r, { alias: k.alias, messages: k.messages, extra: k.extra, headers: { "x-session-affinity": "ses_z16" } })
+      eq(res.status, 200, `${k.name}: answered`)
+      assert(mock.hits.length >= 2 && mock.hits[0].key === "opencode/mimo-v2.6-flash-free", `${k.name}: failed over (${mock.hits.map((x) => x.key).join(", ")})`)
+      const ev = r.events.find((e) => e.modelId === "mimo-v2.6-flash-free")
+      eq(ev.reason, "timeout", `${k.name}: an ordinary timeout`)
+      assert(ev.retryAt !== null, `${k.name}: with its cooldown`)
+      eq(r.events.find((e) => e.status === "ok")?.sessionId, "ses_z16", `${k.name}: rows keep the session`)
+    } finally {
+      await r.close()
+    }
+  }
+})
+
+await scenario("z17) a title whose one attempt fails is let go at once; a real failure keeps its cooldown, a cooled-out title gets the made-up title instead of a 429, and a refused thinking parameter is retried plain on the same backend", async () => {
+  const r0 = await makeRouter({ keys: [K.opencode] })
+  try {
+    mock.set("opencode/mimo-v2.6-flash-free", status(503, { error: { message: "The model is overloaded" } }))
+    const t0 = Date.now()
+    const one = await chat(r0, { alias: "fast", messages: titleCall(), headers: { "x-session-affinity": "ses_z17" } })
+    syntheticTitle(one, "add a README file", "failed")
+    assert(Date.now() - t0 < TIMING.leashMs, "at once, without waiting for the leash")
+    eq(mock.hits.length, 1, "one attempt, though two other backends could take it")
+    const ev = r0.events[0]
+    eq(ev.reason, "overloaded", "a real overload")
+    assert(ev.retryAt > ev.ts, "keeps its cooldown: the backend is overloaded for the chat's own turns too")
+    eq(ev.sessionId, null, "kept out of the chat's rows")
+  } finally {
+    await r0.close()
+  }
+  mock.reset()
+  const r = await makeRouter({ keys: [K.groq] })
+  try {
+    mock.set("groq/openai/gpt-oss-120b", status(503, { error: { message: "The model is overloaded" } }))
+    syntheticTitle(await chat(r, { alias: "fast", messages: titleCall(), headers: { "x-session-affinity": "ses_z17a" } }), "add a README file", "the only backend fails")
+    const two = await chat(r, { alias: "fast", messages: titleCall("rename the variable"), headers: { "x-session-affinity": "ses_z17b" } })
+    syntheticTitle(two, "rename the variable", "everything cooling (not a 429)")
+    eq(mock.hits.length, 1, "no upstream call")
+  } finally {
+    await r.close()
+  }
+  mock.reset()
+  const r2 = await makeRouter({ keys: [K.google] })
+  try {
+    mock.once("google/gemini-3.5-flash-lite", status(400, { error: { message: "Thinking level is not supported for this model.", code: 400, status: "INVALID_ARGUMENT" } }))
+    const res = await chat(r2, { alias: "fast", messages: titleCall(), headers: { "x-session-affinity": "ses_z17c" } })
+    eq(res.status, 200, "titled")
+    eq(mock.hits.length, 2, "two calls")
+    eq(mock.hits[1].key, mock.hits[0].key, "both to the same backend")
+    eq(mock.hits[0].body.reasoning_effort, "minimal", "first with the thinking parameter (a title's least: minimal)")
+    eq(mock.hits[1].body.reasoning_effort, undefined, "then plain")
+  } finally {
+    await r2.close()
+  }
+})
+
+await scenario("z18) a title call that answers: its output is capped, its rows stay out of the chat, and a chat on Fast does not stick to the title's backend", async () => {
+  const r = await makeRouter({ keys: [K.opencode] })
+  try {
+    const h = { "x-session-affinity": "ses_z18" }
+    const res = await chat(r, { alias: "fast", messages: titleCall(), headers: h })
+    eq(res.status, 200, "titled")
+    eq(mock.hits.length, 1, "one call")
+    eq(mock.hits[0].body.max_tokens, 512, "OpenCode's 32K output budget is capped for a title")
+    eq(r.events.find((e) => e.status === "ok")?.sessionId, null, "the answer row is kept out of the chat too")
+    eq(r.received()[0].title, true, "logged as a title call")
+    // The chat itself is on Fast: its first step shares the title's session key and still gets a fresh pick.
+    const step = await chat(r, { alias: "fast", user: "add a README file", headers: h, extra: { tools: [READ_TOOL] } })
+    eq(step.status, 200, "the chat's step")
+    const turn = r.events.filter((e) => e.status === "ok").at(-1)
+    eq(turn.reason, "best", "picked on its own merits, not stuck to the title's backend")
+    eq(turn.sessionId, "ses_z18", "the chat's own rows keep the session")
+  } finally {
+    await r.close()
+  }
+})
+
+// ------------------------------------------------------------------ round 1 review: hard openings, escalation, hedges
+
+/** A ranked entry for applySticky unit checks. */
+function scoredOf(id, score, quality, grade, o = {}) {
+  return { c: { id, info: { quality, grade }, scarce: false, costs: o.paid ? { input: 5, output: 25 } : null }, score, predMs: o.predMs ?? 5000, predTtftMs: 2000, outTokens: 1000, belowFloor: false }
+}
+
+await scenario("unit: escalation goes to the best-ranked model of the required grade, never sideways or down, and keeps it there; a paid key only where free first lets it win", async () => {
+  const session = (sticky) => ({ key: "x", sticky, stickyAt: 0, stickyByFallback: false, outEwma: 600, escalatedUntil: 0, escalatedThroughUser: 0, lastSeen: 0 })
+  // NVIDIA free on a 40K-token prompt: the quick strong model outranks the slower strong one, and the frontier one ranks last.
+  const ranked = [scoredOf("deepseek-v4-flash", 70, 72, "strong"), scoredOf("mimo-v2.6-pro", 67, 82, "strong"), scoredOf("muse-spark-1.3", 65, 85, "frontier")]
+  for (const why of ["escalated", "keyword:plan"]) {
+    const shape = { alias: "auto", hard: true, hardWhy: why, lastIsUser: false }
+    const up = R.applySticky(ranked, session("mimo-v2.6-pro"), shape)
+    eq(up.ordered[0].c.id, "muse-spark-1.3", `${why}: the frontier model goes first, though it ranks last`)
+    eq(up.reason, "escalated", `${why}: escalated`)
+    eq(up.ordered.length, 3, `${why}: the others stay behind it as fallbacks`)
+    const stay = R.applySticky(ranked, session("muse-spark-1.3"), shape)
+    eq(stay.ordered[0].c.id, "muse-spark-1.3", `${why}: once there, it stays`)
+    eq(stay.reason, "sticky", `${why}: sticky`)
+  }
+  // Only strong models on offer: a strong sticky one is not moved to a quicker strong one (a same-grade switch is not an escalation).
+  const strongOnly = ranked.slice(0, 2)
+  const kept = R.applySticky(strongOnly, session("mimo-v2.6-pro"), { alias: "auto", hard: true, hardWhy: "escalated", lastIsUser: false })
+  eq(kept.ordered[0].c.id, "mimo-v2.6-pro", "no sideways move")
+  eq(kept.reason, "sticky", "stays sticky")
+  // A paid frontier model on offer next to free strong ones: a request hard only through escalation does not reach for it.
+  const withPaid = [scoredOf("mimo-free", 64, 76, "strong"), scoredOf("opus-paid", 50, 92, "frontier", { paid: true })]
+  const reply = R.applySticky(withPaid, session("mimo-free"), { alias: "auto", hard: true, hardWhy: "escalated", lastIsUser: true })
+  eq(reply.ordered[0].c.id, "mimo-free", "escalated reply: the free strong model stays (free first)")
+  eq(reply.reason, "sticky", "sticky")
+  const ownHard = R.applySticky(withPaid, session("mimo-free"), { alias: "auto", hard: true, hardWhy: "keyword:debug", lastIsUser: true })
+  eq(ownHard.ordered[0].c.id, "opus-paid", "a turn that is hard by its own words may still use the paid frontier key (no free 84+)")
+  eq(ownHard.reason, "escalated", "escalated")
+})
+
+await scenario("z19) a hard opening's escalation lasts through the user's next turn, not ten minutes: a reply after eleven minutes still reaches the strong model", async () => {
+  const clock = fakeClock()
+  const r = await makeRouter({ keys: [K.google, K.opencode], now: clock.now })
+  try {
+    const h = { "x-session-affinity": "ses_z19" }
+    const sys = { role: "system", content: "You are a coding agent." }
+    const ask = [sys, { role: "user", content: "plan the billing module" }]
+    eq((await chat(r, { messages: ask, headers: h })).headers.get("x-syrup-model"), "mimo-v2.6-flash-free", "quick first answer")
+    clock.advance(11 * 60_000)
+    const replyMsgs = [...ask, { role: "assistant", content: "1. Model the invoices…" }, { role: "user", content: "ok, do it" }]
+    const reply = await chat(r, { messages: replyMsgs, headers: h })
+    eq(reply.headers.get("x-syrup-model"), "gemini-3.8-flash", "the reply, 11 minutes later, goes to the frontier model")
+    eq(reply.headers.get("x-syrup-reason"), "escalated", "escalated")
+    eq(r.received().at(-1).why, "escalated", "because the session is escalated")
+    clock.advance(60_000)
+    await chat(r, { messages: [...replyMsgs, { role: "assistant", content: "Done." }, { role: "user", content: "thanks" }], headers: h })
+    eq(r.received().at(-1).hard, false, "the user turn after the reply is routine again")
+  } finally {
+    await r.close()
+  }
+})
+
+await scenario("z20) free first after a hard opening: a paid frontier key gets nothing from the speed pick or the escalated reply; a turn hard by its own words may still use it", async () => {
+  const catalog = new Map([
+    [
+      "opencode",
+      new Map([
+        ["mimo-v2.6-flash-free", M("mimo-v2.6-flash-free", { context: 200_000, output: 32_000 })],
+        ["big-pickle", M("big-pickle", { context: 200_000, output: 32_000 })],
+      ]),
+    ],
+    ["anthropic", new Map([["claude-opus-5", M("claude-opus-5", { cost: { input: 5, output: 25 }, output: 128_000 })]])],
+  ])
+  const r = await makeRouter({ keys: [K.opencode, K.anthropicPaid], catalog })
+  try {
+    const h = { "x-session-affinity": "ses_z20" }
+    const paid = () => mock.of("anthropic/claude-opus-5").length
+    const ask = [{ role: "system", content: "You are a coding agent." }, { role: "user", content: "plan the billing module" }]
+    const one = await chat(r, { messages: ask, headers: h })
+    eq(one.headers.get("x-syrup-provider"), "opencode", "the hard opening is answered by a free strong model")
+    eq(paid(), 0, "no paid request for the opening")
+    const replyMsgs = [...ask, { role: "assistant", content: "1. Model the invoices…" }, { role: "user", content: "ok, do it" }]
+    const reply = await chat(r, { messages: replyMsgs, headers: h })
+    eq(r.received().at(-1).why, "escalated", "the reply is escalated")
+    eq(reply.headers.get("x-syrup-model"), one.headers.get("x-syrup-model"), "and stays on the free strong model")
+    eq(reply.headers.get("x-syrup-reason"), "sticky", "sticky")
+    await chat(r, { messages: [...replyMsgs, ...toolTurn("call_z20", "ok")], headers: h })
+    eq(paid(), 0, "nor for the reply or its steps")
+    const hardMsgs = [...replyMsgs, ...toolTurn("call_z20", "ok"), { role: "assistant", content: "Done." }, { role: "user", content: "debug why the build fails" }]
+    const hard = await chat(r, { messages: hardMsgs, headers: h })
+    eq(hard.headers.get("x-syrup-model"), "claude-opus-5", "a turn hard by its own words: no free 84+, so the paid frontier model, as before")
+    await chat(r, { messages: [...hardMsgs, { role: "assistant", content: "Fixed." }, { role: "user", content: "ok thanks" }], headers: h })
+    eq(r.received().at(-1).note, "released_paid", "and the routine reply after it goes back to free")
+  } finally {
+    await r.close()
+  }
+})
+
+await scenario("z21) a hard opening's speed pick never buys a paid model; a paid-only key set keeps the strong floor", async () => {
+  const catalog = new Map([
+    ["google", new Map([["gemini-3.7-flash", M("gemini-3.7-flash", { image: true, cost: { input: 0.5, output: 3 } })]])],
+    ["openrouter", new Map([["deepseek/deepseek-v4-flash", M("deepseek/deepseek-v4-flash", { cost: { input: 0.3, output: 1.2 } })]])],
+  ])
+  const r = await makeRouter({ keys: [K.google, K.openrouterPaid], catalog })
+  try {
+    for (const tokens of [2_000, 16_000]) {
+      const res = await chat(r, { messages: [agentSystem(tokens), { role: "user", content: "plan the billing module" }], headers: { "x-session-affinity": `ses_z21_${tokens}` } })
+      eq(res.headers.get("x-syrup-model"), "gemini-3.7-flash", `${tokens} tokens: the free strong model, not the quicker, weaker paid one`)
+    }
+    eq(mock.of("openrouter/deepseek/deepseek-v4-flash").length, 0, "no paid request")
+  } finally {
+    await r.close()
+  }
+  mock.reset()
+  const paidOnly = new Map([
+    [
+      "openrouter",
+      new Map([
+        ["openai/gpt-6-luna", M("openai/gpt-6-luna", { cost: { input: 0.5, output: 2 } })],
+        ["openai/gpt-6-sol", M("openai/gpt-6-sol", { cost: { input: 1.25, output: 10 } })],
+      ]),
+    ],
+  ])
+  const r2 = await makeRouter({ keys: [K.openrouterPaid], catalog: paidOnly })
+  try {
+    // Routine first: an answer lowers the answering model's first-token estimate.
+    const routine = await chat(r2, { messages: [agentSystem(12_000), { role: "user", content: "add a README file" }], headers: { "x-session-affinity": "ses_z21c" } })
+    eq(routine.headers.get("x-syrup-model"), "openai/gpt-6-luna", "routine opening: the quick adequate one")
+    const hard = await chat(r2, { messages: [agentSystem(12_000), { role: "user", content: "plan the billing module" }], headers: { "x-session-affinity": "ses_z21b" } })
+    eq(hard.headers.get("x-syrup-model"), "openai/gpt-6-sol", "hard opening: the quick mid model stays below the strong floor (no free model sets it)")
+  } finally {
+    await r2.close()
+  }
+})
+
+await scenario("z22) a hard opening with no free strong model keeps a quicker weak model below the quality-60 one", async () => {
+  const catalog = new Map([
+    ["google", new Map([["gemini-3.5-flash-lite", M("gemini-3.5-flash-lite", { image: true, cost: { input: 0.3, output: 2.5 } })]])],
+    ["nvidia", new Map([["nvidia/nemotron-3.5-lightning", M("nvidia/nemotron-3.5-lightning", { context: 262_144, output: 32_768 })]])],
+  ])
+  const r = await makeRouter({ keys: [K.google, K.nvidia], catalog })
+  try {
+    const res = await chat(r, { messages: [agentSystem(12_000), { role: "user", content: "debug why the login test fails" }], headers: { "x-session-affinity": "ses_z22" } })
+    eq(res.headers.get("x-syrup-model"), "gemini-3.5-flash-lite", "the quality-60 model, not the quicker quality-58 one")
+  } finally {
+    await r.close()
+  }
+})
+
+await scenario("z23) a hard opening's partner below the first pick's floor waits until the pick is late: a strong pick on time is never pre-empted", async () => {
+  const catalog = new Map([
+    ["openrouter", new Map([["deepseek/deepseek-v4-flash:free", M("deepseek/deepseek-v4-flash:free", { context: 200_000, output: 32_000 })]])],
+    ["google", new Map([["gemini-3.5-flash-lite", M("gemini-3.5-flash-lite", { image: true, cost: { input: 0.3, output: 2.5 } })]])],
+  ])
+  const user = "plan the architecture for the billing module"
+  // On time: predicted ~0.9 s to its first token, it answers at 0.7 s. The routine 0.4 s hedge would have raced it.
+  const r = await makeRouter({ keys: [K.openrouterFree, K.google], catalog })
+  try {
+    mock.set("openrouter/deepseek/deepseek-v4-flash:free", sseOk({ firstDelayMs: 700 }))
+    const res = await chat(r, { user, headers: { "x-session-affinity": "ses_z23a" } })
+    eq(res.headers.get("x-syrup-model"), "deepseek/deepseek-v4-flash:free", "the strong pick answers")
+    eq(res.headers.get("x-syrup-reason"), "best", "not raced")
+    eq(r.logs.some((l) => l.event === "hedge.start"), false, "no hedge started")
+    eq(mock.of("google/gemini-3.5-flash-lite").length, 0, "the mid model was never asked")
+  } finally {
+    await r.close()
+  }
+  mock.reset()
+  // Late: silent past 1.25× its prediction, so the quality-60 partner starts and answers.
+  const r2 = await makeRouter({ keys: [K.openrouterFree, K.google], catalog })
+  try {
+    mock.set("openrouter/deepseek/deepseek-v4-flash:free", roleThenStall())
+    const t0 = Date.now()
+    const res = await chat(r2, { user, headers: { "x-session-affinity": "ses_z23b" } })
+    const took = Date.now() - t0
+    eq(res.headers.get("x-syrup-model"), "gemini-3.5-flash-lite", "the partner answers")
+    eq(res.headers.get("x-syrup-reason"), "hedge", "as the hedge, before the first pick's deadline")
+    const start = r2.logs.find((l) => l.event === "hedge.start")
+    eq(start?.data.patient, true, "a patient hedge")
+    assert(start.data.afterMs >= 1100, `started only once the pick was late (${start.data.afterMs} ms)`)
+    assert(took < TIMING.maxDeadlineMs, `answered before the first pick's deadline (${took} ms)`)
+  } finally {
+    await r2.close()
+  }
+})
+
+await scenario("z24) a hedged pair with nothing behind it: whichever is left gets the last candidate's deadline, so two slow but working backends answer", async () => {
+  const catalog = new Map([
+    [
+      "opencode",
+      new Map([
+        ["mimo-v2.6-flash-free", M("mimo-v2.6-flash-free", { context: 200_000, output: 32_000 })],
+        ["big-pickle", M("big-pickle", { context: 200_000, output: 32_000 })],
+      ]),
+    ],
+  ])
+  for (const user of ["plan the architecture for the billing module", "add a README file"]) {
+    // Both start answering after 2 s, past the 1.5 s deadline of a backend with a fallback behind it.
+    mock.reset()
+    const r = await makeRouter({ keys: [K.opencode], catalog })
+    try {
+      mock.set("opencode/mimo-v2.6-flash-free", sseOk({ firstDelayMs: 2000 }))
+      mock.set("opencode/big-pickle", sseOk({ firstDelayMs: 2000 }))
+      const res = await chat(r, { user, headers: { "x-session-affinity": "ses_z24a" } })
+      eq(res.status, 200, `${user}: answered, not "all cooling down"`)
+      eq(res.headers.get("x-syrup-model"), "big-pickle", `${user}: by the partner, which had the last candidate's deadline`)
+      eq(res.headers.get("x-syrup-reason"), "hedge", `${user}: as the hedge`)
+    } finally {
+      await r.close()
+    }
+    // The partner fails at once: the first pick is now the last candidate, and its deadline is extended to match.
+    mock.reset()
+    const r2 = await makeRouter({ keys: [K.opencode], catalog })
+    try {
+      mock.set("opencode/mimo-v2.6-flash-free", sseOk({ firstDelayMs: 2000 }))
+      mock.set("opencode/big-pickle", status(503, { error: { message: "The model is overloaded" } }))
+      const res = await chat(r2, { user, headers: { "x-session-affinity": "ses_z24b" } })
+      eq(res.status, 200, `${user}: answered`)
+      eq(res.headers.get("x-syrup-model"), "mimo-v2.6-flash-free", `${user}: by the first pick, past its first deadline`)
+      eq(mock.of("opencode/big-pickle").length, 1, `${user}: the partner was raced and failed`)
+    } finally {
+      await r2.close()
+    }
+  }
+})
+
+await scenario("z25) a hedge never sends a second request to a one-at-a-time key, and re-checks its partner when the race starts", async () => {
+  const zai = new Map([
+    [
+      "zai",
+      new Map([
+        ["glm-5.3-flash", M("glm-5.3-flash", { context: 200_000, output: 32_000 })],
+        ["glm-5.2", M("glm-5.2", { context: 200_000, output: 32_000 })],
+      ]),
+    ],
+  ])
+  for (const user of ["plan the architecture for the billing module", "add a README file"]) {
+    mock.reset()
+    const r = await makeRouter({ keys: [K.zai], catalog: zai })
+    try {
+      mock.set("zai/glm-5.3-flash", roleThenStall())
+      const res = await chat(r, { user, headers: { "x-session-affinity": "ses_z25" } })
+      eq(res.status, 200, `${user}: answered`)
+      eq(res.headers.get("x-syrup-model"), "glm-5.2", `${user}: by the other model on the key`)
+      eq(res.headers.get("x-syrup-reason"), "fallback", `${user}: only after the first one was let go, never alongside it`)
+      eq(r.logs.some((l) => l.event === "hedge.start"), false, `${user}: no hedge`)
+      const [first, second] = mock.hits
+      assert(second.at - first.at >= TIMING.maxDeadlineMs - 100, `${user}: the second request waited for the first (${second.at - first.at} ms)`)
+    } finally {
+      await r.close()
+    }
+  }
+  // With a backend on another key behind them, that one takes the race instead.
+  mock.reset()
+  const mixed = new Map([...zai, ["opencode", new Map([["big-pickle", M("big-pickle", { context: 200_000, output: 32_000 })]])]])
+  const r1 = await makeRouter({ keys: [K.zai, K.opencode], catalog: mixed })
+  try {
+    mock.set("zai/glm-5.3-flash", roleThenStall())
+    const res = await chat(r1, { user: "plan the architecture for the billing module", headers: { "x-session-affinity": "ses_z25m" } })
+    assert(r1.received()[0].top[1]?.startsWith("zai/glm-5.2"), `the same key's other model ranks second (${r1.received()[0].top.join(" | ")})`)
+    eq(res.headers.get("x-syrup-model"), "big-pickle", "the race goes to the backend on another key")
+    eq(res.headers.get("x-syrup-reason"), "hedge", "as the hedge")
+    eq(mock.of("zai/glm-5.2").length, 0, "nothing more is sent to the busy key")
+  } finally {
+    await r1.close()
+  }
+  // The partner was fine when the request was planned and starts cooling while the first pick is silent: no race.
+  mock.reset()
+  const catalog = new Map([
+    ["opencode", new Map([["mimo-v2.6-flash-free", M("mimo-v2.6-flash-free", { context: 200_000, output: 32_000 })]])],
+    ["nvidia", new Map([["z-ai/glm-5.2", M("z-ai/glm-5.2", { image: true, context: 200_000, output: 32_000 })]])],
+  ])
+  const r2 = await makeRouter({ keys: [K.opencode, K.nvidia], catalog })
+  try {
+    mock.set("opencode/mimo-v2.6-flash-free", sseOk({ firstDelayMs: 1000 }))
+    mock.once("nvidia/z-ai/glm-5.2", status(503, { error: { message: "The model is overloaded" } }))
+    const opening = chat(r2, { user: "add a README file", headers: { "x-session-affinity": "ses_z25b" } })
+    await sleep(100)
+    // Another chat sends an image, which only glm-5.2 takes: its 503 cools glm-5.2 while the opening waits.
+    const image = [{ type: "text", text: "what is in this picture" }, { type: "image_url", image_url: { url: "data:image/png;base64,AAAA" } }]
+    await chat(r2, { messages: [...continuation("hi").slice(0, 3), { role: "user", content: image }], headers: { "x-session-affinity": "ses_z25c" } })
+    const res = await opening
+    eq(res.headers.get("x-syrup-model"), "mimo-v2.6-flash-free", "the first pick answers")
+    eq(r2.logs.find((l) => l.event === "hedge.skipped")?.data.why, "cooling", "the race was called off: the partner is cooling now")
+    eq(mock.of("nvidia/z-ai/glm-5.2").length, 1, "only the other chat's request reached glm-5.2")
+  } finally {
+    await r2.close()
+  }
+})
+
+await scenario("z26) the hedge is a first-attempt, streaming-only race: a non-streaming opening and a second attempt are not raced", async () => {
+  const r = await makeRouter({ keys: [K.opencode] })
+  try {
+    mock.set("opencode/mimo-v2.6-flash-free", after(700, sseOk()))
+    const res = await chat(r, { user: "add a README file", stream: false, headers: { "x-session-affinity": "ses_z26a" } })
+    eq(res.status, 200, "answered")
+    eq(mock.hits.length, 1, "one upstream call: a non-streaming request is not hedged")
+  } finally {
+    await r.close()
+  }
+  mock.reset()
+  const catalog = new Map([
+    [
+      "opencode",
+      new Map([
+        ["mimo-v2.6-flash-free", M("mimo-v2.6-flash-free", { context: 200_000, output: 32_000 })],
+        ["big-pickle", M("big-pickle", { context: 200_000, output: 32_000 })],
+      ]),
+    ],
+    ["nvidia", new Map([["moonshotai/kimi-k3", M("moonshotai/kimi-k3", { output: 131_072 })]])],
+  ])
+  const r2 = await makeRouter({ keys: [K.opencode, K.nvidia], catalog })
+  try {
+    mock.set("nvidia/moonshotai/kimi-k3", status(503, { error: { message: "The model is overloaded" } }))
+    mock.set("opencode/mimo-v2.6-flash-free", sseOk({ firstDelayMs: 700 }))
+    const res = await chat(r2, { user: "add a README file", headers: { "x-session-affinity": "ses_z26b" } })
+    eq(res.headers.get("x-syrup-model"), "mimo-v2.6-flash-free", "the second attempt answers")
+    eq(res.headers.get("x-syrup-reason"), "fallback", "as a fallback")
+    eq(mock.of("opencode/big-pickle").length, 0, "the second attempt is not raced")
+  } finally {
+    await r2.close()
+  }
+})
+
+await scenario("z27) a hard opening's race never spends scarce quota or money (decision 15), even when those rank second", async () => {
+  const catalog = new Map([
+    [
+      "opencode",
+      new Map([
+        ["mimo-v2.6-flash-free", M("mimo-v2.6-flash-free", { context: 200_000, output: 32_000 })],
+        ["big-pickle", M("big-pickle", { context: 200_000, output: 32_000 })],
+      ]),
+    ],
+    ["openrouter", new Map([["deepseek/deepseek-v4-flash:free", M("deepseek/deepseek-v4-flash:free", { context: 200_000, output: 32_000 })]])],
+  ])
+  const r = await makeRouter({ keys: [K.opencode, K.openrouterFree], catalog })
+  try {
+    mock.set("opencode/mimo-v2.6-flash-free", roleThenStall())
+    const res = await chat(r, { messages: [agentSystem(12_000), { role: "user", content: "plan the architecture for the billing module" }], headers: { "x-session-affinity": "ses_z27" } })
+    assert(r.received()[0].top[1]?.startsWith("openrouter/deepseek/deepseek-v4-flash:free"), `the scarce model ranks second (${r.received()[0].top.join(" | ")})`)
+    eq(mock.of("openrouter/deepseek/deepseek-v4-flash:free").length, 0, "its 50-a-day quota is not spent on a race")
+    eq(res.headers.get("x-syrup-reason"), "hedge", "the race goes to the next free, non-scarce model")
+    eq(res.headers.get("x-syrup-model"), "big-pickle", "big-pickle")
+  } finally {
+    await r.close()
+  }
+  mock.reset()
+  // No free model of quality 70+, so a paid key may answer a routine opening; it still never runs a race.
+  const paid = new Map([
+    [
+      "openrouter",
+      new Map([
+        ["deepseek/deepseek-v4-flash", M("deepseek/deepseek-v4-flash", { cost: { input: 0.3, output: 1.2 } })],
+        ["openai/gpt-6-luna", M("openai/gpt-6-luna", { cost: { input: 0.5, output: 2 } })],
+      ]),
+    ],
+    ["google", new Map([["gemini-3.5-flash-lite", M("gemini-3.5-flash-lite", { image: true, cost: { input: 0.3, output: 2.5 } })]])],
+  ])
+  const r2 = await makeRouter({ keys: [K.openrouterPaid, K.google], catalog: paid })
+  try {
+    mock.set("openrouter/deepseek/deepseek-v4-flash", roleThenStall())
+    const res = await chat(r2, { user: "add a README file", headers: { "x-session-affinity": "ses_z27b" } })
+    assert(r2.received()[0].top[1]?.startsWith("openrouter/openai/gpt-6-luna"), `the paid model ranks second (${r2.received()[0].top.join(" | ")})`)
+    eq(mock.of("openrouter/openai/gpt-6-luna").length, 0, "no money spent on a race")
+    eq(res.headers.get("x-syrup-reason"), "hedge", "the race goes to the next free, non-scarce model")
+    eq(res.headers.get("x-syrup-model"), "gemini-3.5-flash-lite", "Flash-Lite")
+  } finally {
+    await r2.close()
+  }
+})
+
+await scenario("z28) a lost hedge teaches only a first-token lower bound: the loser's estimate and its overload streak stay", async () => {
+  const r = await makeRouter({ keys: [K.opencode] })
+  try {
+    mock.set("opencode/mimo-v2.6-flash-free", roleThenStall())
+    const res = await chat(r, { user: "add a README file", headers: { "x-session-affinity": "ses_z28" } })
+    eq(res.headers.get("x-syrup-reason"), "hedge", "hedged")
+    const mimo = (await r.status()).health.find((x) => x.id.includes("mimo-v2.6-flash-free"))
+    eq(mimo?.ttftMs, 2000, "a ~0.4 s wait under a 2 s estimate does not pull the estimate down")
+  } finally {
+    await r.close()
+  }
+  mock.reset()
+  const clock = fakeClock()
+  const catalog = new Map([
+    ["opencode", new Map([["mimo-v2.6-flash-free", M("mimo-v2.6-flash-free", { context: 200_000, output: 32_000 })]])],
+    ["nvidia", new Map([["meta/llama-3.1-8b-instruct", M("meta/llama-3.1-8b-instruct", { context: 131_072, output: 16_384 })]])],
+  ])
+  const r2 = await makeRouter({ keys: [K.opencode, K.nvidia], catalog, now: clock.now })
+  try {
+    const overloaded = status(503, { error: { message: "The model is overloaded" } })
+    mock.once("opencode/mimo-v2.6-flash-free", overloaded)
+    await chat(r2, { user: "add a README file", headers: { "x-session-affinity": "ses_z28a" } })
+    const first = r2.events.find((e) => e.modelId === "mimo-v2.6-flash-free")
+    assert(first.retryAt - first.ts > 29_000 && first.retryAt - first.ts <= 30_000, `first overload: 30 s (${first.retryAt - first.ts})`)
+    clock.advance(31_000)
+    mock.once("opencode/mimo-v2.6-flash-free", roleThenStall())
+    eq((await chat(r2, { user: "add a README file", headers: { "x-session-affinity": "ses_z28b" } })).headers.get("x-syrup-reason"), "hedge", "mimo lost a race")
+    mock.once("opencode/mimo-v2.6-flash-free", overloaded)
+    await chat(r2, { user: "add a README file", headers: { "x-session-affinity": "ses_z28c" } })
+    const second = r2.events.filter((e) => e.modelId === "mimo-v2.6-flash-free" && e.reason === "overloaded").at(-1)
+    assert(second.retryAt - second.ts > 59_000, `the second overload of the spell backs off longer, as if the race never happened (${second.retryAt - second.ts})`)
+  } finally {
+    await r2.close()
+  }
+})
+
+// ------------------------------------------------------------------ round 1 review: titles
+
+await scenario("z29) a title is let go at its leash wherever its backend stalls: no headers, an error status or a JSON body that never arrives, keep-alives only", async () => {
+  const cases = [
+    { name: "no response headers", fn: hang(), stream: true },
+    { name: "an error status whose body never arrives", fn: headersThenHang(503, "application/json"), stream: true },
+    { name: "a JSON body that never arrives on a stream request", fn: headersThenHang(200, "application/json"), stream: true },
+    { name: "a non-streaming body that never arrives", fn: headersThenHang(200, "application/json"), stream: false },
+    { name: "keep-alive comments only", fn: keepAliveForever(), stream: true },
+  ]
+  for (const k of cases) {
+    mock.reset()
+    const r = await makeRouter({ keys: [K.opencode] })
+    try {
+      mock.set("opencode/mimo-v2.6-flash-free", k.fn)
+      const t0 = Date.now()
+      const res = await chat(r, { alias: "fast", messages: titleCall(), stream: k.stream, headers: { "x-session-affinity": "ses_z29" } })
+      const took = Date.now() - t0
+      syntheticTitle(res, "add a README file", k.name)
+      assert(took >= TIMING.leashMs - 50 && took < TIMING.leashMs + 700, `${k.name}: at the leash (${took} ms)`)
+      eq(mock.hits.length, 1, `${k.name}: one backend`)
+      eq(r.events.length, 1, `${k.name}: one row`)
+      eq(r.events[0].status, "aborted", `${k.name}: aborted`)
+      eq(r.events[0].reason, "title_skipped", `${k.name}: title_skipped`)
+      eq(r.events[0].retryAt, null, `${k.name}: no cooldown`)
+      eq(r.events[0].sessionId, null, `${k.name}: no session id`)
+      eq((await r.status()).cooldowns.length, 0, `${k.name}: nothing cooling`)
+    } finally {
+      await r.close()
+    }
+  }
+})
+
+await scenario("z30) a title whose hidden thinking fills its output cap is let go like the leash, with no cooldown; Google titles ask for minimal thinking; anything else empty still fails over", async () => {
+  const r = await makeRouter({ keys: [K.google] })
+  try {
+    mock.set("google/gemini-3.5-flash-lite", emptyAtCap())
+    const res = await chat(r, { alias: "fast", messages: titleCall(), headers: { "x-session-affinity": "ses_z30" } })
+    syntheticTitle(res, "add a README file")
+    assert(/^synthetic title from the first message \(.*output budget.*\)$/.test(r.events[0]?.error ?? ""), `the row says why (${r.events[0]?.error})`)
+    eq(mock.hits.length, 1, "one backend")
+    eq(mock.hits[0].body.reasoning_effort, "minimal", "a title asks Gemini for its least thinking")
+    eq(mock.hits[0].body.max_tokens, 512, "within the title's output cap")
+    eq(r.events[0].status, "aborted", "aborted")
+    eq(r.events[0].reason, "title_skipped", "title_skipped")
+    eq(r.events[0].retryAt, null, "no cooldown: the cap is the router's own")
+    const st = await r.status()
+    eq(st.cooldowns.length, 0, "nothing cooling")
+    const lite = st.health.find((x) => x.id.includes("gemini-3.5-flash-lite"))
+    assert(!lite || (lite.errRate < 0.1 && lite.ttftMs === 3000), `no error rate, no first-token lesson (${JSON.stringify(lite)})`)
+    // The same empty answer on a chat step is a failure: it fails over and cools the backend.
+    mock.reset()
+    mock.set("google/gemini-3.5-flash-lite", emptyAtCap())
+    const step = await chat(r, { alias: "fast", user: "add a README file", headers: { "x-session-affinity": "ses_z30b" }, extra: { tools: [READ_TOOL] } })
+    eq(step.status, 200, "the chat step is answered")
+    eq(mock.hits[0].body.reasoning_effort, "low", "a chat step on Fast keeps low effort")
+    const ev = r.events.find((e) => e.modelId === "gemini-3.5-flash-lite" && e.reason === "empty")
+    assert(ev && ev.retryAt !== null, "an empty chat step keeps its cooldown")
+  } finally {
+    await r.close()
+  }
+})
+
+await scenario("z31) a title gets the made-up title when the catalog cannot load or no provider is connected; a chat request keeps its 503", async () => {
+  const store = {
+    catalog: async () => {
+      throw new Error("catalog down")
+    },
+    activeKeys: async () => new Map([K.opencode]),
+    record: async () => {},
+  }
+  const router = R.createRouter({ store, log: () => {}, secret: SECRET, baseURLs, timing: TIMING })
+  const server = http.createServer((req, res) => void router.handle(req, res, new URL(req.url ?? "/", "http://localhost")))
+  await new Promise((r) => server.listen(0, "127.0.0.1", r))
+  const down = { url: `http://127.0.0.1:${server.address().port}` }
+  try {
+    const t = await chat(down, { alias: "fast", messages: titleCall(), headers: { "x-session-affinity": "ses_z31" } })
+    syntheticTitle(t, "add a README file", "catalog down")
+    eq((await chat(down, { user: "add a README file" })).status, 503, "catalog down: a chat request keeps its 503")
+  } finally {
+    server.closeAllConnections?.()
+    await new Promise((res) => server.close(res))
+  }
+  const r = await makeRouter({ keys: [] })
+  try {
+    const t = await chat(r, { alias: "fast", messages: titleCall(), headers: { "x-session-affinity": "ses_z31b" } })
+    syntheticTitle(t, "add a README file", "no provider")
+    eq((await chat(r, { user: "add a README file" })).status, 503, "no provider: a chat request keeps its 503")
+  } finally {
+    await r.close()
+  }
+})
+
+await scenario("z32) a title's other rows stay out of the chat too: a used-up request budget, a hang-up mid-answer", async () => {
+  const r = await makeRouter({ keys: [K.groq] })
+  try {
+    mock.set("groq/openai/gpt-oss-120b", sseOk({ headers: { "x-ratelimit-remaining-requests": "0", "x-ratelimit-reset-requests": "6h" } }))
+    eq((await chat(r, { alias: "fast", messages: titleCall(), headers: { "x-session-affinity": "ses_z32" } })).status, 200, "titled")
+    await waitFor(() => r.events.length >= 2, 2000, "two rows")
+    eq(r.events[1].status, "rate_limited", "the budget row")
+    eq(r.events[1].sessionId, null, "kept out of the chat")
+  } finally {
+    await r.close()
+  }
+  mock.reset()
+  const r2 = await makeRouter({ keys: [K.opencode] })
+  try {
+    mock.set("opencode/mimo-v2.6-flash-free", sseOk({ chunks: Array.from({ length: 40 }, (_, i) => `t${i} `), delayMs: 100 }))
+    const ac = new AbortController()
+    const res = await fetch(`${r2.url}/v1/chat/completions`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${SECRET}`, "content-type": "application/json", "x-session-affinity": "ses_z32b" },
+      body: JSON.stringify({ model: "syrup/fast", messages: titleCall(), stream: true, max_tokens: 32000 }),
+      signal: ac.signal,
+    })
+    eq(res.status, 200, "committed")
+    await res.body.getReader().read()
+    ac.abort()
+    await waitFor(() => r2.events.some((e) => e.status === "aborted"), 3000, "aborted row")
+    eq(r2.events.find((e) => e.status === "aborted").sessionId, null, "kept out of the chat")
+  } finally {
+    await r2.close()
+  }
+})
+
+await scenario("z33) every let-go title says why in the log, and the chat gets a title either way", async () => {
+  const r = await makeRouter({ keys: [K.opencode] })
+  try {
+    mock.set("opencode/mimo-v2.6-flash-free", roleThenStall())
+    syntheticTitle(await chat(r, { alias: "fast", messages: titleCall(), headers: { "x-session-affinity": "ses_z33a" } }), "add a README file", "leash")
+    mock.reset()
+    mock.set("opencode/mimo-v2.6-flash-free", status(503, { error: { message: "The model is overloaded" } }))
+    syntheticTitle(await chat(r, { alias: "fast", messages: titleCall("x"), headers: { "x-session-affinity": "ses_z33b" } }), "x", "failed")
+    const [leash, failed] = r.logs.filter((l) => l.event === "request.title_skipped").map((l) => l.data)
+    assert(/no first token within 0\.5s/.test(leash?.why ?? ""), `the leash is named (${leash?.why})`)
+    assert(/could not answer/.test(failed?.why ?? ""), `the failure is named (${failed?.why})`)
+    eq(leash.synthetic, true, "logged as synthetic")
+    eq(failed.title, "x", "with the title it got")
+    eq(r.logs.find((l) => l.event === "request.title_skipped").opts?.sessionId, "ses_z33a", "the log keeps the session")
+  } finally {
+    await r.close()
+  }
+})
+
+await scenario("z34) a title is ranked by first-token time (it writes ~50 tokens), and the plain retry after a refused thinking parameter shares its leash", async () => {
+  const r = await makeRouter({ keys: [K.google, K.opencode] })
+  try {
+    const res = await chat(r, { alias: "fast", messages: titleCall(), headers: { "x-session-affinity": "ses_z34" } })
+    eq(res.headers.get("x-syrup-model"), "mimo-v2.6-flash-free", "the quicker first token wins over the faster decoder")
+  } finally {
+    await r.close()
+  }
+  mock.reset()
+  const r2 = await makeRouter({ keys: [K.google] })
+  try {
+    mock.once("google/gemini-3.5-flash-lite", after(300, status(400, { error: { message: "Thinking level is not supported for this model.", code: 400, status: "INVALID_ARGUMENT" } })))
+    mock.set("google/gemini-3.5-flash-lite", roleThenStall())
+    const t0 = Date.now()
+    const res = await chat(r2, { alias: "fast", messages: titleCall(), headers: { "x-session-affinity": "ses_z34b" } })
+    const took = Date.now() - t0
+    syntheticTitle(res, "add a README file", "let go")
+    eq(mock.hits.length, 2, "the refusal, then one plain try")
+    assert(took < TIMING.leashMs + 250, `within one leash of the first attempt (${took} ms)`)
+  } finally {
+    await r2.close()
+  }
+})
+
+// ------------------------------------------------------------------ round 1: a let-go title is made from the first message (decision 16, option e)
+
+await scenario("unit: a let-go title is the first message's first line with text: markdown and code fences stripped, cut at a word boundary to 50 characters, never empty", async () => {
+  const t = (first) => R.fallbackTitle(titleCall(first))
+  eq(t("add a README file"), "add a README file", "a short message is the title as is")
+  eq(t("Refactor the authentication middleware so that every route checks the session token before reading the body"), "Refactor the authentication middleware so that…", "a long one is cut at a word boundary, with an ellipsis")
+  const fifty = "Make the sidebar collapse on phones under 400 wide"
+  eq(fifty.length, 50, "fixture: exactly 50 characters")
+  eq(t(fifty), fifty, "exactly 50 characters fits, with no ellipsis")
+  eq(t(`${fifty.slice(0, 45)} please`), "Make the sidebar collapse on phones under 400…", "52 characters: cut before the last word")
+  const url = `https://example.com/${"a".repeat(80)}`
+  eq(t(url), `${url.slice(0, 49)}…`, "one word longer than the limit: a hard cut")
+  eq(t("Fix the bug, then the next one, and the one after that please"), "Fix the bug, then the next one, and the one after…", "the 50th character is a space: cut right there")
+  eq(t("Update the docs for the router and the policy, then rerun all tests"), "Update the docs for the router and the policy…", "no dangling comma before the ellipsis")
+  for (const s of ["Refactor the authentication middleware so that every route checks", "x".repeat(200), "a ".repeat(100), "😀".repeat(60)]) {
+    assert(Array.from(t(s)).length <= 50, `never over 50 characters (${t(s)})`)
+  }
+  eq(t("\n\n   \n  fix   the\tlogin   page  \nsecond line"), "fix the login page", "the first non-empty line, whitespace collapsed")
+  eq(t("line one\r\nline two"), "line one", "Windows line ends")
+  eq(t("## **Fix** the `parseConfig` bug in [config.ts](src/config.ts)\n\nmore"), "Fix the parseConfig bug in config.ts", "heading, bold, inline code and link stripped")
+  eq(t("> - [ ] add *tests* for the _router_ ~~now~~"), "add tests for the router now", "quote, list, task box, emphasis and strikethrough stripped")
+  eq(t("rename my_var_name to snake_case_name * 2"), "rename my_var_name to snake_case_name * 2", "snake_case and a lone asterisk survive")
+  eq(t("---\n***\n\nwhat does this do?"), "what does this do?", "rules are not text")
+  eq(t("![screenshot](data:image/png;base64,AAAA)\nwhy is this red"), "screenshot", "an image's alt text is text")
+  eq(t("```ts\nconst x: number = 'a'\n```\nwhy does this not compile?"), "why does this not compile?", "a code block is skipped for the words after it")
+  eq(t("~~~\nnpm ERR! code ERESOLVE\n~~~"), "npm ERR! code ERESOLVE", "a message that is only code gives the code's first line")
+  eq(t("```\n\n```\n\nok"), "ok", "an empty code block")
+  eq(t("```py\nprint(1)"), "print(1)", "an unclosed fence runs to the end")
+  eq(t("<system-reminder>Plan mode is active.</system-reminder>\nadd a login page"), "add a login page", "OpenCode's system reminders are not the user's words")
+  eq(t([{ type: "text", text: "  " }, { type: "text", text: "hello   world" }]), "hello world", "text parts")
+  eq(t([{ type: "image_url", image_url: { url: "data:image/png;base64,AAAA" } }]), "New chat", "an image alone")
+  eq(t([{ type: "image_url", image_url: { url: "data:image/png;base64,AAAA" } }, { type: "text", text: "what is this" }]), "what is this", "an image with words")
+  eq(t("   \n\t\n"), "New chat", "only whitespace")
+  eq(t("```\n```"), "New chat", "only an empty code block")
+  eq(t("---"), "New chat", "only markup")
+  eq(R.fallbackTitle(titleCall().slice(0, 2)), "New chat", "no first message at all")
+  // Review findings after the fallback landed.
+  eq(t("What does __init__ do in my Python class?"), "What does __init__ do in my Python class?", "dunder names are not bold")
+  eq(t("why is 2**10 not 2**10.0 in numpy"), "why is 2**10 not 2**10.0 in numpy", "a power operator is not bold")
+  eq(t("this is **really** odd"), "this is really odd", "real bold is still stripped")
+  eq(t("<think>why is my build failing</think>\nfix the build"), "fix the build", "a closed think block is not the title")
+  eq(t("​​​"), "New chat", "only zero-width characters")
+  eq(t("\u001b[31mred\u001b[0m alert\u0000"), "[31mred[0m alert", "control characters removed")
+  eq(t("‮evil title"), "evil title", "a direction override removed")
+  const family = "👨‍👩‍👧"
+  const cut = t(`${"word ".repeat(9)}${family.repeat(10)}`)
+  assert(!cut.includes("‍…") && !/‍$/.test(cut.replace("…", "")), `a cut never splits a family emoji (${cut})`)
+  const synthetic = [
+    { role: "system", content: "You are a title generator. You output ONLY a thread title. Nothing else." },
+    { role: "user", content: "Generate a title for this conversation:\n" },
+    { role: "user", content: "The following tool was executed by the user" },
+    { role: "assistant", content: "" },
+    { role: "user", content: "add dark mode to the settings page" },
+  ]
+  eq(R.fallbackTitle(synthetic), "add dark mode to the settings page", "OpenCode puts the first real message last, after synthetic turns")
+})
+
+await scenario("z35) at the real 4 s leash a silent title gets its made-up title at about 4 s, with no second backend though others could take it", async () => {
+  const r = await makeRouter({ keys: [K.opencode], timing: { ...TIMING, leashMs: 4_000 } })
+  try {
+    for (const m of ["mimo-v2.6-flash-free", "big-pickle", "muse-spark-1.3-contributor-free"]) mock.set(`opencode/${m}`, roleThenStall())
+    const t0 = Date.now()
+    const res = await chat(r, { alias: "fast", messages: titleCall("Refactor the authentication middleware so that every route checks the session token before reading the body"), headers: { "x-session-affinity": "ses_z35" } })
+    const took = Date.now() - t0
+    syntheticTitle(res, "Refactor the authentication middleware so that…")
+    assert(took >= 3_950 && took < 4_700, `at the leash, about 4 s (${took} ms)`)
+    eq(mock.hits.length, 1, "one backend, no failover")
+    eq(r.events.length, 1, "one row")
+    eq(r.events[0].status, "aborted", "aborted: out of okRate, the alias pick and the answers")
+    eq(r.events[0].reason, "title_skipped", "title_skipped: out of the waiting line")
+    eq(r.events[0].error, "synthetic title from the first message (no first token within 4s)", "the row says the title was synthetic")
+    eq(r.events[0].retryAt, null, "no cooldown")
+  } finally {
+    await r.close()
+  }
+})
+
+await scenario("z36) a let-go title answers in the shape asked for: an image-only first message streams \"New chat\", a non-streaming request gets JSON with the markdown stripped; a title a model wrote is passed through untouched", async () => {
+  const r = await makeRouter({ keys: [K.opencode] })
+  try {
+    for (const m of ["mimo-v2.6-flash-free", "big-pickle", "muse-spark-1.3-contributor-free"]) mock.set(`opencode/${m}`, roleThenStall())
+    const image = await chat(r, { alias: "fast", messages: titleCall([{ type: "image_url", image_url: { url: "data:image/png;base64,AAAA" } }]), headers: { "x-session-affinity": "ses_z36a" } })
+    syntheticTitle(image, "New chat", "image only")
+    eq(mock.hits.length, 1, "image only: one backend")
+    mock.reset()
+    for (const m of ["mimo-v2.6-flash-free", "big-pickle", "muse-spark-1.3-contributor-free"]) mock.set(`opencode/${m}`, status(503, { error: { message: "The model is overloaded" } }))
+    const t0 = Date.now()
+    const plain = await chat(r, { alias: "fast", stream: false, messages: titleCall("```js\nfoo()\n```\n# Why does `foo()` throw **TypeError**?\nmore detail"), headers: { "x-session-affinity": "ses_z36b" } })
+    syntheticTitle(plain, "Why does foo() throw TypeError?", "non-streaming")
+    assert(Date.now() - t0 < TIMING.leashMs, "a failure answers at once")
+    eq(plain.json.model, "syrup/fast", "names the model asked for")
+    // A model that answers in time: its own title, not the router's.
+    mock.reset()
+    for (const m of ["mimo-v2.6-flash-free", "big-pickle", "muse-spark-1.3-contributor-free"]) mock.set(`opencode/${m}`, sseOk({ text: "README setup" }))
+    const real = await chat(r, { alias: "fast", messages: titleCall(), headers: { "x-session-affinity": "ses_z36c" } })
+    eq(real.status, 200, "titled")
+    eq(real.content, "README setup", "the model's title")
+    eq(real.headers.get("x-syrup-title"), null, "not marked synthetic")
+    assert(real.headers.get("x-syrup-model"), "from a model")
+    eq(r.events.at(-1).status, "ok", "recorded as the model's answer")
+  } finally {
+    await r.close()
+  }
+})
+
+// ------------------------------------------------------------------ round 1 review 2: a title commits on its title; a made-up title is cheap
+
+/**
+ * A model that streams its thinking as reasoning chunks (`field`: reasoning_content for big-pickle, mimo and kimi;
+ * reasoning for groq's gpt-oss), `everyMs` apart, then optionally content, then `finish` ("length": the output cap).
+ * `die`: the connection drops after the thinking. `stall`: silence after the thinking, until the router hangs up.
+ */
+function thinkThen({ field = "reasoning_content", thinking = "x".repeat(1300), everyMs = 0, content = [], finish = "length", die = false, stall = false } = {}) {
+  return async (req, res, hit) => {
+    if (!hit.body.stream) {
+      res.writeHead(200, { "content-type": "application/json" })
+      const message = { role: "assistant", [field]: thinking, ...(content.length ? { content: content.join("") } : {}) }
+      res.end(JSON.stringify({ id: "cmpl", object: "chat.completion", choices: [{ index: 0, message, finish_reason: finish }], usage: { prompt_tokens: 600, completion_tokens: 512 } }))
+      return
+    }
+    res.writeHead(200, { "content-type": "text/event-stream" })
+    const send = (o) => res.write(`data: ${JSON.stringify(o)}\n\n`)
+    send({ id: "c", choices: [{ index: 0, delta: { role: "assistant", content: "" } }] })
+    for (const part of thinking.match(/.{1,40}/gs) ?? []) {
+      if (hit.closed) return
+      send({ id: "c", choices: [{ index: 0, delta: { [field]: part } }] })
+      if (everyMs) await sleep(everyMs)
+    }
+    if (die) return void res.destroy()
+    if (stall) return void (await new Promise((resolve) => res.on("close", resolve)))
+    for (const part of content) send({ id: "c", choices: [{ index: 0, delta: { content: part } }] })
+    send({ id: "c", choices: [{ index: 0, delta: {}, finish_reason: finish }] })
+    send({ id: "c", choices: [], usage: { prompt_tokens: 600, completion_tokens: 512 } })
+    res.write("data: [DONE]\n\n")
+    res.end()
+  }
+}
+
+await scenario("z37) a title that thinks out loud until its output cap gets the made-up title: reasoning_content (big-pickle), reasoning (gpt-oss), <think> in the text, whitespace, and non-streaming", async () => {
+  const cases = [
+    { name: "reasoning_content to the cap", key: K.opencode, model: "opencode/mimo-v2.6-flash-free", fn: thinkThen() },
+    { name: "groq's reasoning field to the cap", key: K.groq, model: "groq/openai/gpt-oss-120b", fn: thinkThen({ field: "reasoning" }) },
+    { name: "<think> in the text to the cap", key: K.opencode, model: "opencode/mimo-v2.6-flash-free", fn: thinkThen({ thinking: "", content: ["<think>", "let me see, a title for a README", " request..."] }) },
+    { name: "thinking, then only whitespace, to the cap", key: K.opencode, model: "opencode/mimo-v2.6-flash-free", fn: thinkThen({ content: ["\n", "  "] }) },
+    { name: "non-streaming, reasoning only, at the cap", key: K.opencode, model: "opencode/mimo-v2.6-flash-free", fn: thinkThen(), stream: false },
+  ]
+  for (const k of cases) {
+    mock.reset()
+    const r = await makeRouter({ keys: [k.key] })
+    try {
+      for (const m of ["mimo-v2.6-flash-free", "big-pickle", "muse-spark-1.3-contributor-free"]) mock.set(`opencode/${m}`, k.fn)
+      mock.set("groq/openai/gpt-oss-120b", k.fn)
+      const res = await chat(r, { alias: "fast", messages: titleCall(), stream: k.stream ?? true, headers: { "x-session-affinity": "ses_z37" } })
+      syntheticTitle(res, "add a README file", k.name)
+      eq(mock.hits.length, 1, `${k.name}: one backend`)
+      eq(mock.hits[0].body.max_tokens, 512, `${k.name}: within the title's output cap`)
+      eq(r.events.length, 1, `${k.name}: one row`)
+      eq(r.events[0].status, "aborted", `${k.name}: aborted`)
+      eq(r.events[0].reason, "title_skipped", `${k.name}: title_skipped`)
+      assert(/^synthetic title from the first message \(.*output budget.*\)$/.test(r.events[0].error ?? ""), `${k.name}: the row says why (${r.events[0].error})`)
+      eq((await r.status()).cooldowns.length, 0, `${k.name}: no cooldown, the cap is the router's own`)
+    } finally {
+      await r.close()
+    }
+  }
+})
+
+await scenario("z38) a title that thinks past its leash, or whose stream dies or stalls after thinking, gets the made-up title at once or at the leash; one that thinks then writes a title is passed through", async () => {
+  const MIMO = "opencode/mimo-v2.6-flash-free"
+  const all = (fn) => {
+    for (const m of ["mimo-v2.6-flash-free", "big-pickle", "muse-spark-1.3-contributor-free"]) mock.set(`opencode/${m}`, fn)
+  }
+  // Thinking that never ends inside the leash: let go at the leash, named as thinking, with no first-token lesson.
+  {
+    mock.reset()
+    const r = await makeRouter({ keys: [K.opencode] })
+    try {
+      all(thinkThen({ thinking: "y".repeat(40 * 40), everyMs: 50 }))
+      const t0 = Date.now()
+      const res = await chat(r, { alias: "fast", messages: titleCall(), headers: { "x-session-affinity": "ses_z38a" } })
+      const took = Date.now() - t0
+      syntheticTitle(res, "add a README file", "thinking past the leash")
+      assert(took >= TIMING.leashMs - 50 && took < TIMING.leashMs + 700, `thinking past the leash: at the leash (${took} ms)`)
+      eq(mock.hits.length, 1, "thinking past the leash: one backend")
+      eq(r.events[0].reason, "title_skipped", "thinking past the leash: title_skipped")
+      eq(r.events[0].error, "synthetic title from the first message (no title within 0.5s, the model was still thinking)", "thinking past the leash: the row says it was thinking")
+      eq(r.logs.find((l) => l.event === "attempt.title_skipped")?.data?.why, "thinking", "thinking past the leash: logged as thinking")
+      const h = (await r.status()).health.find((x) => x.id.includes(MIMO.split("/")[1]))
+      assert(!h || h.ttftMs < 2_000, `thinking past the leash: no first-token lesson, its first token came in time (${JSON.stringify(h)})`)
+    } finally {
+      await r.close()
+    }
+  }
+  // The stream dies after the thinking, before any title text.
+  {
+    mock.reset()
+    const r = await makeRouter({ keys: [K.opencode] })
+    try {
+      all(thinkThen({ die: true }))
+      const t0 = Date.now()
+      const res = await chat(r, { alias: "fast", messages: titleCall(), headers: { "x-session-affinity": "ses_z38b" } })
+      syntheticTitle(res, "add a README file", "dies after thinking")
+      assert(Date.now() - t0 < TIMING.leashMs, "dies after thinking: answered at once")
+      eq(mock.hits.length, 1, "dies after thinking: one backend")
+    } finally {
+      await r.close()
+    }
+  }
+  // The stream stalls after the thinking: the leash still runs (no idle wait, which is longer).
+  {
+    mock.reset()
+    const r = await makeRouter({ keys: [K.opencode] })
+    try {
+      all(thinkThen({ stall: true }))
+      const t0 = Date.now()
+      const res = await chat(r, { alias: "fast", messages: titleCall(), headers: { "x-session-affinity": "ses_z38c" } })
+      const took = Date.now() - t0
+      syntheticTitle(res, "add a README file", "stalls after thinking")
+      assert(took < TIMING.leashMs + 700 && took < TIMING.idleMs, `stalls after thinking: at the leash, not the idle timeout (${took} ms)`)
+    } finally {
+      await r.close()
+    }
+  }
+  // Thinking that stops ("stop") with no title: let go too (an empty answer, so it keeps its failure row).
+  {
+    mock.reset()
+    const r = await makeRouter({ keys: [K.opencode] })
+    try {
+      all(thinkThen({ finish: "stop" }))
+      const res = await chat(r, { alias: "fast", messages: titleCall(), headers: { "x-session-affinity": "ses_z38d" } })
+      syntheticTitle(res, "add a README file", "stop after thinking")
+      assert(/without a title, only thinking/.test(r.events[0]?.error ?? ""), `stop after thinking: the row says why (${r.events[0]?.error})`)
+    } finally {
+      await r.close()
+    }
+  }
+  // Thinking, then a real title: the model's own, with its reasoning ahead of it, not marked synthetic.
+  {
+    mock.reset()
+    const r = await makeRouter({ keys: [K.opencode] })
+    try {
+      all(thinkThen({ thinking: "a README request", content: ["<think>more</think>", "README", " setup"], finish: "stop" }))
+      const res = await chat(r, { alias: "fast", messages: titleCall(), headers: { "x-session-affinity": "ses_z38e" } })
+      eq(res.status, 200, "thinks then writes: titled")
+      eq(res.headers.get("x-syrup-title"), null, "thinks then writes: not synthetic")
+      eq(res.content, "<think>more</think>README setup", "thinks then writes: the model's text, untouched")
+      assert(res.text.includes('"reasoning_content":"a README request"'), "thinks then writes: its reasoning is passed through too")
+      eq(r.events.at(-1).status, "ok", "thinks then writes: recorded as the model's answer")
+    } finally {
+      await r.close()
+    }
+  }
+  // A chat step on Fast still commits on its first reasoning token (only a title waits for text).
+  {
+    mock.reset()
+    const r = await makeRouter({ keys: [K.opencode] })
+    try {
+      all(thinkThen({ thinking: "z".repeat(40 * 40), everyMs: 50, content: ["done"], finish: "stop" }))
+      const res = await chat(r, { alias: "fast", messages: continuation("summarise the file"), headers: { "x-session-affinity": "ses_z38f" }, extra: { tools: [READ_TOOL] } })
+      eq(res.status, 200, "a chat step: answered")
+      eq(res.content, "done", "a chat step: its answer")
+      eq(mock.hits.length, 1, "a chat step: no deadline cut while it thinks")
+    } finally {
+      await r.close()
+    }
+  }
+})
+
+await scenario("unit: a made-up title is linear in the message: 1 MB adversarial lines and unclosed reminders return in milliseconds, long lines keep their start", async () => {
+  const t = (first) => R.fallbackTitle(titleCall(first))
+  // One long line must cost well under 50 ms (uncapped, a 200 KB one held the event loop for about a minute). A message
+  // of up to a million short lines is one linear pass whose time is mostly allocation, so it gets room on a busy machine.
+  // The best of three runs, so a garbage-collection pause in this busy test process is not blamed on the code.
+  const timed = (name, first, expected, limitMs = 50) => {
+    let ms = Infinity
+    let got = ""
+    for (let i = 0; i < 3; i++) {
+      const t0 = performance.now()
+      got = t(first)
+      ms = Math.min(ms, performance.now() - t0)
+    }
+    assert(ms < limitMs, `${name}: under ${limitMs} ms (${ms.toFixed(1)} ms)`)
+    if (expected !== undefined) eq(got, expected, `${name}: the title`)
+    assert(Array.from(got).length <= 50 && got.length > 0, `${name}: a title of at most 50 characters (${got})`)
+  }
+  // Warm the regexes once so the first timing is not the compile.
+  t("warm up **the** [regexes](x)")
+  timed("unclosed bold, 1 MB", "**a ".repeat(250_000))
+  timed("unclosed links, 1 MB", "[".repeat(1_000_000))
+  timed("unclosed images, 1 MB", "![".repeat(500_000))
+  timed("unclosed strikethrough, 1 MB", "~~a ".repeat(250_000))
+  timed("python power operators, 1 MB", `y = x ${"**2 ".repeat(250_000)}`, "y = x **2 **2 **2 **2 **2 **2 **2 **2 **2 **2 **2…")
+  timed("unclosed reminders, 1 MB", "<system-reminder>a".repeat(55_000))
+  timed("many markup-only lines that strip to nothing, 1 MB", `${`![](x)${"**- ".repeat(250)}\n`.repeat(1_000)}the real question`, undefined, 250)
+  timed("a million line breaks, then text", `${"\n".repeat(1_000_000)}finally a question`, "finally a question", 250)
+  timed("half a million rules, then text", `${"-\n".repeat(500_000)}finally a question`, "finally a question", 250)
+  timed("1 MB of one rule, then text", `${"-".repeat(1_000_000)}x\nfinally a question`)
+  timed("1 MB of unclosed bold markup lines", `${"**- ".repeat(250)}\n`.repeat(1_000), "New chat", 250)
+  timed("1 MB of one code line", `\`\`\`\n${"const a = 1; ".repeat(80_000)}\n\`\`\``)
+  timed("a long line of leading spaces", `${" ".repeat(500_000)}indented words`, "indented words")
+  eq(t(`${"a".repeat(999)}😀 tail`), `${"a".repeat(49)}…`, "a cut line never splits a surrogate pair")
+  eq(t(`Fix [the login page](https://example.com/${"p".repeat(500)}) today`), "Fix the login page today", "a long link inside the cap is still stripped")
+  eq(t("<system-reminder>one</system-reminder>\n<system-reminder>two</system-reminder>rename the file"), "rename the file", "several reminders")
+  eq(t("<system-reminder>never closed\nadd tests"), "<system-reminder>never closed", "an unclosed reminder is left as it is")
+})
+
+await scenario("unit: a hedge win is a race, not a retry; the waiting line names only models that were dropped", async () => {
+  const a = (o) => ({ ts: 10_000, alias: "auto", providerId: "opencode", modelId: "big-pickle", ttftMs: 400, latencyMs: 500, attempts: 1, reason: "best", ...o })
+  eq(R.routerSwitch([a({ attempts: 2, reason: "hedge" })], [], 9_000), null, "a hedge winner gets no 'first pick couldn't answer' note")
+  eq(R.routerSwitch([a({ attempts: 2, reason: "fallback" })], [], 9_000)?.kind, "retried", "a real fallback after a failure still does")
+  const label = (id) => id.toUpperCase()
+  const at = (o) => ({ ts: 1, alias: "auto", providerId: "x", modelId: "m", status: "aborted", reason: null, error: null, ...o })
+  eq(R.describeDrops([at({ reason: "hedged" }), at({ reason: "title_skipped" }), at({ status: "ok", reason: "best" })], label), null, "a lost race, a let-go title and an answer drop nothing")
+  eq(R.describeDrops([at({ reason: "hedged" }), at({ status: "timeout", reason: "timeout", modelId: "flash" })], label), "FLASH didn't answer in time. Trying another model…", "a timeout is named")
+  eq(R.describeDrops([at({ status: "error", reason: "overloaded", modelId: "a" }), at({ status: "timeout", reason: "timeout", modelId: "b" })], label), "B didn't answer in time, 1 other before it. Trying another model…", "several")
 })
 
 // ------------------------------------------------------------------ summary

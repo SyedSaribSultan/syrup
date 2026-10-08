@@ -68,6 +68,47 @@ export type Attempt = {
   error: string | null
 }
 
+/**
+ * Attempts the router cut on purpose, which say nothing went wrong: a second model that raced the first one and lost
+ * ("hedged"), and an optional chat-title call it let go ("title_skipped"; title rows also carry no session id).
+ */
+const NOT_DROPPED = new Set(["hedged", "title_skipped"])
+
+/** Whether the "waiting" line should report this attempt as a model the router dropped. */
+export function droppedAttempt(a: Pick<Attempt, "status" | "reason">): boolean {
+  return a.status !== "ok" && !NOT_DROPPED.has(a.reason ?? "")
+}
+
+/** Why a model was dropped, in a few plain words. */
+const DROP_WHY: Record<string, string> = {
+  overloaded: "is overloaded",
+  timeout: "didn't answer in time",
+  rpm: "hit its rate limit",
+  rpd: "used up its daily quota",
+  tpm: "can't take a request this size",
+  auth: "rejected the key",
+  bad_request: "rejected the request",
+  context: "can't fit this conversation",
+  network: "couldn't be reached",
+  empty: "answered with nothing",
+  error: "failed",
+}
+
+/**
+ * The "waiting" line (router-progress.tsx): which model the router dropped last and why, or null when none was.
+ * React-free so it can be tested; `label` names a model id.
+ */
+export function describeDrops(attempts: readonly Attempt[], label: (modelId: string) => string): string | null {
+  // A lost hedge race or a skipped chat title is not a dropped model: nothing went wrong.
+  const failed = attempts.filter(droppedAttempt)
+  if (failed.length === 0) return null
+  const last = failed[failed.length - 1]
+  const why = DROP_WHY[last.reason ?? ""] ?? "failed"
+  const name = label(last.modelId)
+  if (failed.length === 1) return `${name} ${why}. Trying another model…`
+  return `${name} ${why}, ${failed.length - 1} other${failed.length === 2 ? "" : "s"} before it. Trying another model…`
+}
+
 export type AnswersResponse = {
   answers: Answer[]
   /** Only with `?live=1`: every attempt of the last few minutes, oldest first, failures included. */

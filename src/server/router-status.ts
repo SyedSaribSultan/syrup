@@ -39,7 +39,10 @@ const RECENT = 20
 const AUTH_WINDOW_MS = 3_600_000
 const MAX_ANSWERS = 500
 
-/** Statuses that count as an attempt for okRate. "aborted" is the client hanging up, not the backend's fault. */
+/**
+ * Statuses that count as an attempt for okRate. "aborted" is an attempt cut short by the client hanging up or by the
+ * router itself (a lost hedge race, a chat title it let go), not the backend's fault.
+ */
 const ATTEMPT_STATUSES = new Set(["ok", "rate_limited", "error", "timeout"])
 const COOL_REASONS = new Set<CoolReason>(["rpd", "rpm", "overloaded", "auth", "timeout"])
 

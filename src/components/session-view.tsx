@@ -9,11 +9,13 @@ import { RouterProgress } from "@/components/router-progress"
 import { Composer } from "@/components/composer"
 import { useLogs } from "@/components/logs-modal"
 import { MessageView } from "@/components/message"
+import { preloadLiveText } from "@/components/parts"
 import { Prompts } from "@/components/prompts"
 import { ShareButton } from "@/components/share-dialog"
 import { PanelToggle } from "@/components/side-panel"
 import { useEngine } from "@/lib/engine-store"
 import { fmtCost, fmtTokens } from "@/lib/format"
+import { usePanel } from "@/lib/panel"
 import { useDismiss } from "@/lib/use-dismiss"
 import { useFeedback } from "@/lib/use-feedback"
 import { useNarrow } from "@/lib/use-window-class"
@@ -23,9 +25,16 @@ import { ModelPicker } from "./model-picker"
 import { alertDialog, confirmDialog, promptDialog } from "./ui/dialog"
 import { MenuList, Popover, type MenuItem } from "./ui/sheet"
 
+/** How long the chat keeps following the log's growth after the turn ends (the last words typing out, the thumbs row). */
+const FOLLOW_GRACE_MS = 1000
+/** Text still typing out keeps it following this much longer, from the last time the log grew. */
+const REVEAL_GRACE_MS = 600
+
 /** One chat session: header, message list, prompts, composer. Works against whatever engine the EngineProvider is connected to. */
 export function SessionView({ id }: { id: string }) {
-  const { sessions, messages, status, errors, loadMessages, send, abort } = useEngine()
+  const { sessions, messages, status, errors, live, loadMessages, send, abort } = useEngine()
+  // Beside the side pane the chat can be as narrow as 440 px: the title keeps the room (the totals are in ⋯ → Chat info).
+  const paneOpen = !!usePanel()?.open
   const session = sessions[id]
   const sm = messages[id]
   const busy = status[id]?.type === "busy" || status[id]?.type === "retry"
@@ -39,6 +48,8 @@ export function SessionView({ id }: { id: string }) {
   useEffect(() => {
     void loadMessages(id)
   }, [id, loadMessages])
+  // The streaming-text code loads on first use; fetch it now, so the first reply never waits for it.
+  useEffect(() => preloadLiveText(), [])
 
   const entries = useMemo(() => (sm ? sm.order.map((mid) => sm.byId[mid]).filter(Boolean) : []), [sm])
   const { ratings, rate } = useFeedback(id)
@@ -49,16 +60,54 @@ export function SessionView({ id }: { id: string }) {
   // Sent, but the engine has not opened the answer yet.
   const awaiting = busy && lastRole === "user"
 
-  // Follow the stream unless the user has scrolled up.
+  // Follow the stream unless the user has scrolled up: on new entries, and whenever the log grows while the agent works
+  // or a reply is still typing out (the typewriter reveals text between store updates, and the engine ends the turn
+  // while the last words are still a fraction of a second behind). A short grace after the turn covers the reply's
+  // last lines and its thumbs. Idle, growth the user caused (a row opened at the end) stays put.
   useEffect(() => {
     const el = scroller.current
     if (el && stickToBottom.current) el.scrollTop = el.scrollHeight
   }, [entries])
+  const following = useRef(busy)
+  const graceUntil = useRef(0)
+  useEffect(() => {
+    following.current = busy
+    graceUntil.current = busy ? 0 : performance.now() + FOLLOW_GRACE_MS
+  }, [busy])
+  useEffect(() => {
+    const el = scroller.current
+    const log = el?.firstElementChild
+    if (!el || !log || typeof ResizeObserver === "undefined") return
+    const ro = new ResizeObserver(() => {
+      const now = performance.now()
+      // Text still typing out keeps the chat following a little longer, however long the reveal takes (a hidden tab pauses it).
+      if (log.querySelector("[data-revealing]")) graceUntil.current = Math.max(graceUntil.current, now + REVEAL_GRACE_MS)
+      if (stickToBottom.current && (following.current || now < graceUntil.current)) el.scrollTop = el.scrollHeight
+    })
+    ro.observe(log)
+    // The user acting in the chat (opening a row, selecting text) ends the grace: what they opened stays where it is.
+    const mine = () => {
+      if (!following.current) graceUntil.current = 0
+    }
+    el.addEventListener("pointerdown", mine)
+    el.addEventListener("keydown", mine)
+    return () => {
+      ro.disconnect()
+      el.removeEventListener("pointerdown", mine)
+      el.removeEventListener("keydown", mine)
+    }
+  }, [])
 
+  // Only the reader moving up lets go of the bottom. Being far from it is not enough: a burst of text can grow the log
+  // by more than the margin between the chat's own scroll and its scroll event, which used to strand the chat mid-reply.
+  const lastTop = useRef(0)
   function onScroll() {
     const el = scroller.current
     if (!el) return
-    stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+    const top = el.scrollTop
+    if (el.scrollHeight - top - el.clientHeight < 80) stickToBottom.current = true
+    else if (top < lastTop.current - 1) stickToBottom.current = false
+    lastTop.current = top
     setScrolledUp(!stickToBottom.current)
   }
 
@@ -94,7 +143,7 @@ export function SessionView({ id }: { id: string }) {
           </div>
           <h1 className="hidden min-w-0 flex-1 truncate text-sm font-medium text-ink expanded:block">{session?.title || "New chat"}</h1>
           <div className="flex shrink-0 items-center gap-0.5 expanded:gap-3">
-            {(totals.tokens > 0 || totals.cost > 0) && (
+            {(totals.tokens > 0 || totals.cost > 0) && !paneOpen && (
               <div className="hidden text-xs text-muted large:block">
                 {fmtTokens(totals.tokens)} tokens · {fmtCost(totals.cost)}
               </div>
@@ -128,6 +177,7 @@ export function SessionView({ id }: { id: string }) {
               key={e.info.id}
               entry={e}
               streaming={busy && e.info.id === lastID && e.info.role === "assistant"}
+              live={live}
               rating={ratings[e.info.id] ?? null}
               onRate={turnEnds.has(e.info.id) ? (r, model) => rate(e.info.id, r, model) : undefined}
             />

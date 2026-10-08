@@ -2,7 +2,8 @@
 /**
  * Times real agent turns the way a user feels them. Drives a running syrup
  * (local: `pnpm dev`, the proxy at /api/oc) with a few prompts and records,
- * per turn: time to the first streamed text, time to the first tool call,
+ * per turn: time to the first streamed text (the first message.part.delta of
+ * an assistant text part, which is when the chat shows it), time to the first tool call,
  * total time, which model answered, how many attempts the router needed and
  * whether it fell over to another model. Spends real free-tier quota.
  *
@@ -82,8 +83,15 @@ function watch(sessionID, marks) {
         const now = Date.now()
         // The user's own prompt arrives as a text part too; only the assistant's messages count.
         if (ev.type === "message.updated" && p.info?.sessionID === sessionID && p.info.role === "assistant") (marks.assistant ??= new Set()).add(p.info.id)
+        // OpenCode 1.18 streams text as message.part.delta events (field "text") after a part's empty opening update;
+        // the first one is the first text a user sees. Reasoning parts stream the same field, so the part's type decides.
+        if (ev.type === "message.part.delta" && p.sessionID === sessionID && p.field === "text" && p.delta && marks.assistant?.has(p.messageID)) {
+          if (marks.textParts?.has(p.partID) && !marks.firstText) marks.firstText = now
+        }
         if (ev.type === "message.part.updated" && p.part?.sessionID === sessionID && marks.assistant?.has(p.part.messageID)) {
           const part = p.part
+          if (part.type === "text") (marks.textParts ??= new Set()).add(part.id)
+          // A part that arrives whole (no deltas) still counts when its final update lands.
           if (part.type === "text" && (p.delta || part.text) && !marks.firstText) marks.firstText = now
           if (part.type === "reasoning" && !marks.firstReasoning) marks.firstReasoning = now
           if (part.type === "tool") {

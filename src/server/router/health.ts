@@ -151,6 +151,18 @@ export class Health {
     s.badRequests = cls.reason === "bad_request" ? s.badRequests + 1 : 0
   }
 
+  /**
+   * An attempt the router cut before its first token by its own choice (a lost hedge race, a title call's leash).
+   * The wait is a lower bound on the backend's first-token time and says nothing about its health: it can only raise
+   * the estimate, and it leaves the error rate, the failure counters and the cooldowns alone.
+   */
+  firstTokenAfter(c: Candidate, promptTokens: number, waitedMs: number) {
+    const s = this.statsOf(c)
+    s.lastUsed = this.now()
+    const normMs = waitedMs / promptFactor(promptTokens)
+    if (normMs > s.ttft) this.ttftSample(s, normMs)
+  }
+
   /** Peak-EWMA: jump most of the way to slow observations, recover slowly from fast ones. */
   private ttftSample(s: Stats, normMs: number) {
     s.ttft = normMs > s.ttft ? 0.35 * s.ttft + 0.65 * normMs : 0.75 * s.ttft + 0.25 * normMs

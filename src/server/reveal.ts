@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process"
 import fs from "node:fs"
 import path from "node:path"
+import { CREDENTIALS_REFUSED, isCredentialPath, isLocalDrivePath, NOT_LOCAL_DRIVE } from "./credential-dirs"
 import { slog } from "./log"
 
 /**
@@ -9,7 +10,9 @@ import { slog } from "./log"
  * folder it is in. Local mode only; the browser and server share a desktop.
  *
  * Only paths inside the workspace the browser sends are accepted, compared
- * after resolving symlinks. Nothing goes through a shell.
+ * after resolving symlinks, on a local drive, and never one in a credential
+ * folder or a hard link to a credential file (src/server/credential-dirs.ts).
+ * Nothing goes through a shell.
  */
 
 export type RevealAction = "reveal" | "open" | "folder"
@@ -42,6 +45,9 @@ function realpath(p: string): string | null {
 /** Resolves `target` against `workspace` and checks it stays inside. Throws RevealError. */
 export function resolveInWorkspace(workspace: string, target: string): string {
   if (!path.isAbsolute(workspace)) throw new RevealError("workspace must be an absolute path", 400)
+  // Windows: a drive-letter path only. \\127.0.0.1\c$\… is this same disk, and realpath leaves it in that form, so
+  // the credential check below could not recognise the folders it names.
+  if (!isLocalDrivePath(workspace)) throw new RevealError(NOT_LOCAL_DRIVE, 400)
   const root = path.resolve(workspace)
   // A drive or filesystem root as "workspace" would make every file fair game.
   if (path.parse(root).root === root) throw new RevealError("workspace cannot be a filesystem root", 400)
@@ -53,6 +59,9 @@ export function resolveInWorkspace(workspace: string, target: string): string {
   const real = realpath(abs)
   if (!real) throw new RevealError("not found", 404)
   if (!inside(realRoot, real)) throw new RevealError("path is outside the workspace", 403)
+  // A workspace can be a parent of the engine's auth.json or syrup's vault key (a workspace in the home folder),
+  // and a hard link inside any workspace can be one of those files (compared by file identity).
+  if (isCredentialPath(real)) throw new RevealError(CREDENTIALS_REFUSED, 403)
   // Windows paths cannot contain quotes; the verbatim /select argument below relies on it.
   if (real.includes('"')) throw new RevealError("unsupported path", 400)
   return real

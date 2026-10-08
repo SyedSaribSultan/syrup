@@ -15,6 +15,7 @@
     "test:router": "node scripts/test-router.mjs",
     "test:transcript": "node scripts/test-transcript.mjs",
     "test:diffs": "node scripts/test-diffs.mjs",
+    "test:guard": "node scripts/test-guard.mjs",
     "bench:agent": "node scripts/bench-agent.mjs",
     "chat:export": "node scripts/chat-export.mjs",
     "shots": "node scripts/shots.mjs",

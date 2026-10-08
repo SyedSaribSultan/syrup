@@ -48,6 +48,7 @@ Effort is a guess; a round that runs long is split, not stretched.
 What: the two speed decisions left from today.
 - **Hard turns answer fast, escalate after** (decision 13). In `policy.ts`: a hard opening turn uses the opening speed pick and hedge; stickiness releases to a stronger grade on the next user turn ("escalated"), as it already does for hard continuations. The first reply appears in a second or two; the plan or debugging continues on the strong model.
 - **Fast alias leash** (decision 16). Requests on `syrup/fast` whose prompt is small (title-sized, under ~4K tokens, no tools) get a 4 s first-token deadline and **no fallback**: a fast, clean error. Verify first how OpenCode treats a failed title call (expected: keeps the default title; confirm in `session/prompt.ts` and the log, fix if it retries noisily).
+  - *As built (2026-10-08):* the chat title is OpenCode's only small-model call, recognised by its two fixed texts rather than by size (chats on Fast send small tool-less main turns too). A let-go title is answered with a title made from the user's first message, because OpenCode never regenerates a title and would keep "New session - <timestamp>" forever.
 - Bench before and after; the "plan" prompt is the one to watch.
 
 Done when: `pnpm bench:agent` shows the hard turn's first visible output under 5 s on a normal day, titles never hold a turn, 52+ router scenarios pass.
@@ -144,6 +145,15 @@ User data export, WAF/CSP/status page, legal review, real-iPhone keyboard check 
 
 | Round | State |
 |---|---|
-| 1 Router follow-ups | next |
-| 2–8 Capabilities | queued |
-| 9–12 Motion | queued |
+| 0 UI harness and initial-JS gate (added) | **done** 2026-10-08 (`e64efc4`) |
+| 1 Router follow-ups | **done** 2026-10-08 (`b76741d`): 83 router scenarios; live bench: routine first token 1.0–2.3 s, titles under 1.5 s or a fallback at 4 s |
+| 1b Live streaming, state after reload, secrets out of the browser, pane width (added; found by the harness) | **done** 2026-10-08 (`0ebd5e1`) |
+| G Local origin guard + credential folders on `/api/workspace/files` (from RENDERING.md) | next |
+| 2–8 Capabilities | queued; contract in [RENDERING.md](RENDERING.md) |
+| 9 Motion M0 | **done** on branch `motion` (`1fecd1c`), merge pending |
+| 10 Motion M1 | in progress on branch `motion` |
+| 11–12 Motion M2–M3 | queued (after the capability rounds that touch the same files) |
+
+Open, needs a decision: **cloud sidecar keys.** The sandbox's sidecar holds the user's raw provider keys and a 2-hour ingest token in its environment; anything running as the same user (the agent's shell) can read them from `/proc/<pid>/environ`. Options: pass them on stdin instead of env and bind the keys endpoint to the sandbox (cheap, partial); run the sidecar as another OS user (weak while the default user can sudo); or keep keys out of the sandbox and route model calls from the app (the real fix, a larger change).
+
+Follow-up found by the live bench: **a workspace's first message waits 3–9 s inside OpenCode** while it builds the folder's instance ("booting location services", the skills scan). Prewarming deeper than the session list would hide it.

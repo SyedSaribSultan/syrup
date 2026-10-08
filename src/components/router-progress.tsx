@@ -1,23 +1,8 @@
 "use client"
 
 import { modelLabel } from "@/lib/model-label"
-import type { Attempt } from "@/lib/router-status"
+import { describeDrops, type Attempt } from "@/lib/router-status"
 import { useLiveAttempts } from "@/lib/use-live-attempts"
-
-/** Why a model was dropped, in a few plain words. */
-const WHY: Record<string, string> = {
-  overloaded: "is overloaded",
-  timeout: "didn't answer in time",
-  rpm: "hit its rate limit",
-  rpd: "used up its daily quota",
-  tpm: "can't take a request this size",
-  auth: "rejected the key",
-  bad_request: "rejected the request",
-  context: "can't fit this conversation",
-  network: "couldn't be reached",
-  empty: "answered with nothing",
-  error: "failed",
-}
 
 /**
  * While the first token is still to come: what the router tried and gave up
@@ -37,13 +22,7 @@ export function RouterProgress({ sessionID, since, active }: { sessionID: string
   )
 }
 
+/** The waiting line's text (src/lib/router-status.ts describeDrops, unit-tested there). */
 export function describe(attempts: Attempt[]): string | null {
-  // "hedged" means a second model raced the first and lost; nothing went wrong.
-  const failed = attempts.filter((a) => a.status !== "ok" && a.reason !== "hedged")
-  if (failed.length === 0) return null
-  const last = failed[failed.length - 1]
-  const why = WHY[last.reason ?? ""] ?? "failed"
-  const name = modelLabel(last.modelId)
-  if (failed.length === 1) return `${name} ${why}. Trying another model…`
-  return `${name} ${why}, ${failed.length - 1} other${failed.length === 2 ? "" : "s"} before it. Trying another model…`
+  return describeDrops(attempts, modelLabel)
 }
