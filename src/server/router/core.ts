@@ -10,7 +10,7 @@ import { InterleavedReasoning, Signatures } from "./reasoning-cache"
 import { Sessions, sessionHeader, sessionKey, type SessionState } from "./sessions"
 import { chunkKind, contentText, SseScanner, StreamTap, type SseLine, type Usage } from "./sse"
 import type { RouterEvent, RouterStore } from "./store"
-import { classifyEmpty, classifyFailure, classifyNetwork, classifyTimeout, errorObject, learnFromHeaders, type Classified } from "./upstream-errors"
+import { classifyEmpty, classifyFailure, classifyNetwork, classifyTimeout, errorObject, learnFromHeaders, RELAY_ERROR_HEADER, type Classified } from "./upstream-errors"
 
 /**
  * syrup router core: an OpenAI-compatible /v1 endpoint the engine talks to as
@@ -168,6 +168,8 @@ const KEPT_HEADERS = [
   "x-ratelimit-reset-tokens",
   "x-ratelimit-remaining",
   "x-ratelimit-reset",
+  // Cloud only: set on answers syrup's relay wrote itself, so an app-side failure is never held against a provider.
+  RELAY_ERROR_HEADER,
 ]
 
 function pickHeaders(h: Headers): Record<string, string> {

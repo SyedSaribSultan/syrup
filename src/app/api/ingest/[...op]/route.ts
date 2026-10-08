@@ -1,9 +1,8 @@
 import { z } from "zod"
 import { applyEvents, recentRouterEvents, recordRouterEvents } from "@/server/cloud/history"
 import { verifyIngestToken, type IngestClaims } from "@/server/cloud/ingest"
-import { activeKeyDetails } from "@/server/cloud/keys"
+import { activeKeyMeta } from "@/server/cloud/keys"
 import { pgMemoryStore } from "@/server/cloud/memory"
-import { applyEgress } from "@/server/engine/sandbox"
 import { BASE_URL } from "@/server/router/backends"
 
 export const dynamic = "force-dynamic"
@@ -13,11 +12,11 @@ export const dynamic = "force-dynamic"
  *   POST /api/ingest/router          { events: RouterEvent[] }
  *   POST /api/ingest/events          { events: EngineEvent[] }   (OpenCode session/message/part events)
  *   POST /api/ingest/memory/<op>     search | list | get | save | update | delete
- *   GET  /api/ingest/keys?have=a,b   the user's active routable keys (same shape as SYRUP_KEYS)
+ *   GET  /api/ingest/router/keys     { keys: { [provider]: { id, tier } } }: key metadata, never a secret
  *   GET  /api/ingest/memory/version  { version } that changes whenever the user's memories do
  *   GET  /api/ingest/router/recent?since=<epoch ms>  the user's router attempts since then (a new sandbox's router seeds its health memory)
  * The token binds every call to one user and one workspace; RLS does the rest.
- * (/api/ingest/logs has its own route.)
+ * (/api/ingest/logs and the LLM relay, /api/ingest/llm/<provider>/..., have their own routes.)
  */
 
 const RouterEventSchema = z.object({
@@ -77,9 +76,9 @@ async function memory(op: string, claims: IngestClaims, body: Record<string, unk
 }
 
 /**
- * The sidecar polls the keys so adding, switching or removing one reaches a
- * running sandbox's router without a restart. A provider the sidecar does not
- * have yet (`have`) also needs its host in the sandbox's egress policy.
+ * Reads. router/keys is polled by the sidecar so adding, switching or removing
+ * a key reaches a running sandbox's router without a restart. It carries ids
+ * and tiers only: the relay adds the secret per call, on the app side.
  */
 export async function GET(req: Request, ctx: { params: Promise<{ op: string[] }> }) {
   const claims = verifyIngestToken(req.headers.get("authorization")?.replace(/^Bearer /, ""))
@@ -102,12 +101,10 @@ export async function GET(req: Request, ctx: { params: Promise<{ op: string[] }>
       return Response.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 })
     }
   }
-  if (op.join("/") !== "keys") return Response.json({ error: `unknown ingest op ${op.join("/")}` }, { status: 404 })
+  if (op.join("/") !== "router/keys") return Response.json({ error: `unknown ingest op ${op.join("/")}` }, { status: 404 })
   try {
-    const keys = Object.fromEntries(Object.entries(await activeKeyDetails(claims.u)).filter(([providerId]) => BASE_URL[providerId]))
-    const have = new Set((new URL(req.url).searchParams.get("have") ?? "").split(",").filter(Boolean))
-    if (Object.keys(keys).some((providerId) => !have.has(providerId))) await applyEgress(claims.u, claims.w)
-    return Response.json(keys, { headers: { "cache-control": "no-store" } })
+    const keys = Object.fromEntries(Object.entries(await activeKeyMeta(claims.u)).filter(([providerId]) => Object.hasOwn(BASE_URL, providerId)))
+    return Response.json({ keys }, { headers: { "cache-control": "no-store" } })
   } catch (err) {
     return Response.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 })
   }

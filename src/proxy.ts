@@ -108,5 +108,8 @@ export default function proxy(req: NextRequest, event: Parameters<typeof cloudGu
 export const config = {
   // Everything except Next internals and static assets (the web manifest too: install prompts fetch it signed out).
   // Every /api path is matched on its own: an id ending in ".txt" or ".png" must not skip the guard.
-  matcher: ["/api/:path*", "/((?!_next/static|_next/image|favicon\\.ico|.*\\.(?:png|jpg|jpeg|gif|svg|webp|ico|woff2?|txt|xml|webmanifest)$).*)"],
+  // One exception, /api/ingest/llm/<provider>/… (the cloud LLM relay): the guard would add a second function invocation and a 4 MB
+  // body cap to every model call, and protects nothing there. That route is fail-closed by itself: it answers 404 in
+  // local mode before reading anything, and in the cloud checks its ingest token first (src/app/api/ingest/llm/relay.ts).
+  matcher: ["/api/((?!ingest/llm/[^/]+/).*)", "/((?!_next/static|_next/image|favicon\\.ico|api/ingest/llm/[^/]+/|.*\\.(?:png|jpg|jpeg|gif|svg|webp|ico|woff2?|txt|xml|webmanifest)$).*)"],
 }

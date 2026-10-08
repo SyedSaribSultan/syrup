@@ -16,6 +16,8 @@ export type FailReason =
   | "network"
   | "timeout"
   | "empty"
+  /** syrup's own cloud relay failed (database, token, platform): says nothing about the provider, cools nothing. */
+  | "relay"
 
 /** backend = provider/model/key; key = every model on provider+key; keyFree = every $0 model on provider+key. */
 export type CoolScope = "backend" | "key" | "keyFree" | "none"
@@ -177,11 +179,65 @@ function fmtUntil(retryAt: number, now: number): string {
 
 // ------------------------------------------------------------------ classification
 
+/**
+ * Header the cloud LLM relay (src/app/api/ingest/llm/relay.ts) and the sidecar's
+ * relay fetch (sidecar/relay-fetch.ts) put on every answer the provider did not
+ * write. Its value says what failed; everything else on that hop is the
+ * provider's own answer, classified as if it came direct.
+ */
+export const RELAY_ERROR_HEADER = "x-syrup-relay-error"
+
+export type RelayErrorKind =
+  /** The sandbox's ingest token is missing, forged, expired, or its session ended. */
+  | "token"
+  /** The app could not read the key or the model catalog (database or network blip on the app side). */
+  | "unavailable"
+  /** The platform (Vercel) answered instead of the relay: a crash, a limit, a timeout of the app itself. */
+  | "platform"
+  /** The user has no active key for this provider in syrup. */
+  | "no_key"
+  /** The relay refused this model or these parameters for this key (spend policy). */
+  | "policy"
+  /** The request cannot pass the relay at all (body too large even without old images, bad shape). */
+  | "too_large"
+  | "bad_request"
+  /** The request is over the relay's size cap because of its text: a real context overflow, so OpenCode compacts. */
+  | "overflow"
+  /** The relay could not reach the provider, or the provider sent no headers before the relay's time limit. */
+  | "upstream"
+  | "deadline"
+
+function classifyRelay(kind: string, status: number, msg: string, promptTokens: number, now: number): Classified {
+  const m = short(msg, 120)
+  switch (kind) {
+    case "no_key":
+      // The key was removed in Settings: like a rejected key, every model on it is off until the metadata catches up.
+      return { reason: "auth", status: "error", scope: "key", retryAt: now + 10 * MIN, unhealthy: false, message: `key rejected (${status}): ${m}` }
+    case "policy":
+      // This backend cannot be used through the relay with this key; another may. Not the backend's health.
+      return { reason: "error", status: "error", scope: "backend", retryAt: now + HOUR, unhealthy: false, message: `refused by syrup's relay (${status}): ${m}` }
+    case "overflow":
+      return { reason: "context", status: "error", scope: "none", retryAt: null, unhealthy: false, learnedMaxPrompt: Math.floor(promptTokens * 0.95), message: `prompt (~${promptTokens} tokens) too long for syrup's cloud relay` }
+    case "too_large":
+    case "bad_request":
+      return { reason: "bad_request", status: "error", scope: "none", retryAt: null, unhealthy: false, message: `rejected by syrup's relay (${status}): ${m}` }
+    case "upstream":
+    case "deadline":
+      return classifyNetwork(`via syrup's relay: ${m}`, now)
+    default:
+      // token, unavailable, platform, and anything newer than this router: the app failed, not the provider.
+      return { reason: "relay", status: "error", scope: "none", retryAt: null, unhealthy: false, message: `syrup relay failed (${status}): ${m}` }
+  }
+}
+
 /** Why a non-2xx (or an error event inside a 200 stream) happened and what to cool. */
 export function classifyFailure(f: UpstreamFailure): Classified {
   const { status, headers, body, providerID, promptTokens, now } = f
   const err = errorObject(body)
   const msg = messageOf(body, err)
+
+  const relayKind = headers[RELAY_ERROR_HEADER]
+  if (relayKind) return classifyRelay(relayKind, status, msg, promptTokens, now)
 
   if (status === 429) {
     // Google: per-model quotas, typed in error.details.

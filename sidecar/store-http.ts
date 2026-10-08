@@ -4,18 +4,28 @@ import { catalogFrom } from "../src/server/router/catalog"
 import type { ActiveKey, Catalog, RouterEvent, RouterStore } from "../src/server/router/store"
 import type { Log } from "../src/server/shared/log"
 
-type SidecarKeys = Record<string, { id: string; secret: string; tier: "free" | "paid" }>
+/**
+ * provider id -> the user's active key for it: id and tier only. The sidecar
+ * never holds a provider secret: its router reaches providers through the
+ * app's LLM relay (/api/ingest/llm/<provider>/...), which adds the real key.
+ */
+export type KeyMeta = Record<string, { id: string; tier: "free" | "paid" }>
 
 /** Everything the sidecar is told at start, all through process env. */
 export type SidecarConfig = {
   port: number
   secret: string
-  /** provider id -> key at start. Parsed from SYRUP_KEYS, then removed from process.env; HttpRouterStore refreshes its own copy. */
-  keys: SidecarKeys
+  /** Key metadata at start, from SYRUP_ROUTER_KEYS. HttpRouterStore refreshes its own copy. */
+  keyMeta: KeyMeta
   ingestUrl: string
+  /** Bearer for every call to the app, the relay included. Bound to one user + workspace, valid for one sandbox session. */
   ingestToken: string
   engineUrl: string
   engineAuth: string
+  /** Gzip large LLM request bodies to the relay (SYRUP_RELAY_GZIP=1). */
+  relayGzip: boolean
+  /** The bundle hash the app started this sidecar from (SYRUP_SIDECAR_BUNDLE), reported on /health. */
+  bundle: string | null
 }
 
 export function readSidecarEnv(): SidecarConfig {
@@ -24,21 +34,27 @@ export function readSidecarEnv(): SidecarConfig {
     if (!v) throw new Error(`sidecar: ${k} is required`)
     return v
   }
-  const keys = JSON.parse(need("SYRUP_KEYS")) as SidecarConfig["keys"]
   const password = need("OPENCODE_SERVER_PASSWORD")
   const cfg: SidecarConfig = {
     port: Number(process.env.SYRUP_ROUTER_PORT ?? 4210),
     secret: need("SYRUP_INTERNAL_SECRET"),
-    keys,
+    keyMeta: parseKeyMeta(JSON.parse(need("SYRUP_ROUTER_KEYS"))),
     ingestUrl: need("SYRUP_INGEST_URL").replace(/\/$/, ""),
     ingestToken: need("SYRUP_INGEST_TOKEN"),
     engineUrl: process.env.OPENCODE_URL ?? "http://127.0.0.1:4096",
     engineAuth: `Basic ${Buffer.from(`opencode:${password}`).toString("base64")}`,
+    relayGzip: process.env.SYRUP_RELAY_GZIP === "1",
+    bundle: process.env.SYRUP_SIDECAR_BUNDLE || null,
   }
-  // Keep secrets out of anything that dumps the environment later.
-  delete process.env.SYRUP_KEYS
+  // Out of anything this process later spawns or dumps. Cosmetic against a same-user reader: /proc/<pid>/environ keeps
+  // the environment the process started with.
   delete process.env.SYRUP_INGEST_TOKEN
   return cfg
+}
+
+/** The relay URL the router uses as each provider's base URL. Every provider call then goes to the app, never to a provider directly. */
+export function relayBaseURLs(cfg: Pick<SidecarConfig, "ingestUrl">): Record<string, string> {
+  return Object.fromEntries(Object.keys(BASE_URL).map((p) => [p, `${cfg.ingestUrl}/api/ingest/llm/${p}`]))
 }
 
 /** POST JSON to the syrup app. Throws on non-2xx. */
@@ -53,24 +69,24 @@ export async function ingest<T = unknown>(cfg: SidecarConfig, path: string, body
   return (await res.json().catch(() => ({}))) as T
 }
 
-/** The keys endpoint's answer, keeping only well-formed entries. */
-function parseKeys(v: unknown): SidecarKeys {
-  if (!v || typeof v !== "object" || Array.isArray(v)) throw new Error("keys: not an object")
-  const out: SidecarKeys = {}
-  for (const [p, k] of Object.entries(v as Record<string, { id?: unknown; secret?: unknown; tier?: unknown }>)) {
-    if (typeof k?.id === "string" && typeof k.secret === "string" && k.secret && (k.tier === "free" || k.tier === "paid")) out[p] = { id: k.id, secret: k.secret, tier: k.tier }
+/** Key metadata from SYRUP_ROUTER_KEYS or the app, keeping only well-formed entries. Anything else in an entry is ignored. */
+export function parseKeyMeta(v: unknown): KeyMeta {
+  if (!v || typeof v !== "object" || Array.isArray(v)) throw new Error("key metadata: not an object")
+  const out: KeyMeta = {}
+  for (const [p, k] of Object.entries(v as Record<string, { id?: unknown; tier?: unknown }>)) {
+    if (typeof k?.id === "string" && k.id && (k.tier === "free" || k.tier === "paid")) out[p] = { id: k.id, tier: k.tier }
   }
   return out
 }
 
-function sameKeys(a: SidecarKeys, b: SidecarKeys): boolean {
+function sameMeta(a: KeyMeta, b: KeyMeta): boolean {
   const pa = Object.keys(a)
   if (pa.length !== Object.keys(b).length) return false
-  return pa.every((p) => b[p] && b[p].id === a[p].id && b[p].secret === a[p].secret && b[p].tier === a[p].tier)
+  return pa.every((p) => b[p] && b[p].id === a[p].id && b[p].tier === a[p].tier)
 }
 
 export type HttpRouterStoreOptions = {
-  /** How often to re-read the user's keys from the syrup app. */
+  /** How often to re-read the user's key metadata from the syrup app. */
   keysRefreshMs?: number
   /** Least time between refreshes triggered by a rejected key. */
   authRefreshGapMs?: number
@@ -78,7 +94,7 @@ export type HttpRouterStoreOptions = {
 
 export class HttpRouterStore implements RouterStore {
   private catalogCache: { at: number; value: Catalog } | undefined
-  private keys: SidecarKeys
+  private meta: KeyMeta
   private refreshing: Promise<void> | null = null
   private lastAuthRefresh = 0
   private authRefreshGapMs: number
@@ -88,25 +104,36 @@ export class HttpRouterStore implements RouterStore {
     private log: Log,
     opts: HttpRouterStoreOptions = {},
   ) {
-    this.keys = cfg.keys
+    this.meta = cfg.keyMeta
     this.authRefreshGapMs = opts.authRefreshGapMs ?? 5_000
     setInterval(() => void this.refreshKeys("interval"), opts.keysRefreshMs ?? 60_000).unref()
   }
 
+  /**
+   * One entry per routable provider the user has a key for. The id and tier are
+   * the real key's (health, cooldowns and events stay per key); the secret is
+   * the ingest token, which is what the relay expects as the bearer.
+   */
   async activeKeys(): Promise<Map<string, ActiveKey>> {
     const out = new Map<string, ActiveKey>()
-    for (const [providerId, k] of Object.entries(this.keys)) {
-      if (BASE_URL[providerId]) out.set(providerId, { id: k.id, secret: k.secret, tier: k.tier })
+    for (const [providerId, k] of Object.entries(this.meta)) {
+      if (Object.hasOwn(BASE_URL, providerId)) out.set(providerId, { id: k.id, secret: this.cfg.ingestToken, tier: k.tier })
     }
     return out
   }
 
+  /** The key id the router currently believes is active for a provider. */
+  keyId(providerId: string): string | undefined {
+    return Object.hasOwn(this.meta, providerId) ? this.meta[providerId].id : undefined
+  }
+
   /**
-   * Re-reads the user's active keys, so a key added, switched or removed in
+   * Re-reads the user's key metadata, so a key added, switched or removed in
    * Settings reaches this running sandbox (local mode reads its vault on every
-   * request). Concurrent calls share one fetch; failures keep the current keys.
+   * request). Concurrent calls share one fetch; failures keep the current list.
+   * "hint": the relay answered with a key id other than the one on record.
    */
-  refreshKeys(why: "interval" | "auth"): Promise<void> {
+  refreshKeys(why: "interval" | "auth" | "hint"): Promise<void> {
     this.refreshing ??= this.fetchKeys(why).finally(() => {
       this.refreshing = null
     })
@@ -115,10 +142,10 @@ export class HttpRouterStore implements RouterStore {
 
   private async fetchKeys(why: string) {
     try {
-      const have = Object.keys(this.keys).sort().join(",")
-      const next = parseKeys(await ingest<unknown>(this.cfg, `/api/ingest/keys?have=${encodeURIComponent(have)}`, undefined, { method: "GET" }))
-      if (sameKeys(next, this.keys)) return
-      this.keys = next
+      const r = await ingest<{ keys?: unknown }>(this.cfg, "/api/ingest/router/keys", undefined, { method: "GET" })
+      const next = parseKeyMeta(r.keys)
+      if (sameMeta(next, this.meta)) return
+      this.meta = next
       this.log("router", "keys.refreshed", { why, providers: Object.keys(next).sort() })
     } catch (err) {
       this.log("router", "keys.refresh_failed", { why, message: err instanceof Error ? err.message : String(err) }, { level: "warn" })

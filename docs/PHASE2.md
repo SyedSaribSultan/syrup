@@ -66,7 +66,7 @@ src/app/(app)/w/[id]/…       # workspace pages (chat lives here in cloud)
 ### S2 — Sidecar ✅ — router core + memory tools shared with local mode; prompt via syrup/auto answered through the user's key; MCP connected; sidecar 1.4 MB single file
 - Extract `router/core.ts` and `memory/core.ts` behind `Store`/`MemoryStore`. Local mode keeps working through `store-sqlite.ts` (regression check: local chat, router failover, memory tools).
 - `sidecar/index.ts` + esbuild build wired into `prebuild`. Uploaded on create and re-uploaded on resume if the hash changed.
-- Started detached with env: `SYRUP_KEYS` (JSON of active keys), `SYRUP_INGEST_URL`, `SYRUP_INGEST_TOKEN`, `SYRUP_INTERNAL_SECRET`. OpenCode config points provider + MCP at `127.0.0.1:4210` with that secret. `lsp` disabled in cloud config (verify key name in SDK types).
+- Started detached with env: `SYRUP_ROUTER_KEYS` (JSON of key metadata: id and tier per provider, no secrets; provider calls go through the app's LLM relay, see ARCHITECTURE.md), `SYRUP_INGEST_URL`, `SYRUP_INGEST_TOKEN`, `SYRUP_INTERNAL_SECRET`. OpenCode config points provider + MCP at `127.0.0.1:4210` with that secret. `lsp` disabled in cloud config (verify key name in SDK types).
 - **Gate:** inside the sandbox, `curl 127.0.0.1:4210/v1/models` lists `syrup/auto`; OpenCode `/mcp` shows `syrup: connected`; a prompt through the probe route gets a model answer routed via the user's Google key.
 
 ### S3 — Ingest and history ✅ — sessions, messages, router_events, memories land per user; RLS enforced via dedicated syrup_app role (owner had BYPASSRLS); gap: user-message parts not emitted by the engine bus, fetched in S4

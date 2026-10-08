@@ -3,6 +3,11 @@
   "regions": [
     "fra1"
   ],
+  "functions": {
+    "src/app/api/ingest/llm/**/*": {
+      "supportsCancellation": true
+    }
+  },
   "crons": [
     {
       "path": "/api/cron/daily",

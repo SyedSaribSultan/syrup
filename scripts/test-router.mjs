@@ -28,7 +28,7 @@ await build({
       'export { applySticky, difficulty, estimatePromptTokens, fallbackTitle, isTitleCall, trailingToolFailures } from "./src/server/router/policy"',
       'export { describeDrops, droppedAttempt } from "./src/lib/router-status"',
       'export { routerSwitch } from "./src/lib/router-answers"',
-      'export { HttpRouterStore } from "./sidecar/store-http"',
+      'export { HttpRouterStore, parseKeyMeta, relayBaseURLs } from "./sidecar/store-http"',
     ].join("\n"),
     resolveDir: root,
     loader: "ts",
@@ -792,6 +792,45 @@ await scenario("e) 503 → invisible failover; client sees only the second backe
   }
 })
 
+await scenario("e2) a failure the cloud relay marks as its own (x-syrup-relay-error) fails over with no cooldown and no health penalty; the provider's own 503 still cools", async () => {
+  const r = await makeRouter({ keys: [K.opencode] })
+  try {
+    // The app could not read the key (database blip): every backend tried would have been marked overloaded before.
+    mock.set("opencode/mimo-v2.6-flash-free", status(503, { error: { type: "syrup_relay_unavailable", message: "could not read your key, try again shortly" } }, { "x-syrup-relay-error": "unavailable", "retry-after": "2" }))
+    const res = await chat(r, { user: "add a README file" })
+    eq(res.status, 200, "client status")
+    const [first] = r.events
+    eq(first.reason, "relay", "recorded as the relay's own failure")
+    eq(first.retryAt, null, "no cooldown")
+    const st = await r.status()
+    assert(!st.cooldowns.some((c) => c.backend?.includes("mimo") || JSON.stringify(c).includes("mimo")), `no cooldown on the backend (${JSON.stringify(st.cooldowns)})`)
+  } finally {
+    await r.close()
+  }
+  // A dead token: before, every key was cooled for 10 minutes as "rejected".
+  const r2 = await makeRouter({ keys: [K.opencode] })
+  try {
+    mock.set("opencode/mimo-v2.6-flash-free", status(401, { error: { type: "syrup_relay_token", message: "this sandbox session has ended" } }, { "x-syrup-relay-error": "token" }))
+    const res2 = await chat(r2, { user: "add a README file" })
+    eq(res2.status, 200, "fails over")
+    const tok = r2.events.find((e) => e.httpStatus === 401)
+    eq(`${tok?.reason}/${tok?.retryAt}`, "relay/null", "not a rejected key, no cooldown")
+  } finally {
+    await r2.close()
+  }
+  // The provider's own 503 (no marker) is unchanged: overloaded, cooled.
+  const r3 = await makeRouter({ keys: [K.opencode] })
+  try {
+    mock.set("opencode/mimo-v2.6-flash-free", status(503, { error: { message: "The model is overloaded" } }))
+    await chat(r3, { user: "add a README file" })
+    const own = r3.events.find((e) => e.httpStatus === 503)
+    assert(own && own.reason === "overloaded" && own.retryAt, "the provider's own 503 still cools")
+  } finally {
+    await r3.close()
+  }
+  eq(R.describeDrops([{ status: "error", reason: "relay", modelId: "m" }], (m) => m), "m couldn't be reached by syrup. Trying another model…", "the waiting line does not blame the model")
+})
+
 await scenario("f) keep-alive comments without content past the deadline → abort + failover", async () => {
   const r = await makeRouter({ keys: [K.opencode] })
   try {
@@ -1489,12 +1528,13 @@ await scenario("z3) remaining-requests: 0 on a success is recorded as a cooldown
   }
 })
 
-await scenario("z4) sidecar key store refreshes keys from the app on a timer and right after a rejected key", async () => {
-  const served = { status: 200, body: { google: { id: "k1", secret: "sk-OLD-1", tier: "free" } } }
+await scenario("z4) sidecar key store holds key metadata only: refreshed on a timer and right after a rejected key, the ingest token as every secret", async () => {
+  // The app's answer. A stray `secret` field (an old or buggy app) must never be taken up.
+  const served = { status: 200, body: { keys: { google: { id: "k1", tier: "free" } } } }
   const gets = []
   const app = http.createServer(async (req, res) => {
     await readAll(req)
-    if (req.method === "GET" && req.url.startsWith("/api/ingest/keys")) {
+    if (req.method === "GET" && req.url.startsWith("/api/ingest/router/keys")) {
       gets.push({ url: req.url, auth: req.headers.authorization })
       res.writeHead(served.status, { "content-type": "application/json" })
       return res.end(JSON.stringify(served.body))
@@ -1503,25 +1543,41 @@ await scenario("z4) sidecar key store refreshes keys from the app on a timer and
     res.end("{}")
   })
   await new Promise((r) => app.listen(0, "127.0.0.1", r))
-  const cfg = (keys, ingestToken = "ingest-token") => ({ port: 0, secret: "s", keys, ingestUrl: `http://127.0.0.1:${app.address().port}`, ingestToken, engineUrl: "http://127.0.0.1:1", engineAuth: "Basic x" })
+  const cfg = (keyMeta, ingestToken = "ingest-token") => ({ port: 0, secret: "s", keyMeta, ingestUrl: `http://127.0.0.1:${app.address().port}`, ingestToken, engineUrl: "http://127.0.0.1:1", engineAuth: "Basic x", relayGzip: false })
   const logs = []
   const log = (source, event, data, opts) => logs.push({ source, event, data, opts })
   try {
-    const store = new R.HttpRouterStore(cfg(served.body), log, { keysRefreshMs: 100, authRefreshGapMs: 0 })
-    eq((await store.activeKeys()).get("google").id, "k1", "starts with the SYRUP_KEYS keys")
-    served.body = { google: { id: "k2", secret: "sk-NEW-2", tier: "free" }, nvidia: { id: "k3", secret: "nvapi-NEW-3", tier: "free" }, "cloudflare-workers-ai": { id: "k4", secret: "cf-4", tier: "free" } }
+    // SYRUP_ROUTER_KEYS parsing: well-formed entries only, and nothing but id and tier is kept.
+    const parsed = R.parseKeyMeta({ google: { id: "k1", tier: "free", secret: "sk-SHOULD-DROP" }, nvidia: { id: "k3" }, groq: { id: "", tier: "paid" }, zai: "x" })
+    eq(JSON.stringify(parsed), JSON.stringify({ google: { id: "k1", tier: "free" } }), "metadata parsed, secret dropped, malformed entries skipped")
+    let threw = false
+    try {
+      R.parseKeyMeta([])
+    } catch {
+      threw = true
+    }
+    assert(threw, "a non-object is refused")
+
+    const store = new R.HttpRouterStore(cfg(served.body.keys), log, { keysRefreshMs: 100, authRefreshGapMs: 0 })
+    const first = (await store.activeKeys()).get("google")
+    eq(first.id, "k1", "starts with the SYRUP_ROUTER_KEYS metadata")
+    eq(first.secret, "ingest-token", "the secret the router sends is the ingest token")
+    eq(store.keyId("google"), "k1", "keyId reads the metadata")
+    eq(store.keyId("__proto__"), undefined, "keyId ignores inherited names")
+    served.body = { keys: { google: { id: "k2", tier: "free", secret: "sk-NEW-2" }, nvidia: { id: "k3", tier: "paid" }, "cloudflare-workers-ai": { id: "k4", tier: "free" } } }
     await waitFor(() => logs.some((l) => l.event === "keys.refreshed"), 2000, "timer refresh")
     const keys = await store.activeKeys()
     eq(keys.get("google").id, "k2", "switched key picked up")
-    eq(keys.get("nvidia").secret, "nvapi-NEW-3", "new provider picked up")
+    eq(keys.get("nvidia").tier, "paid", "new provider and its tier picked up")
+    assert([...keys.values()].every((k) => k.secret === "ingest-token"), "every secret is the ingest token, none from the app's answer")
     assert(!keys.has("cloudflare-workers-ai"), "unroutable providers stay out")
     eq(gets[0].auth, "Bearer ingest-token", "authorised with the ingest token")
-    assert(gets[0].url.includes("have=google"), `tells the app what it has (${gets[0].url})`)
+    eq(gets[0].url, "/api/ingest/router/keys", "asks the metadata endpoint, with no query")
 
     // Its own token, so the first store's timer cannot stand in for the refresh under test.
-    const slow = new R.HttpRouterStore(cfg(served.body, "slow-token"), log, { keysRefreshMs: 60_000, authRefreshGapMs: 0 })
+    const slow = new R.HttpRouterStore(cfg(served.body.keys, "slow-token"), log, { keysRefreshMs: 60_000, authRefreshGapMs: 0 })
     const slowGets = () => gets.filter((g) => g.auth === "Bearer slow-token").length
-    served.body = { google: { id: "k5", secret: "sk-NEWER-5", tier: "free" } }
+    served.body = { keys: { google: { id: "k5", tier: "free" } } }
     const event = { id: "e1", ts: Date.now(), alias: "auto", providerId: "google", modelId: "gemini-3.8-flash", keyId: "k2", tier: "free", status: "ok", httpStatus: 200, attempts: 1, latencyMs: 5, inputTokens: 0, outputTokens: 0, cost: 0, error: null, sessionId: null, ttftMs: 5, retryAt: null, reason: "best" }
     await slow.record(event)
     await sleep(50)
@@ -1530,12 +1586,25 @@ await scenario("z4) sidecar key store refreshes keys from the app on a timer and
     await waitFor(() => slowGets() === 1, 2000, "refresh after a rejected key")
     for (let i = 0; i < 100 && (await slow.activeKeys()).get("google").id !== "k5"; i++) await sleep(20)
     eq((await slow.activeKeys()).get("google").id, "k5", "replaced key picked up without waiting for the timer")
+    assert(!(await slow.activeKeys()).has("nvidia"), "a removed provider drops out")
+    await slow.refreshKeys("hint")
+    eq(slowGets(), 2, "a key-id hint refreshes too")
     served.status = 500
     served.body = { error: "db down" }
     await slow.refreshKeys("interval")
-    eq((await slow.activeKeys()).get("google").id, "k5", "a failed refresh keeps the current keys")
+    eq((await slow.activeKeys()).get("google").id, "k5", "a failed refresh keeps the current metadata")
     assert(logs.some((l) => l.event === "keys.refresh_failed"), "failure logged")
+    served.status = 200
+    served.body = { nope: true }
+    await slow.refreshKeys("interval")
+    eq((await slow.activeKeys()).get("google").id, "k5", "a malformed answer keeps the current metadata")
     assert(!/sk-|nvapi-|cf-4/.test(JSON.stringify(logs)), "no key material in logs")
+
+    // Every provider's base URL is the app's relay.
+    const urls = R.relayBaseURLs({ ingestUrl: "https://app.example" })
+    eq(Object.keys(urls).sort().join(","), Object.keys(R.BASE_URL).sort().join(","), "one relay URL per routable provider")
+    eq(urls.google, "https://app.example/api/ingest/llm/google", "relay URL shape")
+    assert(Object.values(urls).every((u) => u.startsWith("https://app.example/api/ingest/llm/")), "no provider host left")
   } finally {
     app.closeAllConnections?.()
     app.close()

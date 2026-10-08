@@ -1,14 +1,17 @@
 /**
  * What the router needs from its surroundings. Two implementations:
  * - store-local.ts: SQLite vault + the local OpenCode's model catalog (local mode).
- * - sidecar/store-http.ts: keys from process env (refreshed from /api/ingest/keys) + the sandbox OpenCode's catalog,
- *   events posted to /api/ingest (cloud mode, inside the sandbox).
+ * - sidecar/store-http.ts: key metadata from process env (refreshed from /api/ingest/router/keys) + the sandbox
+ *   OpenCode's catalog, events posted to /api/ingest (cloud mode, inside the sandbox). No provider secret is there:
+ *   each ActiveKey carries the real key's id and tier, and the ingest token as its secret, because the router's
+ *   base URLs point at the app's LLM relay (/api/ingest/llm/<provider>), which swaps in the real key per call.
  */
 
 import type { ModelLike } from "../../lib/model-registry"
 
 export type Tier = "free" | "paid"
 
+/** `secret` is what the router sends as the bearer: the provider key locally, the ingest token in the cloud sidecar. */
 export type ActiveKey = { id: string | null; secret: string; tier: Tier }
 
 /**

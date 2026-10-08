@@ -277,7 +277,7 @@ export async function cloudRouterStatus(userId: string): Promise<RouterStatus> {
       .where(and(eq(r.userId, userId), gte(r.ts, new Date(now - WINDOW_MS))))
       .orderBy(desc(r.ts))
       .limit(MAX_ROWS),
-    // The sandbox gets only active, enabled keys (keys.activeKeyDetails); cloud has no env keys.
+    // The sandbox router knows only active, enabled keys (keys.activeKeyMeta; the relay adds the secret); cloud has no env keys.
     await tx
       .select({ providerId: k.providerId, id: k.id })
       .from(k)

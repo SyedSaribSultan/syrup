@@ -138,8 +138,8 @@ for (const [n, method, pathname, host, origin, secFetchSite, want] of rows) {
   })
 }
 
-// ---- 1b. The proxy matcher (src/proxy.ts), compiled the way Next compiles it: every /api path runs the guard ----
-await check("matcher: every /api path reaches the guard, an id ending in .txt/.png/.svg/.xml included; static assets don't", async () => {
+// ---- 1b. The proxy matcher (src/proxy.ts), compiled the way Next compiles it: every /api path runs the guard but the LLM relay route ----
+await check("matcher: every /api path reaches the guard (an id ending in .txt/.png/.svg/.xml included) except the fail-closed LLM relay route; static assets don't", async () => {
   const src = fs.readFileSync(path.join(root, "src", "proxy.ts"), "utf8")
   const m = src.match(/matcher:\s*(\[.*\])/)
   ok(m, "src/proxy.ts has a one-line matcher array")
@@ -151,6 +151,11 @@ await check("matcher: every /api path reaches the guard, an id ending in .txt/.p
   const runs = (p) => matches(p, { headers: {} }, {})
   for (const p of ["/api/oc/session/x.txt", "/api/memory/x.txt", "/api/skills/x.svg", "/api/shares/x.png", "/api/oc/session/x.xml", "/api/oc/session", "/api", "/c/x", "/", "/s/abc"]) eq(runs(p), true, `guard runs on ${p}`)
   for (const p of ["/_next/static/chunks/a.js", "/favicon.ico", "/logo.png", "/robots.txt"]) eq(runs(p), false, `guard skips ${p}`)
+  // The one /api exception: the cloud LLM relay's own route shape (fail-closed by itself: 404 in local mode, token first in the cloud).
+  for (const p of ["/api/ingest/llm/google/models", "/api/ingest/llm/google/chat/completions", "/api/ingest/llm/google/x.png"]) eq(runs(p), false, `guard skips the relay route ${p}`)
+  for (const p of ["/api/ingest/logs", "/api/ingest/router/keys", "/api/ingest/memory/save", "/api/ingest/llm", "/api/ingest/llm/google", "/api/ingest/llmx/a/b", "/api/ingest/LLM/google/models"]) eq(runs(p), true, `guard runs on ${p}`)
+  const relayRoute = fs.readFileSync(path.join(root, "src", "app", "api", "ingest", "llm", "[provider]", "[...path]", "route.ts"), "utf8")
+  ok(/if \(!env\.isCloud\) return Response\.json\([^)]*\{ status: 404 \}\)/.test(relayRoute.replace(/\s+/g, " ")), "the relay route answers 404 in local mode before reading anything")
   // What the matched path then meets: a foreign Host is refused (the live finding: /api/oc/session/x.txt reached the engine).
   for (const p of ["/api/oc/session/x.txt", "/api/memory/x.txt", "/api/shares/x.png"]) {
     const d = guard.localGuardDecision({ method: "DELETE", pathname: p, host: "evil.test", origin: null, secFetchSite: null })

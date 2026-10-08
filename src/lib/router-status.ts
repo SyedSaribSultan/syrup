@@ -90,6 +90,9 @@ const DROP_WHY: Record<string, string> = {
   bad_request: "rejected the request",
   context: "can't fit this conversation",
   network: "couldn't be reached",
+  // The cloud relay failed on syrup's side (a database blip, an ended session), not the model.
+  // Kept short on purpose: this string ships in the initial JS, which ui:weight caps (docs/TESTING.md §4).
+  relay: "couldn't be reached by syrup",
   empty: "answered with nothing",
   error: "failed",
 }

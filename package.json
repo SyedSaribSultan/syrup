@@ -13,6 +13,7 @@
     "db:studio": "drizzle-kit studio",
     "sidecar:build": "node sidecar/build.mjs",
     "test:router": "node scripts/test-router.mjs",
+    "test:llm-proxy": "node scripts/test-llm-proxy.mjs",
     "test:transcript": "node scripts/test-transcript.mjs",
     "test:diffs": "node scripts/test-diffs.mjs",
     "test:guard": "node scripts/test-guard.mjs",

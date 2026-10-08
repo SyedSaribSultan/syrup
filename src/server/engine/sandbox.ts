@@ -7,10 +7,11 @@ import { track } from "../analytics"
 import { openWith, sealWith, userDek } from "../cloud/crypto"
 import { mintIngestToken } from "../cloud/ingest"
 import { githubToken } from "../cloud/github"
-import { activeKeyDetails } from "../cloud/keys"
+import { activeKeyMeta } from "../cloud/keys"
 import { skillBundle, type SkillBundle } from "../cloud/skills"
 import { skillConfigJson } from "../skills-core"
 import { egressPolicy } from "./egress"
+import { sidecarStale, STOP_ENGINE_SCRIPT } from "./sidecar-version"
 import { syrupEngineConfig } from "./opencode"
 import { getWorkspace, touchWorkspace, type SandboxRow, type Workspace } from "../cloud/workspaces"
 import { pgSchema, withUser } from "../db/pg"
@@ -24,7 +25,9 @@ import { slog } from "../log"
  * and stopping.
  *
  * Nothing secret is written to the sandbox filesystem. The password lives in
- * the engine process env and, encrypted, in the sandboxes row.
+ * the engine process env and, encrypted, in the sandboxes row. Provider keys
+ * never enter the sandbox at all: the sidecar's router reaches providers
+ * through the app's LLM relay (/api/ingest/llm), which adds the key per call.
  */
 
 export const OPENCODE_VERSION = "1.18.32"
@@ -98,13 +101,19 @@ function skillFiles(bundle: SkillBundle): { files: { path: string; content: Buff
   return { files, apply }
 }
 
-/** Uploads the sidecar (and any extra files in the same batch) and starts it with the user's keys in process env, then waits for it to answer on loopback. */
-async function startSidecar(sb: Sandbox, userId: string, workspaceId: string, password: string, secret: string, extra: { path: string; content: Buffer }[] = []) {
+/**
+ * Uploads the sidecar (and any extra files in the same batch) and starts it,
+ * then waits for it to answer on loopback. Its env carries key metadata only
+ * (provider, key id, tier), an ingest token bound to this engine start
+ * (`sessionStart`, saved as the row's last_session_started_at before this runs)
+ * and the per-start secret; the router's provider calls go through the app's
+ * relay, which adds the keys.
+ */
+async function startSidecar(sb: Sandbox, userId: string, workspaceId: string, password: string, secret: string, sessionStart: number, extra: { path: string; content: Buffer }[] = []) {
   const t0 = Date.now()
   const { js, hash } = sidecarBundle()
-  await sb.runCommand({ cmd: "mkdir", args: ["-p", SIDECAR_DIR] })
+  const [meta] = await Promise.all([activeKeyMeta(userId), sb.runCommand({ cmd: "mkdir", args: ["-p", SIDECAR_DIR] })])
   await sb.writeFiles([{ path: `${SIDECAR_DIR}/sidecar.js`, content: js }, ...extra])
-  const keys = await activeKeyDetails(userId)
   await sb.runCommand({
     cmd: "node",
     args: [`${SIDECAR_DIR}/sidecar.js`],
@@ -112,18 +121,35 @@ async function startSidecar(sb: Sandbox, userId: string, workspaceId: string, pa
     detached: true,
     env: {
       HOME,
-      SYRUP_KEYS: JSON.stringify(keys),
+      SYRUP_ROUTER_KEYS: JSON.stringify(meta),
       SYRUP_INTERNAL_SECRET: secret,
       SYRUP_INGEST_URL: env.appUrl,
-      SYRUP_INGEST_TOKEN: mintIngestToken(userId, workspaceId),
+      // The sidecar never outlives its sandbox's session (SESSION_CAP_MS), so the token need not either. It is readable
+      // inside the sandbox; it reaches the user's providers only through the relay's two endpoints, never their keys.
+      // Bound to this engine start: stopping or deleting the workspace, or starting it again, ends it at the relay.
+      SYRUP_INGEST_TOKEN: mintIngestToken(userId, workspaceId, INGEST_TOKEN_TTL_MS, sessionStart),
+      // Reported on the sidecar's /health, so a sandbox reused after a deploy is restarted onto the new sidecar.
+      SYRUP_SIDECAR_BUNDLE: hash,
       SYRUP_ROUTER_PORT: String(SIDECAR_PORT),
       OPENCODE_SERVER_PASSWORD: password,
       OPENCODE_URL: `http://127.0.0.1:${PORT}`,
+      // Gzip large LLM request bodies to the relay. Off until a production probe shows Vercel passes them through intact.
+      ...(process.env.SYRUP_RELAY_GZIP === "1" ? { SYRUP_RELAY_GZIP: "1" } : {}),
     },
   })
   const wait = await sb.runCommand({ cmd: "bash", args: ["-lc", `for i in $(seq 1 75); do curl -sf http://127.0.0.1:${SIDECAR_PORT}/health >/dev/null && exit 0; sleep 0.2; done; exit 1`] })
   if (wait.exitCode !== 0) throw new Error("sidecar did not start within 15 s")
-  slog("engine", "sidecar.started", { workspaceId, hash, ms: Date.now() - t0, providers: Object.keys(keys) }, { directory: workspaceId })
+  slog("engine", "sidecar.started", { workspaceId, hash, ms: Date.now() - t0, providers: Object.keys(meta) }, { directory: workspaceId })
+}
+
+/** The sidecar's own /health inside the sandbox (its port is loopback only). Null when the check itself could not run. */
+async function runningSidecar(sb: Sandbox): Promise<{ exitCode: number; stdout: string } | null> {
+  try {
+    const r = await sb.runCommand({ cmd: "curl", args: ["-sf", "--max-time", "2", `http://127.0.0.1:${SIDECAR_PORT}/health`] })
+    return { exitCode: r.exitCode, stdout: r.exitCode === 0 ? await r.stdout() : "" }
+  } catch {
+    return null
+  }
 }
 
 async function healthy(baseUrl: string, password: string, timeoutMs = 4000): Promise<{ version?: string } | null> {
@@ -177,10 +203,10 @@ async function installEngine(sb: Sandbox, ws: Workspace, userId: string) {
 }
 
 /** Starts the sidecar, then OpenCode pointed at it with the user's skills in place. Both get a fresh per-start secret and password. */
-async function startEngine(sb: Sandbox, ws: Workspace, userId: string, password: string) {
+async function startEngine(sb: Sandbox, ws: Workspace, userId: string, password: string, sessionStart: number) {
   const secret = crypto.randomBytes(24).toString("base64url")
   const skills = skillFiles(await skillBundle(userId))
-  await startSidecar(sb, userId, ws.id, password, secret, skills.files)
+  await startSidecar(sb, userId, ws.id, password, secret, sessionStart, skills.files)
   const cors = [env.appUrl, process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : ""].filter(Boolean)
   await sb.runCommand({
     cmd: "bash",
@@ -231,8 +257,8 @@ export async function openWorkspace(userId: string, workspaceId: string): Promis
 
   try {
     let created = false
-    const keys = await activeKeyDetails(userId)
-    const networkPolicy = egressPolicy(Object.keys(keys), ws.egressAllow)
+    // No provider hosts: the sandbox reaches providers only through the app's relay (the ingest host is always allowed).
+    const networkPolicy = egressPolicy([], ws.egressAllow)
     const sb = await Sandbox.getOrCreate({
       name: row.vercelName,
       image: IMAGE,
@@ -251,7 +277,7 @@ export async function openWorkspace(userId: string, workspaceId: string): Promis
       },
     })
 
-    // Existing sandboxes keep their creation-time policy; apply the current one (keys or allow-list may have changed).
+    // Existing sandboxes keep their creation-time policy; apply the current one (the allow-list may have changed).
     if (!created) await sb.update({ networkPolicy })
     const baseUrl = sb.domain(PORT)
     let start: Connection["start"] = created ? "cold" : "warm"
@@ -259,18 +285,27 @@ export async function openWorkspace(userId: string, workspaceId: string): Promis
     let version: string | undefined
 
     if (password) {
-      const h = await healthy(baseUrl, password)
-      if (h) {
+      // The sidecar is checked alongside OpenCode: one started by an earlier deploy speaks an older protocol (and, before
+      // the LLM relay, held provider keys in its env), so the engine is restarted onto this deploy's sidecar.
+      const [h, sidecar] = await Promise.all([healthy(baseUrl, password), runningSidecar(sb)])
+      if (h && !sidecarStale(sidecar, sidecarBundle().hash)) {
         start = "hot"
         version = h.version
-      } else password = null
+      } else {
+        if (h) slog("engine", "sidecar.outdated", { workspaceId, answer: sidecar?.stdout.slice(0, 200) ?? null }, { level: "warn", directory: workspaceId })
+        // Whatever still runs from the last start must go, or the new sidecar cannot take its port.
+        await sb.runCommand({ cmd: "bash", args: ["-c", STOP_ENGINE_SCRIPT] }).catch(() => {})
+        password = null
+      }
     }
     if (!password) {
       password = crypto.randomBytes(24).toString("base64url")
-      await startEngine(sb, ws, userId, password)
+      // Saved before the sidecar starts: its ingest token is bound to this stamp, and the relay checks it from the first call.
+      const sessionStart = new Date()
+      await saveSandbox(userId, workspaceId, { lastSessionStartedAt: sessionStart })
+      await startEngine(sb, ws, userId, password, sessionStart.getTime())
       version = (await waitHealthy(baseUrl, password, 60_000)).version
       await storePassword(userId, workspaceId, password)
-      await saveSandbox(userId, workspaceId, { lastSessionStartedAt: new Date() })
       // A healthy OpenCode still builds its per-folder instance (file watchers, skills, ~3 s) on the first request
       // for the folder. Ask for it now, so a prewarmed workspace is truly ready when the first message comes.
       void fetch(`${baseUrl}/session?directory=${encodeURIComponent(workDir(ws))}`, { headers: { authorization: basic(password) }, signal: AbortSignal.timeout(20_000) }).catch(() => {})
@@ -323,6 +358,8 @@ function friendly(message: string): string {
 export type Heartbeat = { running: boolean; expiresAt: string | null; sessionStartedAt: string | null; sessionCapMs: number }
 /** Hobby sandboxes stop at 45 minutes per session regardless of extensions; the UI warns before that. */
 export const SESSION_CAP_MS = 45 * 60_000
+/** The sidecar's ingest token: one session plus a margin (was 2 h). A sidecar never outlives its session. */
+const INGEST_TOKEN_TTL_MS = SESSION_CAP_MS + 15 * 60_000
 
 export async function heartbeat(userId: string, workspaceId: string): Promise<Heartbeat> {
   const ws = await getWorkspace(userId, workspaceId)
@@ -389,8 +426,7 @@ export async function applyEgress(userId: string, workspaceId: string): Promise<
   try {
     const sb = await Sandbox.get({ name: ws.sandbox.vercelName, resume: false })
     if (sb.status !== "running") return
-    const keys = await activeKeyDetails(userId)
-    await sb.update({ networkPolicy: egressPolicy(Object.keys(keys), ws.egressAllow) })
+    await sb.update({ networkPolicy: egressPolicy([], ws.egressAllow) })
     slog("engine", "sandbox.egress_updated", { workspaceId, hosts: ws.egressAllow.length }, { directory: workspaceId })
   } catch (err) {
     slog("engine", "sandbox.egress_update_failed", { workspaceId, err }, { level: "warn", directory: workspaceId })

@@ -5,17 +5,22 @@ import { env } from "../env"
  * Tokens the sandbox sidecar presents to /api/ingest. HMAC-SHA256 over a
  * small JSON claim set, signed with the master key; short-lived, bound to one
  * user + workspace, so a leaked token cannot write anywhere else or for long.
+ *
+ * `s` binds the token to one sandbox session: the engine start it was minted
+ * for (sandboxes.last_session_started_at, epoch ms). The LLM relay accepts a
+ * token only while that session is the workspace's current, live one, so
+ * stopping or deleting the workspace revokes it (src/app/api/ingest/llm/relay.ts).
  */
 
-export type IngestClaims = { u: string; w: string; exp: number }
+export type IngestClaims = { u: string; w: string; exp: number; s?: number }
 
 function key(): Buffer {
   if (!env.masterKey) throw new Error("SYRUP_MASTER_KEY is not set")
   return crypto.createHmac("sha256", Buffer.from(env.masterKey, "base64")).update("syrup-ingest-v1").digest()
 }
 
-export function mintIngestToken(userId: string, workspaceId: string, ttlMs = 2 * 60 * 60_000): string {
-  const claims: IngestClaims = { u: userId, w: workspaceId, exp: Date.now() + ttlMs }
+export function mintIngestToken(userId: string, workspaceId: string, ttlMs = 2 * 60 * 60_000, sessionStart?: number): string {
+  const claims: IngestClaims = { u: userId, w: workspaceId, exp: Date.now() + ttlMs, ...(sessionStart !== undefined ? { s: sessionStart } : {}) }
   const body = Buffer.from(JSON.stringify(claims)).toString("base64url")
   const sig = crypto.createHmac("sha256", key()).update(body).digest("base64url")
   return `${body}.${sig}`
@@ -30,6 +35,7 @@ export function verifyIngestToken(token: string | null | undefined): IngestClaim
   try {
     const claims = JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as IngestClaims
     if (typeof claims.u !== "string" || typeof claims.w !== "string" || typeof claims.exp !== "number") return null
+    if (claims.s !== undefined && typeof claims.s !== "number") return null
     if (claims.exp < Date.now()) return null
     return claims
   } catch {
