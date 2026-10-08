@@ -25,10 +25,16 @@ import { ModelPicker } from "./model-picker"
 import { alertDialog, confirmDialog, promptDialog } from "./ui/dialog"
 import { MenuList, Popover, type MenuItem } from "./ui/sheet"
 
-/** How long the chat keeps following the log's growth after the turn ends (the last words typing out, the thumbs row). */
-const FOLLOW_GRACE_MS = 1000
-/** Text still typing out keeps it following this much longer, from the last time the log grew. */
-const REVEAL_GRACE_MS = 600
+/**
+ * After a turn ends (and when a chat opens), the chat keeps following until what it shows has settled: no text still
+ * typing out ([data-revealing]), nothing still loading ([aria-busy], a rich block drawing), and the log's height
+ * unchanged for this long. Measured, not a fixed window: a slow phone takes as long as it takes.
+ */
+const FOLLOW_STABLE_MS = 500
+/** Content that is still changing size: text typing out, a block or chunk loading. */
+const SETTLING = "[data-revealing], [aria-busy='true'], figure.rich[data-rich-state='loading']"
+/** A safety stop: something stuck loading never keeps the chat pinned for good. */
+const FOLLOW_MAX_MS = 30_000
 
 /** One chat session: header, message list, prompts, composer. Works against whatever engine the EngineProvider is connected to. */
 export function SessionView({ id }: { id: string }) {
@@ -60,38 +66,89 @@ export function SessionView({ id }: { id: string }) {
   // Sent, but the engine has not opened the answer yet.
   const awaiting = busy && lastRole === "user"
 
-  // Follow the stream unless the user has scrolled up: on new entries, and whenever the log grows while the agent works
-  // or a reply is still typing out (the typewriter reveals text between store updates, and the engine ends the turn
-  // while the last words are still a fraction of a second behind). A short grace after the turn covers the reply's
-  // last lines and its thumbs. Idle, growth the user caused (a row opened at the end) stays put.
+  // Follow the stream unless the user has scrolled up: on new entries, and whenever the log grows while the agent works.
+  // When the turn ends (or the chat opens), keep following until the chat has settled: the typewriter is still a
+  // fraction of a second behind when the engine ends the turn, the thumbs and the model line arrive after it, and a
+  // diagram draws after its chunk loads. A rich block that starts drawing later re-arms it. Idle, growth the user
+  // caused (a row opened at the end) stays put: acting in the chat ends the follow.
+  const following = useRef(busy)
+  const settle = useRef<() => void>(() => {})
   useEffect(() => {
     const el = scroller.current
     if (el && stickToBottom.current) el.scrollTop = el.scrollHeight
+    settle.current()
   }, [entries])
-  const following = useRef(busy)
-  const graceUntil = useRef(0)
   useEffect(() => {
     following.current = busy
-    graceUntil.current = busy ? 0 : performance.now() + FOLLOW_GRACE_MS
+    if (!busy) settle.current()
   }, [busy])
   useEffect(() => {
     const el = scroller.current
     const log = el?.firstElementChild
     if (!el || !log || typeof ResizeObserver === "undefined") return
+    /** The post-turn follow: on while the log still settles, off once it has been still for FOLLOW_STABLE_MS. */
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let settling = false
+    let touched = false
+    const stop = () => {
+      clearTimeout(timer)
+      timer = undefined
+      settling = false
+    }
+    settle.current = () => {
+      touched = false
+      if (settling) return
+      settling = true
+      const start = performance.now()
+      let height = -1
+      let stillSince = start
+      const tick = () => {
+        if (!settling) return
+        const now = performance.now()
+        if (el.scrollHeight !== height) {
+          height = el.scrollHeight
+          stillSince = now
+          if (stickToBottom.current) el.scrollTop = height
+        }
+        if (log.querySelector(SETTLING)) stillSince = now
+        if ((!following.current && now - stillSince >= FOLLOW_STABLE_MS) || now - start > FOLLOW_MAX_MS) return stop()
+        timer = setTimeout(tick, 100)
+      }
+      tick()
+    }
+    let frame = 0
     const ro = new ResizeObserver(() => {
-      const now = performance.now()
-      // Text still typing out keeps the chat following a little longer, however long the reveal takes (a hidden tab pauses it).
-      if (log.querySelector("[data-revealing]")) graceUntil.current = Math.max(graceUntil.current, now + REVEAL_GRACE_MS)
-      if (stickToBottom.current && (following.current || now < graceUntil.current)) el.scrollTop = el.scrollHeight
+      if (!stickToBottom.current) return
+      // While the agent writes, follow in this callback (before paint, so the text never jumps a frame behind).
+      if (following.current) {
+        el.scrollTop = el.scrollHeight
+        return
+      }
+      // Otherwise on the next frame: reading layout inside the callback while fonts and pictures still arrive makes
+      // WebKit report a ResizeObserver loop. Growth while something still settles (a block drawing after the turn)
+      // re-arms the follow.
+      if (frame) return
+      frame = requestAnimationFrame(() => {
+        frame = 0
+        if (!stickToBottom.current) return
+        if (!settling && !touched && log.querySelector(SETTLING)) settle.current()
+        if (settling) el.scrollTop = el.scrollHeight
+      })
     })
     ro.observe(log)
-    // The user acting in the chat (opening a row, selecting text) ends the grace: what they opened stays where it is.
+    // The user acting in the chat (opening a row, selecting text) ends the follow: what they opened stays where it is.
     const mine = () => {
-      if (!following.current) graceUntil.current = 0
+      if (following.current) return
+      touched = true
+      stop()
     }
     el.addEventListener("pointerdown", mine)
     el.addEventListener("keydown", mine)
+    settle.current()
     return () => {
+      stop()
+      cancelAnimationFrame(frame)
+      settle.current = () => {}
       ro.disconnect()
       el.removeEventListener("pointerdown", mine)
       el.removeEventListener("keydown", mine)
@@ -100,13 +157,29 @@ export function SessionView({ id }: { id: string }) {
 
   // Only the reader moving up lets go of the bottom. Being far from it is not enough: a burst of text can grow the log
   // by more than the margin between the chat's own scroll and its scroll event, which used to strand the chat mid-reply.
+  // And only the reader: the browser moves the scroll position up by itself when the log gets shorter, and when content
+  // above the view changes size (scroll anchoring: a code block that becomes a smaller diagram, a skeleton replaced by
+  // its picture). So moving up lets go only within a second of the reader's own wheel, touch, key or pointer.
   const lastTop = useRef(0)
+  const intentAt = useRef(-Infinity)
+  useEffect(() => {
+    const el = scroller.current
+    if (!el) return
+    const mark = () => {
+      intentAt.current = performance.now()
+    }
+    const kinds = ["wheel", "touchmove", "keydown", "pointerdown"] as const
+    for (const k of kinds) el.addEventListener(k, mark, { passive: true })
+    return () => {
+      for (const k of kinds) el.removeEventListener(k, mark)
+    }
+  }, [])
   function onScroll() {
     const el = scroller.current
     if (!el) return
     const top = el.scrollTop
     if (el.scrollHeight - top - el.clientHeight < 80) stickToBottom.current = true
-    else if (top < lastTop.current - 1) stickToBottom.current = false
+    else if (top < lastTop.current - 1 && performance.now() - intentAt.current < 1000) stickToBottom.current = false
     lastTop.current = top
     setScrolledUp(!stickToBottom.current)
   }

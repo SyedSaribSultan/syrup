@@ -23,10 +23,15 @@ pnpm test:diffs
 pnpm test:transcript
 pnpm test:eval-checks
 pnpm test:plugin
+pnpm test:guard
+pnpm test:rich
 node scripts/fixtures/settled-blocks-check.mjs
 pnpm ui:harness --label round-2
-pnpm ui:weight --compare
+pnpm ui:harness --browser webkit --label round-2-webkit --only <the round's scenarios>
+pnpm ui:weight --compare --budgets
 ```
+
+- **Rich output (from Round 2a):** `pnpm test:rich` runs `scripts/rich-tests/*.ts` (`scripts/test-rich.mjs` is only the runner; a package adds a file there). It checks the fence closure rule on the spike's cases and on every prefix of `chat-rich-fences`'s reply, the dollar rule and the `\(…\)` normalizer, the Mermaid autofix, the cache, that only `shadow-markup.tsx` and the math renderer set HTML, that `LIGHT_TOKENS` match `globals.css`, the prompt section's size, and (`export-dom.ts`, in Playwright's Chromium with no dev server) the export's declarative shadow root, the SVG sanitizer against hostile markup and CSS, and that each autofix candidate is a diagram Mermaid itself accepts. `node scripts/test-rich.mjs fence math` runs some files.
 
 - **Motion:** `node scripts/check-motion.mjs` (also part of `pnpm lint`) fails on raw timings and on `src/lib/motion.ts` and `globals.css` disagreeing ([MOTION.md](MOTION.md) §9). It runs its own self-test first (`SELF_TEST` in the script). A new loophole gets a case there, as well as a rule.
 - **Screenshots:** open `screenshots/harness/<label>/` and look at every screen the round touched, at both widths. A green table is not enough: the harness checks errors, layout and assertions, not taste.
@@ -142,6 +147,10 @@ pnpm ui:harness --dir ../my-scenarios               # scenarios from another fol
 
 Other flags: `--base <url>` (default `http://127.0.0.1:3000`, or `UI_HARNESS_BASE`), `--scale 2` (sharper screenshots), `--no-full`, `--cloud-frame` (§2.3). `UI_HARNESS_TRACE=1` prints how long each step took, to find what makes a scenario slow.
 
+- **`--cpu 4`:** a main thread four times slower, as on a slow phone. Chromium throttles through the DevTools protocol (`Emulation.setCPUThrottlingRate`). WebKit has no such switch, so a script keeps its main thread busy for three quarters of every 16 ms; measured, that slows its frames about 2.5 times, so treat WebKit's `--cpu` as "under load", not an exact factor.
+- **`--repeat 10`:** each scenario ten times (screenshots `-1`, `-2`, …). A check that fails only sometimes shows itself. Example, the end-of-reply follow on a slow phone: `pnpm ui:harness --only chat-stream-end,chat-stream-end-bursty --widths 390 --browser webkit --cpu 4 --repeat 10`.
+- **Never run two harnesses at once on this machine.** Four parallel WebKit runs exhausted memory on 2026-10-08 and crashed the dev server's CSS worker ("memory allocation … failed"); it recovered only after `globals.css` changed. Run them one after another.
+
 A full run takes about two minutes (the streaming scenarios wait for text to finish typing). The first run after the dev server starts is slower, because routes compile on demand.
 
 ### 2.2 What you get
@@ -190,6 +199,7 @@ The hosted app puts the shell inside a flex row on `/w/…` pages (`src/componen
 | `GET /api/router/answers` (`&live=1`) | `engine.answers` (one per finished assistant step, from the kit), plus `engine.attempts`. A routed step that was still streaming gets its answer when a step emits its `message.updated` with `time.completed` (the kit prepares it in `engine.pendingAnswers`), as the router writes its row when the request ends |
 | `GET /api/router/status`, `GET /api/providers` | `engine.router`, `engine.keys` (one free Google key) |
 | `GET /api/feedback`, `POST /api/logs`, `GET /api/shares` | no ratings; swallowed; no shares |
+| `GET /api/shares/export?format=bundle` | the chat as `{ transcript }`, built by the app's own `buildTranscript` (`src/lib/transcript.ts`, bundled with esbuild) from the fake's stored messages: what the Share dialog's HTML export reads (H4) |
 | `/ingest/**` (PostHog) | `204`, nothing sent |
 | anything else under `/api/` | `501`, and the run fails as "unmocked" |
 
@@ -212,7 +222,18 @@ All play in one fictional project, `acme-shop` (`C:\Users\dev\code\acme-shop`), 
 | `chat-streaming-offline` | the streaming code can't load | The use-typewriter chunk is blocked (`block`): the reply shows as plain text and the chat stays on screen |
 | `chat-reload-busy`, `chat-reload-question` | a reload mid-turn | Busy status and the pending permission (or question) come only from the page's reads: Stop and the card show on the first load and again after a reload |
 | `panel-saved-width` | chat + Files pane | A pane saved 1100 px wide (on a 1920 px monitor) opened at 1440 px: the chat keeps 440 px on open, after a resize to 1920 and back, and while the edge is dragged. The title keeps room (the token totals step aside while the pane is open). Phones: the full-screen layer |
-| `chat-rich-fences` | a finished chat | Acceptance fixture for Rounds 2–3: two Mermaid diagrams, Vega-Lite, SVG, inline and display math, a 20-row CSV, a markmap. Valid input, so a renderer that fails here has a bug |
+| `chat-rich-fences`, `-dark` | a finished chat | Acceptance fixture for Rounds 2–3: two Mermaid diagrams, Vega-Lite, SVG, inline and display math, a 20-row CSV, a markmap. Valid input, so a renderer that fails here has a bug. Round 2a: both diagrams and the SVG are drawn (`figure[data-rich-state=ready]`), five formulas typeset, Vega-Lite, CSV and markmap still code; no model call, no third-party request; on phones the toolbar fits the column. Dark: Mermaid in the dark tokens, the SVG on a light paper card |
+| `chat-rich-streaming`, `-close`, `-cut`, `-abort` | a reply streaming | Round 2a: an open ` ```mermaid ` fence is a diagram-shaped skeleton ("Drawing a diagram · 3 lines"), never parsed, its half-typed source folded away; when the closer arrives and the turn ends, it becomes the diagram in one step and the chat follows it to the thumbs. A part that ends without its closer, or a turn stopped mid-fence (no end time, the session goes idle), leaves no skeleton: the half diagram shows as source, "This diagram was cut off." |
+| `chat-rich-broken` | a finished chat | Round 2a: a diagram with parentheses inside a node's brackets is fixed by the autofix (`data-rich-repaired=autofix`); one with `-->>` shows its source and "This diagram has a syntax error, so here's its source."; no model call |
+| `chat-svg-hostile`, `-export` | a finished chat | Round 2a security: four hostile ` ```svg ` fences (scripts, handlers, `javascript:` and external URLs, `<foreignObject>`, `<animate>`/`<set>`, CSS aimed at the app, a `:host` overlay, `image-set()`). All four draw, nothing runs ("PWNED" never appears), nothing is fetched, the composer stays clickable. The export variant opens the HTML file with JavaScript on and off: the same, with each SVG as an `<img>` |
+| `chat-rich-zoom` | chat + Preview | Round 2a: a click (desktop) or tap (phone) on a diagram opens it in the panel, "Preview · Diagram", with Fit · 100% · 200% |
+| `chat-rich-export`, `-dark` | Share → HTML | Round 2a: the file has `shadowrootmode="open"`, the diagrams' `<rect>`s, MathML and no `<script>`; opened with JavaScript off, both diagrams and the SVG show. From a dark page the file still draws in the light tokens' colours |
+| `weight-mermaid`, `weight-math`, `weight-svg` | a finished chat | One rich block each, for `pnpm ui:weight --budgets` (§4) |
+| `chat-rich-beacon`, `-export` | a finished chat; Share → HTML | Round 2a review: Mermaid sources that would fetch another origin while Mermaid lays them out in the page (the img shape, `classDef`/`style` with `url()`, CSS-escaped or not) show as source with "This diagram asks to load something from the web…"; a plain diagram beside them draws; no request leaves, live or in the export's prerender |
+| `chat-rich-queue` | three chats | Round 2a review (h7): leave a chat with 30 diagrams while they render, open another: its diagram draws before the first chat's leftovers (renders whose blocks left the screen are dropped at their turn). Mermaid numbers renders in order, so the new picture's id must be among `rich-m1`…`rich-m15`; without the fix it is about `rich-m30` |
+| `chat-rich-large` | chat + Preview | Round 2a review: a 260-link flowchart shows its source with "Too large to draw here."; Open draws it in the panel |
+| `chat-math-deep`, `-phone`, `-nesting` | a finished chat | Round 2a review: math 5,000 braces deep shows as code and the chat stays (it used to take the app down); on a phone a long formula scrolls inside itself and formulas that draw outside their box (`\mathrlap`, negative `\kern`) show as code; fences in lists and quotes draw, dollars in prose, code and JSON stay prose, a `\\[4pt]` inside `$$…$$` isn't `\[` math |
+| `panel-offline-files`, `-preview` | chat + panel | Round 2a review: offline (`{ offline: true }`), the Files tree's or the preview's chunk can't load: the tab says so with Retry and Reload; the chat and the rest of the panel stay |
 | `panel-preview`, `panel-preview-csv` | chat + Preview | `docs/launch-plan.md` rendered as Markdown; `data/orders.csv` as a table |
 | `motion-tokens` | `/` | Motion M0: bare `transition` runs on the tokens (120 ms, `--ease-move`); the phone drawer is `motion-layer` and takes no taps while closed; sidebar row actions fade in on hover (desktop), and hidden ones are invisible |
 | `motion-row-actions-keyboard` | `/`, 1440 px only | Shift+Tab from a row's link skips the row above's hidden Rename/Delete; Tab then reaches them |
@@ -322,10 +343,16 @@ All play in one fictional project, `acme-shop` (`C:\Users\dev\code\acme-shop`), 
     - Reads still held when the steps end are released before the final checks.
   - **Stream drops:** `{ dropStream: true }` ends the page's event stream like a network drop. The page reconnects by itself about 1.5 s later, then re-reads its state and the chats it shows. `{ awaitStream: true }` waits until it has (up to 10 s). An `emit` while the stream is down fails.
   - **Clicking a tool row:** click its toggle, `div.cursor-pointer:has-text('…') > button[aria-expanded]`. The middle of a row can be its file link, which opens the file instead.
+  - **Going offline:** `{ offline: true }` makes every JavaScript chunk the page hasn't loaded yet fail from then on (offline, or a deploy that renamed the chunks). Pair it with the scenario option `storage: { "syrup.prefetch": "off" }` (localStorage seeded before the app boots), or the app's idle prefetch loads the panel's chunks first. Dev chunks are named by hash, not by module, so `block` globs can't single one out.
+  - **Files the page saves (Round 2a, H4):** `{ download: sel, save: "export.html" }` clicks and keeps the download (as `<scenario>-<width>-export.html` next to the screenshots). `{ openFile: "export.html", javaScript: false }` opens it the way a recipient would: from `file://`, in a fresh context, every request to the web blocked and counted. Later steps and the assertions act on that page, and it is screenshotted as `<scenario>-<width>-file.png` (`-file2` for a second one).
 - **`assert`:**
   - `{ visible: sel }`, `{ hidden: sel }`, `{ text: "…" }` (visible text on the page), `{ count: sel, equals | min | max }`.
   - `{ box: sel, minWidth | maxWidth }`: the first visible match's width in px.
   - `{ inView: sel, above }`: the last visible match lies inside the window, and with `above` (a selector) wholly above that element's top. For example, the end of a reply above the composer: `above: "div:has(> textarea[data-composer])"`. Assertions run before the full-page screenshot grows the window.
+  - `{ requests: "POST /api/oc/session/*/message", query?, body?, equals | min | max }` (H1): the page's `/api/**` requests with that method and path (`*` is one path segment, `**` any), optionally holding `query` in the search or `body` in the request body. "No model was called": `equals: 0`.
+  - `{ external: 0 }` (H3): how many requests to other origins the page tried (all are blocked). On an opened file, that file's own.
+  - `{ file: "export.html", contains: [...], notContains: [...] }` (H4): the saved file's text.
+  - CSS selectors reach into open shadow roots (Playwright pierces them), so `figure[data-rich-kind=mermaid] svg[aria-roledescription]` finds the drawn diagram.
   - Add `gap: "why"` to make one a known gap (§3.3).
 - **Overlays (Motion M1):**
   - `{ presence: { name, open, target, close } }` runs the `open` step(s), finds `target` (the element carrying `data-state`), records its entrance, runs the `close` step(s) and records its exit in the page. `open: []` means an earlier step opened it.
@@ -363,6 +390,7 @@ An assertion with a `gap` note describes something the app gets wrong today: `{ 
 ### 3.4 Things that look odd but are right
 
 - **The screen settles by itself.** The harness waits until the page's text stops changing, so typewriter animations and lazy renderers finish before the shot.
+- **Pictures are waited for (H10).** A diagram draws after its chunk loads and in an idle-time queue, inside a shadow root the text check can't see. So after the panel opens and after a scenario's last step, the harness waits (up to a minute: a first dev compile of Mermaid is slow) until nothing in the chat or the panel has `aria-busy="true"` and no `figure.rich[data-rich-state=loading]` is left. A block only says it is busy while it loads: an open fence's skeleton (`pending`) never does, so a streaming fixture can't hold the harness forever.
 - **A streaming part shows "Writing…", not its text.** That is right for a page that opened mid-stream: the engine stores the part empty and replays nothing, so the page could only show the tail. A scenario that wants the text growing on screen starts the part `later` and streams it in steps (`chat-streaming`).
 - **After a stream drop the text stops growing.** The page keeps what it saw (a true beginning) with "Writing…" under it, and ignores later deltas, because the ones sent during the drop are lost. The rest arrives with the part's final update (`chat-stream-drop`).
 - **The pointer is part of the screenshot.** A click leaves the mouse where it was, and a row under it shows its hover state. `chat-streaming` hovers the composer after clicking a sidebar row, so the shot matches the baseline.
@@ -379,7 +407,10 @@ An assertion with a `gap` note describes something the app gets wrong today: `{ 
 pnpm ui:weight --compare     # build, measure "/" and a chat, fail on growth against the baseline
 pnpm ui:weight --update      # build, measure, write scripts/fixtures/js-weight-baseline.json
 pnpm ui:weight --no-build    # measure the build already in .next
+pnpm ui:weight --compare --budgets   # …and each renderer's after-load cost against its budget (from Round 2a)
 ```
+
+- **`--budgets` (W1):** `scripts/fixtures/js-budgets.json` maps a scenario to the most gzip bytes of JavaScript and CSS it may load after the page beyond what `chat-markdown` loads after it (same build, so files match by name), and optionally `maxFontBytes` for its fonts. Round 2a: `weight-svg` (core + SVG, 35 KB), `weight-math` (parser + KaTeX, 88 KB; fonts 60 KB), `weight-mermaid` (core + Mermaid, 250 KB). Budget scenarios are measured with the others but stay out of the baseline. A renderer over its budget fails the run; raise a budget only with a reason in the same change.
 
 - **Initial** means what the server-rendered HTML declares: the main chunk (`rootMainFiles`, shared by every page) plus the route's own chunks. They load on every visit.
 - **After load** means chunks fetched after hydration: first use, `next/dynamic`, idle prefetch, `<Link>` prefetch. They are listed for review and never fail the check, because the roadmap allows them.

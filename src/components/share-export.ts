@@ -3,7 +3,9 @@
 import { createElement } from "react"
 import { flushSync } from "react-dom"
 import { createRoot } from "react-dom/client"
+import { ensure, loadCore, loadKatex, loadMath } from "@/lib/rich/lazy"
 import { clipForViewer, type Transcript } from "@/lib/transcript"
+import type { ExportItems } from "./rich/types"
 import { ShareDocument } from "./share-view"
 
 /**
@@ -11,6 +13,10 @@ import { ShareDocument } from "./share-view"
  * as the public viewer, the app's stylesheet inlined and its fonts embedded as
  * data: URLs. Tool steps and thinking are native <details>, so the file works
  * without JavaScript. Built in the browser from the sanitized transcript.
+ *
+ * Pictures (docs/RENDERING.md §2.9): a first pass collects every diagram and picture the reader would see, they are
+ * prerendered in the light theme, and a second pass embeds them as declarative shadow roots on a paper card (an agent
+ * SVG as an <img>), each with its source under it. Math is MathML, which needs no fonts. The file holds no <script>.
  */
 
 const MAX_FONT_BYTES = 2 * 1024 * 1024
@@ -27,6 +33,9 @@ function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!)
 }
 
+/** Renderer stylesheets stay out of the file: KaTeX's (MathML needs none), and later Excalidraw's and MapLibre's. */
+const RENDERER_SHEET = /KaTeX_|\.excalidraw|\.maplibregl-/
+
 /** Every same-origin stylesheet on the page, with font URLs replaced by data: URLs. */
 async function inlineCss(): Promise<string> {
   let fontBytes = 0
@@ -40,6 +49,7 @@ async function inlineCss(): Promise<string> {
     } catch {
       continue
     }
+    if (RENDERER_SHEET.test(css)) continue
     const base = sheet.href ?? location.href
     const refs = [...new Set([...css.matchAll(/url\((['"]?)([^'")]+\.(woff2?|ttf|otf))\1\)/g)].map((m) => m[2]))]
     for (const ref of refs) {
@@ -59,9 +69,21 @@ async function inlineCss(): Promise<string> {
 }
 
 export async function transcriptToHtml(t: Transcript): Promise<string> {
+  const transcript = clipForViewer(t)
+  // Offline (or a deploy renamed the chunks): the file still comes out, with code blocks and TeX instead of pictures.
+  const [core] = await Promise.all([ensure(loadCore), ensure(loadMath).catch(() => null), ensure(loadKatex).catch(() => null)]).catch(() => [null])
   const host = document.createElement("div")
-  const root = createRoot(host)
-  flushSync(() => root.render(createElement(ShareDocument, { transcript: clipForViewer(t) })))
+  let root = createRoot(host)
+  if (core) {
+    // 1. Collect what the reader would see drawn.
+    const items: ExportItems = { blocks: [], tex: [] }
+    flushSync(() => root.render(createElement(core.RichCollect, { into: items }, createElement(ShareDocument, { transcript }))))
+    root.unmount()
+    // 2. Prerender it in the light theme. 3. Embed it.
+    const statics = await core.prerenderForExport(items, { timeoutMs: 20_000 })
+    root = createRoot(host)
+    flushSync(() => root.render(createElement(core.RichExport, { statics }, createElement(ShareDocument, { transcript }))))
+  } else flushSync(() => root.render(createElement(ShareDocument, { transcript })))
   const body = host.innerHTML
   root.unmount()
   const css = await inlineCss()

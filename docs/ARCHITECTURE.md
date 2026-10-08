@@ -66,6 +66,11 @@ The engine sits behind one interface (`src/server/engine`). If OpenCode ever bec
 | Cost | Per message/session numbers | Ledger, dashboard, budgets, free-vs-paid split, per provider/day |
 | Memory | `AGENTS.md`, session history | Long-term memory store exposed as MCP tools |
 | Skills | Loads `SKILL.md` | Browse, install, enable from the UI |
+| Output | Markdown | Diagrams (Mermaid), sanitized SVG and typeset math drawn in the chat, the panel, shares and the HTML export |
+
+## Rich output
+
+Fenced blocks and math in a reply can render as pictures ([RENDERING.md](RENDERING.md)). `src/components/markdown.tsx` hands each code block to `FenceSlot` (`src/components/rich/slot.tsx`), which decides from `src/lib/rich/kinds.ts` and the fence closure rule (`src/lib/rich/fence.ts`) whether it is a drawable kind and whether it may be drawn yet (closed, or the reply is final). Everything else loads on first use (`src/lib/rich/lazy.ts`): the rich core (`src/components/rich/core.tsx`: cache, one-at-a-time render queue, toolbar, panel view, lightbox, export), one chunk per renderer (`renderers/mermaid.tsx`, `svg.tsx`, `math.tsx`), and the math parser. Agent markup is cleaned by our own DOMPurify instance with URL and CSS hooks (`sanitize.ts`) and drawn in a shadow root inside a clipped box; read-only views draw agent SVG as an `<img>`. The HTML export collects, prerenders in the light theme and embeds pictures as declarative shadow roots. Local and cloud are identical: nothing runs on the server.
 
 ## Router
 

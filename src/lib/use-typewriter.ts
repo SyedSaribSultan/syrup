@@ -2,6 +2,8 @@
 
 import { createElement, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { Markdown } from "@/components/markdown"
+import type { FenceOrigin } from "@/components/rich/slot"
+import { prefetchFor } from "@/lib/rich/lazy"
 
 /**
  * A reply as it streams in (`LiveText`), loaded on first use: a chat only needs it once
@@ -34,6 +36,7 @@ export function useTypewriter(text: string, live: boolean): string {
   const cur = useRef(text.length)
   const streaming = useRef(live)
   const raf = useRef(0)
+  const prev = useRef(text)
 
   useEffect(() => {
     streaming.current = live
@@ -41,7 +44,18 @@ export function useTypewriter(text: string, live: boolean): string {
 
   useEffect(() => {
     if (!animate) return
+    // Text that no longer starts with what is on screen was replaced, not extended (a repaired block written back):
+    // show it whole rather than type its tail out again.
+    const replaced = !text.startsWith(prev.current.slice(0, cur.current))
+    prev.current = text
     target.current = text.length
+    if (replaced) {
+      cancelAnimationFrame(raf.current)
+      raf.current = 0
+      cur.current = text.length
+      setShown(cur.current)
+      return
+    }
     // The final text may differ from what streamed (an engine plugin can rewrite it); never point past its end.
     if (cur.current > target.current) {
       cur.current = target.current
@@ -179,19 +193,25 @@ export function settledBlocks(text: string): string[] {
  * finished too: switching to one Markdown render then would replace every node, and with them a selection the
  * reader made, a code block's sideways scroll or its "Copied" state. `data-revealing` marks text still typing out
  * (the chat keeps following it after the turn ends: src/components/session-view.tsx).
+ *
+ * `settled`: the reply will not grow any more (its part ended, or the session went idle: an aborted turn never gets
+ * an end time). Only then, and once all of it shows, is the last block final, so a fence the model never closed is
+ * drawn instead of waiting as a skeleton (docs/RENDERING.md §2.4). Blocks before the last are complete by construction.
  */
-export function LiveText({ text, live }: { text: string; live: boolean }) {
+export function LiveText({ text, live, settled = !live, origin }: { text: string; live: boolean; settled?: boolean; origin?: FenceOrigin }) {
   const typed = useTypewriter(text, live)
   const growing = live || typed.length < text.length
   const paced = useMarkdownPace(typed, growing)
   const blocks = settledBlocks(paced)
+  const final = settled && paced.length === text.length
+  useEffect(() => prefetchFor(text), [text])
   return createElement(
     "div",
     { className: "chat-text", "data-revealing": growing ? "" : undefined },
     createElement(
       "div",
       { className: "md" },
-      blocks.map((b, i) => createElement(Markdown, { key: i, text: b })),
+      blocks.map((b, i) => createElement(Markdown, { key: i, text: b, final: i < blocks.length - 1 || final, origin })),
     ),
   )
 }

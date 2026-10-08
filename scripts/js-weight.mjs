@@ -31,7 +31,9 @@
  *
  * Flags: --compare · --update · --no-build · --scenarios <a,b> (default new-chat,chat-markdown)
  * · --baseline <file> (default scripts/fixtures/js-weight-baseline.json) · --engine <url> (default
- * http://127.0.0.1:4096) · --keep (leave the server running, print its URL)
+ * http://127.0.0.1:4096) · --keep (leave the server running, print its URL) · --budgets (W1: also
+ * measure the scenarios in scripts/fixtures/js-budgets.json and fail when one loads more JS + CSS after
+ * the page than its budget, beyond what chat-markdown loads; fonts against their own budget)
  */
 import { spawn, spawnSync } from "node:child_process"
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs"
@@ -40,7 +42,7 @@ import path from "node:path"
 import vm from "node:vm"
 import { gzipSync } from "node:zlib"
 import { chromium } from "playwright"
-import { deviceFor, installFakeEngine, loadScenarios, ROOT, startEventServer, waitForStable, waitUntilReady } from "./ui-harness.mjs"
+import { deviceFor, installFakeEngine, loadScenarios, ROOT, startEventServer, waitForRich, waitForStable, waitUntilReady } from "./ui-harness.mjs"
 
 const BASELINE = path.join(ROOT, "scripts", "fixtures", "js-weight-baseline.json")
 const CACHE = path.join(ROOT, "node_modules", ".cache", "syrup-js-weight")
@@ -51,13 +53,14 @@ const LIMIT_GZIP = 2048
 
 function parseArgs(argv) {
   const args = argv.filter((a) => a !== "--")
-  const o = { compare: false, update: false, build: true, scenarios: ["new-chat", "chat-markdown"], engine: "http://127.0.0.1:4096", keep: false, baseline: BASELINE }
+  const o = { compare: false, update: false, build: true, scenarios: ["new-chat", "chat-markdown"], engine: "http://127.0.0.1:4096", keep: false, baseline: BASELINE, budgets: false }
   for (let i = 0; i < args.length; i++) {
     const a = args[i]
     if (a === "--compare") o.compare = true
     else if (a === "--update") o.update = true
     else if (a === "--no-build") o.build = false
     else if (a === "--keep") o.keep = true
+    else if (a === "--budgets") o.budgets = true
     else if (a === "--scenarios") o.scenarios = (args[++i] ?? "").split(",").map((s) => s.trim()).filter(Boolean)
     else if (a === "--engine") o.engine = args[++i] ?? o.engine
     else if (a === "--baseline") o.baseline = path.resolve(args[++i] ?? BASELINE)
@@ -209,13 +212,26 @@ async function measure(browser, scenario, base, events, mainFiles) {
     const t0 = Date.now()
     let lastScriptAt = Date.now()
     const loads = new Map()
+    // Stylesheets and fonts, for --budgets (a renderer's CSS and fonts count against its budget).
+    const assets = new Map()
     const pending = []
     page.on("request", (req) => {
       if (req.resourceType() === "script") lastScriptAt = Date.now()
     })
     page.on("requestfinished", (req) => {
       const url = new URL(req.url())
-      if (req.resourceType() !== "script" || url.origin !== origin || loads.has(url.pathname)) return
+      const type = req.resourceType()
+      if ((type === "stylesheet" || type === "font") && url.origin === origin && !assets.has(url.pathname)) {
+        assets.set(url.pathname, null)
+        pending.push(
+          (async () => {
+            const body = await (await req.response()).body()
+            assets.set(url.pathname, { file: url.pathname, type, bytes: body.length, gzip: gzipSync(body).length })
+          })().catch((e) => errors.push(`could not read ${url.pathname}: ${e.message}`)),
+        )
+        return
+      }
+      if (type !== "script" || url.origin !== origin || loads.has(url.pathname)) return
       const at = Date.now() - t0
       loads.set(url.pathname, null)
       pending.push(
@@ -230,6 +246,7 @@ async function measure(browser, scenario, base, events, mainFiles) {
     const resp = await page.goto(base + scenario.route, { waitUntil: "load", timeout: 90_000 })
     const html = (await resp?.text()) ?? ""
     await waitUntilReady(page, scenario)
+    await waitForRich(page).catch(() => errors.push("rich blocks were still loading after a minute"))
     await waitForStable(page)
     // Idle: no new script request for two seconds (on-demand and idle-prefetched chunks land in that window).
     while (Date.now() - lastScriptAt < 2_000 && Date.now() - t0 < 30_000) await page.waitForTimeout(200)
@@ -258,6 +275,7 @@ async function measure(browser, scenario, base, events, mainFiles) {
       initial: { count: initial.length, encoded: sum(initial, "encoded"), decoded: sum(initial, "decoded"), gzip: sum(initial, "gzip"), main: { count: initial.filter((c) => c.main).length, gzip: sum(initial.filter((c) => c.main), "gzip") }, chunks: initial.map(({ file, main, encoded, decoded, gzip, modules }) => ({ file, main, encoded, decoded, gzip, modules })) },
       afterLoad: { count: later.length, gzip: sum(later, "gzip"), chunks: later.map(({ file, at, gzip, modules }) => ({ file, at, gzip, modules })) },
       notLoaded: missing,
+      assets: [...assets.values()].filter(Boolean),
       errors,
     }
   } finally {
@@ -308,6 +326,39 @@ function compare(current, baseline) {
   return { failed, lines }
 }
 
+// ---------------------------------------------------------------- budgets (W1)
+
+const BUDGETS = path.join(ROOT, "scripts", "fixtures", "js-budgets.json")
+
+/**
+ * What each budget scenario loads after the page beyond what chat-markdown loads (the same build, so files match by
+ * name): its scripts and stylesheets, gzipped, against `maxGzip`; its fonts, as bytes, against `maxFontBytes`.
+ */
+function checkBudgets(budgets, routes) {
+  const lines = []
+  let failed = false
+  const ref = routes.find((r) => r.scenario === "chat-markdown")
+  const seen = new Set([...(ref?.afterLoad.chunks ?? []).map((c) => c.file), ...(ref?.assets ?? []).map((a) => a.file), ...(ref?.initial.chunks ?? []).map((c) => c.file)])
+  for (const [name, b] of Object.entries(budgets)) {
+    const r = routes.find((x) => x.scenario === name)
+    if (!r) {
+      lines.push(`  ✗ ${name}: not measured`)
+      failed = true
+      continue
+    }
+    const js = r.afterLoad.chunks.filter((c) => !seen.has(c.file))
+    const css = r.assets.filter((a) => a.type === "stylesheet" && !seen.has(a.file))
+    const fonts = r.assets.filter((a) => a.type === "font" && !seen.has(a.file))
+    const gz = sum(js, "gzip") + sum(css, "gzip")
+    const fontBytes = sum(fonts, "bytes")
+    const over = gz > b.maxGzip || (b.maxFontBytes !== undefined && fontBytes > b.maxFontBytes)
+    if (over) failed = true
+    const fontNote = fonts.length || b.maxFontBytes !== undefined ? `, fonts ${kb(fontBytes)}${b.maxFontBytes !== undefined ? ` (budget ${kb(b.maxFontBytes)})` : ""}` : ""
+    lines.push(`  ${over ? "✗" : "✓"} ${name}: ${kb(gz)} gzip (${js.length} scripts ${kb(sum(js, "gzip"))}, ${css.length} stylesheets ${kb(sum(css, "gzip"))}; budget ${kb(b.maxGzip)})${fontNote} · ${b.what}`)
+  }
+  return { failed, lines }
+}
+
 // ---------------------------------------------------------------- main
 
 function printRoutes(routes) {
@@ -325,6 +376,10 @@ function printRoutes(routes) {
 async function main() {
   const o = parseArgs(process.argv.slice(2))
   const scenarios = await loadScenarios(o.scenarios)
+  // --budgets (W1): the budget scenarios too, and chat-markdown to measure them against. They stay out of the baseline.
+  const budgets = o.budgets ? JSON.parse(readFileSync(BUDGETS, "utf8")).budgets : null
+  const budgetNames = budgets ? [...new Set(["chat-markdown", ...Object.keys(budgets)])].filter((n) => !o.scenarios.includes(n)) : []
+  const budgetScenarios = budgetNames.length ? await loadScenarios(budgetNames) : []
   mkdirSync(path.join(CACHE, "data"), { recursive: true })
   const [port, routerPort] = [await freePort(), await freePort()]
   const env = serverEnv(routerPort, o.engine)
@@ -342,12 +397,14 @@ async function main() {
     process.exit(130)
   })
   const routes = []
+  const budgetRoutes = []
   let events = null
   let browser = null
   try {
     events = await startEventServer()
     browser = await chromium.launch()
     for (const s of scenarios) routes.push(await measure(browser, s, server.base, events, mainFiles))
+    for (const s of budgetScenarios) budgetRoutes.push(await measure(browser, s, server.base, events, mainFiles))
   } finally {
     await browser?.close()
     events?.close()
@@ -376,7 +433,8 @@ async function main() {
   // module-id lists on one line each, so a diff shows which chunk changed rather than hundreds of numbers.
   const saved = `${JSON.stringify(report, (k, v) => (k === "at" ? undefined : v), 2).replace(/\[\s+((?:\d+,\s+)*\d+)\s+\]/g, (_, ids) => `[${ids.replace(/,\s+/g, ", ")}]`)}\n`
   writeFileSync(path.join(CACHE, "latest.json"), saved)
-  if (routes.some((r) => r.errors.length)) {
+  if ([...routes, ...budgetRoutes].some((r) => r.errors.length)) {
+    for (const r of budgetRoutes) if (r.errors.length) console.log(`  ${r.scenario}: ${r.errors.join(" | ")}`)
     console.error("\nThe page had errors while measuring; fix them before trusting these numbers.")
     return 1
   }
@@ -395,6 +453,15 @@ async function main() {
       return 1
     }
     console.log("\nNothing new in the initial load.")
+  }
+  if (budgets) {
+    const { failed, lines } = checkBudgets(budgets, [...routes, ...budgetRoutes])
+    console.log("\nAfter-load budgets (gzip JS + CSS a scenario adds beyond chat-markdown's after-load; fonts apart):")
+    for (const l of lines) console.log(l)
+    if (failed) {
+      console.log("\nA renderer grew past its budget (scripts/fixtures/js-budgets.json). Find what it pulled in, or raise the budget with a reason in the same change.")
+      return 1
+    }
   }
   return 0
 }

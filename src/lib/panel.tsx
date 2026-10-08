@@ -2,8 +2,10 @@
 
 import { useParams } from "next/navigation"
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react"
+import type { RichInput } from "@/components/rich/types"
 import { useEngine } from "./engine-store"
 import { cleanRel, parentRel } from "./fs-rules"
+import { hash } from "./rich/fence"
 import { useNarrow } from "./use-window-class"
 import type { Target } from "./workspace-fs"
 
@@ -15,6 +17,8 @@ import type { Target } from "./workspace-fs"
  * `?panel=preview&file=…`, `?panel=changes&file=…`), so the back button or
  * back swipe closes it instead of leaving the chat. The selected file and
  * expanded folders belong to the current workspace and reset when it changes.
+ * Preview also shows a chat block at full size (a diagram tapped in the chat,
+ * `?panel=preview&block=<key>` on phones); opening a file replaces it.
  */
 
 export type PanelTab = "changes" | "files" | "preview"
@@ -69,7 +73,27 @@ const serverPrefs = () => DEFAULTS
 // sync, nothing is refetched, the chat isn't remounted). useSearchParams itself would need a Suspense
 // boundary above this provider, which wraps static pages too.
 
-type Layer = { tab: PanelTab; file: string | null }
+type Layer = { tab: PanelTab; file: string | null; block?: string | null }
+
+/** A block shown in Preview (Round 2a); live previews join in Round 8. */
+export type PanelBlock = { key: string; input: RichInput } | { key: string; live: { port: number } }
+
+/**
+ * Blocks opened in this page, by key: the URL carries only the key, so a reload can't bring one back. The most recent
+ * 20 are kept (the one on screen is always the newest), so a long session doesn't hold every diagram it ever opened.
+ */
+const BLOCKS = new Map<string, RichInput>()
+const BLOCKS_MAX = 20
+
+function keepBlock(key: string, input: RichInput) {
+  BLOCKS.delete(key)
+  BLOCKS.set(key, input)
+  while (BLOCKS.size > BLOCKS_MAX) {
+    const oldest = BLOCKS.keys().next().value
+    if (oldest === undefined) break
+    BLOCKS.delete(oldest)
+  }
+}
 /** How many history entries the layer pushed on top of the chat (1 = opened, 2 = drilled into a diff). */
 type HistoryMark = { syrupPanel?: number }
 
@@ -100,7 +124,7 @@ function parseLayer(search: string): Layer | null {
   const q = new URLSearchParams(search)
   const tab = q.get("panel") as PanelTab | null
   if (!tab || !PANEL_TABS.includes(tab)) return null
-  return { tab, file: q.get("file") || null }
+  return { tab, file: q.get("file") || null, block: tab === "preview" ? q.get("block") || null : null }
 }
 
 const currentLayer = () => parseLayer(window.location.search)
@@ -109,9 +133,11 @@ function layerHref(layer: Layer | null): string {
   const u = new URL(window.location.href)
   u.searchParams.delete("panel")
   u.searchParams.delete("file")
+  u.searchParams.delete("block")
   if (layer) {
     u.searchParams.set("panel", layer.tab)
     if (layer.file) u.searchParams.set("file", layer.file)
+    if (layer.block) u.searchParams.set("block", layer.block)
   }
   return `${u.pathname}${u.search}${u.hash}`
 }
@@ -156,6 +182,13 @@ type Ctx = Omit<Prefs, "open"> & {
   /** Opens a workspace file (absolute or relative) in Preview; a folder path ("src/") shows it in Files. */
   openFile(path: string, opts?: { folder?: boolean }): void
   toggleFolder(rel: string): void
+  /** The chat block Preview shows instead of a file, if any. */
+  block: PanelBlock | null
+  /** The URL names a block this page no longer has (opened before a reload). */
+  blockGone: boolean
+  /** Shows a chat block (a diagram, a picture) at full size in Preview. */
+  openBlock(input: RichInput): void
+  closeBlock(): void
 }
 
 const PanelContext = createContext<Ctx | null>(null)
@@ -188,6 +221,7 @@ export function PanelProvider({ workspaceId, children }: { workspaceId?: string;
   const [sel, setSel] = useState<{ dir: string; rel: string } | null>(null)
   const [exp, setExp] = useState<{ dir: string; set: Set<string> }>({ dir: "", set: new Set([""]) })
   const [diffState, setDiffState] = useState<{ sid: string | null; file: string | null }>({ sid: null, file: null })
+  const [blockState, setBlockState] = useState<{ sid: string | null; key: string } | null>(null)
   const cloud = !!workspaceId
   const sessionID = (cloud ? params?.sid : params?.id) ?? null
   // Cloud: nothing to browse until the sandbox connection is up.
@@ -201,6 +235,10 @@ export function PanelProvider({ workspaceId, children }: { workspaceId?: string;
   const tab = layer?.tab ?? tabState
   const selected = layer?.tab === "preview" && layer.file ? layer.file : remembered
   const diff = layer ? (layer.tab === "changes" ? layer.file : null) : diffState.sid === sessionID ? diffState.file : null
+  const blockKey = layer ? (layer.block ?? null) : blockState && blockState.sid === sessionID ? blockState.key : null
+  const blockInput = blockKey ? BLOCKS.get(blockKey) : undefined
+  const block = useMemo<PanelBlock | null>(() => (blockKey && blockInput ? { key: blockKey, input: blockInput } : null), [blockKey, blockInput])
+  const blockGone = !!blockKey && !blockInput
 
   /** Puts the layer in the URL: a new history entry when it opens, a replacement while it's up. */
   const showLayer = useCallback((next: Layer) => {
@@ -297,12 +335,31 @@ export function PanelProvider({ workspaceId, children }: { workspaceId?: string;
         return { dir: directory, set }
       })
       if (!folder) setSel({ dir: directory, rel })
+      setBlockState(null)
       setTabState(folder ? "files" : "preview")
       if (isNarrow()) showLayer(folder ? { tab: "files", file: null } : { tab: "preview", file: rel })
       else writePrefs({ open: true })
     },
     [directory, showLayer],
   )
+
+  const openBlock = useCallback(
+    (input: RichInput) => {
+      const key = hash(`${input.kind}\n${input.source}`)
+      keepBlock(key, input)
+      setBlockState({ sid: sessionID, key })
+      setTabState("preview")
+      if (isNarrow()) showLayer({ tab: "preview", file: null, block: key })
+      else writePrefs({ open: true })
+    },
+    [sessionID, showLayer],
+  )
+
+  const closeBlock = useCallback(() => {
+    setBlockState(null)
+    const cur = currentLayer()
+    if (isNarrow() && cur?.block && !unwinding) writeUrl("replace", { tab: cur.tab, file: null }, depth())
+  }, [])
 
   // A layer URL on a wide window (a shared link, or the window grew past the breakpoint) becomes the side
   // pane: take its tab and file here, while rendering; the effect below opens the pane and cleans the URL.
@@ -313,6 +370,7 @@ export function PanelProvider({ workspaceId, children }: { workspaceId?: string;
     setTabState(wideLayer.tab)
     if (wideLayer.file && wideLayer.tab === "preview" && directory) setSel({ dir: directory, rel: wideLayer.file })
     if (wideLayer.file && wideLayer.tab === "changes") setDiffState({ sid: sessionID, file: wideLayer.file })
+    if (wideLayer.block) setBlockState({ sid: sessionID, key: wideLayer.block })
   } else if (!wideLayer && adopted !== null) setAdopted(null)
 
   // A layer URL nobody pushed: a shared link, a reload, or the window crossing the breakpoint. Checks the
@@ -365,6 +423,10 @@ export function PanelProvider({ workspaceId, children }: { workspaceId?: string;
     showDiff,
     openFile,
     toggleFolder,
+    block,
+    blockGone,
+    openBlock,
+    closeBlock,
   }
   return <PanelContext.Provider value={value}>{children}</PanelContext.Provider>
 }

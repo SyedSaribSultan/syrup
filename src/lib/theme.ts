@@ -62,3 +62,26 @@ function subscribe(f: () => void) {
 export function useTheme(): Theme {
   return useSyncExternalStore(subscribe, read, () => "system")
 }
+
+const DARK_QUERY = "(prefers-color-scheme: dark)"
+
+function readScheme(): "light" | "dark" {
+  const t = document.documentElement.dataset.theme
+  if (t === "light" || t === "dark") return t
+  return window.matchMedia(DARK_QUERY).matches ? "dark" : "light"
+}
+
+function subscribeScheme(f: () => void) {
+  const mq = window.matchMedia(DARK_QUERY)
+  mq.addEventListener("change", f)
+  const off = subscribe(f)
+  return () => {
+    mq.removeEventListener("change", f)
+    off()
+  }
+}
+
+/** The scheme the page shows now: data-theme when set, else the system's. Re-renders when either changes (pictures are themed). */
+export function useResolvedScheme(): "light" | "dark" {
+  return useSyncExternalStore(subscribeScheme, readScheme, () => "light")
+}

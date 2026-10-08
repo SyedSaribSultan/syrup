@@ -193,7 +193,11 @@ function reducer(s: State, a: Action): State {
     case "session.deleted": {
       const sessions = { ...s.sessions }
       delete sessions[a.id]
-      return { ...s, sessions }
+      // Its messages go too: child sessions (a repair's, a subagent's) would otherwise stay in memory for good.
+      if (!(a.id in s.messages)) return { ...s, sessions }
+      const messages = { ...s.messages }
+      delete messages[a.id]
+      return { ...s, sessions, messages }
     }
     case "messages": {
       const prev = s.messages[a.sessionID]

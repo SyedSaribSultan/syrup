@@ -37,9 +37,11 @@
  * default 1) · --no-full · --cloud-frame (take the screenshots in the hosted /w/… layout too;
  * its overflow is checked on every run anyway) · --browser webkit (Safari's engine; phone
  * layout has differed between engines before) · --headed · --list · --dir <folder> (load the
- * scenarios from another folder, to try one out without adding it to the repo)
+ * scenarios from another folder, to try one out without adding it to the repo) · --cpu <n> (a main
+ * thread n times slower, as on a slow phone) · --repeat <n> (run each scenario n times: a check that
+ * only fails sometimes shows itself)
  */
-import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import http from "node:http"
 import path from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -473,6 +475,37 @@ function appApi(st, method, p, q, body) {
   return null
 }
 
+/** src/lib/transcript.ts, bundled once per run with esbuild (as scripts/test-transcript.mjs does), for the export (H4). */
+let transcriptLib = null
+async function transcriptModule() {
+  if (!transcriptLib) {
+    transcriptLib = (async () => {
+      const { build } = await import("esbuild")
+      const outDir = path.join(ROOT, "node_modules", ".cache", "ui-harness")
+      mkdirSync(outDir, { recursive: true })
+      const outfile = path.join(outDir, "transcript.mjs")
+      await build({ stdin: { contents: 'export * from "./src/lib/transcript"', resolveDir: ROOT, loader: "ts", sourcefile: "harness-transcript.ts" }, outfile, bundle: true, platform: "node", format: "esm", target: "node22", logLevel: "warning" })
+      return import(`${pathToFileURL(outfile).href}?t=${Date.now()}`)
+    })()
+  }
+  return transcriptLib
+}
+
+/**
+ * GET /api/shares/export?format=bundle: the chat as the app's own sanitizer builds it (buildTranscript), from the
+ * fake's stored messages, as the Share dialog's HTML button reads it. Other formats aren't used by any scenario yet.
+ */
+async function exportBundle(st, q) {
+  const id = q.get("session") ?? ""
+  const session = st.sessions.get(id)
+  if (!session) return json({ error: "no such chat" }, 404)
+  if (q.get("format") !== "bundle") return json({ error: "ui-harness: only format=bundle is faked" }, 501)
+  const { buildTranscript } = await transcriptModule()
+  const messages = (st.messages[id] ?? []).map((m) => stored(m))
+  const transcript = buildTranscript({ title: session.title, messages, answers: st.answers[id] ?? [], createdAt: session.time.created, updatedAt: session.time.updated, snapshotAt: st.now, paths: { roots: [st.directory], homes: [st.home.replace(/[\\/][^\\/]+$/, "")] } })
+  return json({ sessionId: id, transcript, debug: null })
+}
+
 /**
  * What the event stream sends after server.connected: only the scenario's own `engine.events`.
  * The real engine replays nothing when a stream opens (no session.status for a busy session, no
@@ -493,7 +526,7 @@ function openingEvents(st) {
 export async function installFakeEngine(context, scenario, { base, events, channel }) {
   const origin = new URL(base).origin
   const st = engineState(scenario)
-  const log = { unmocked: [], external: [], harness: [], blocked: [], requests: 0, lastRequestAt: Date.now() }
+  const log = { unmocked: [], external: [], harness: [], blocked: [], requests: 0, lastRequestAt: Date.now(), calls: [] }
   for (const ev of st.events) applyEvent(st, ev)
   events.open(channel, () => openingEvents(st))
 
@@ -503,6 +536,7 @@ export async function installFakeEngine(context, scenario, { base, events, chann
     directory: st.directory,
     model: scenario.model ?? { providerID: "syrup", modelID: "auto" },
     panel: { open: false, width: 440, showHidden: false, wrap: true, ...(scenario.panelPrefs ?? {}) },
+    storage: scenario.storage ?? {},
   }
   await context.addInitScript((s) => {
     try {
@@ -514,6 +548,7 @@ export async function installFakeEngine(context, scenario, { base, events, chann
       localStorage.setItem("syrup.model", JSON.stringify(s.model))
       localStorage.setItem("syrup.panel", JSON.stringify(s.panel))
       localStorage.setItem("syrup.sidebar", "full")
+      for (const [k, v] of Object.entries(s.storage)) localStorage.setItem(k, v)
       sessionStorage.setItem("ui-harness.seeded", "1")
     } catch {}
   }, seed)
@@ -530,6 +565,10 @@ export async function installFakeEngine(context, scenario, { base, events, chann
         // PostHog's first-party proxy (next.config.ts): fixtures never send analytics.
         if (url.pathname.startsWith("/ingest/")) return await route.fulfill({ status: 204, body: "" })
         if (url.pathname === "/api/oc/event") return await route.continue({ url: events.url(channel, url.search) })
+        // Every /api request the page made, for { requests } assertions (H1).
+        log.calls.push({ method, path: url.pathname, search: url.search, body: req.postData() ?? "" })
+        // The Share dialog's HTML export reads the chat as a sanitized transcript (H4).
+        if (method === "GET" && url.pathname === "/api/shares/export") return await route.fulfill(await exportBundle(st, url.searchParams))
         let body = null
         try {
           body = req.postDataJSON()
@@ -1149,8 +1188,34 @@ async function openPanel(page, { tab = "files", file }) {
   })
 }
 
-const STEP_KINDS = ["click", "tap", "hover", "fill", "type", "press", "waitFor", "wait", "emit", "scroll", "settle", "assert", "reload", "back", "resize", "drag", "hold", "held", "release", "dropStream", "awaitStream", ...MOTION_STEP_KINDS]
-const ASSERT_KINDS = ["visible", "hidden", "text", "count", "box", "inView"]
+const STEP_KINDS = ["click", "tap", "hover", "fill", "type", "press", "waitFor", "wait", "emit", "scroll", "settle", "assert", "reload", "back", "resize", "drag", "hold", "held", "release", "dropStream", "awaitStream", "download", "openFile", "offline", ...MOTION_STEP_KINDS]
+const ASSERT_KINDS = ["visible", "hidden", "text", "count", "box", "inView", "requests", "external", "file"]
+
+/**
+ * Per page (the app's, or an exported file opened by { openFile }): what { requests }, { external } and { file }
+ * assertions read. { handle, files: Map(name → saved path), external: blocked requests to other origins }.
+ */
+const pageState = new WeakMap()
+
+/**
+ * Rich blocks render after their chunks load and in an idle-time queue (docs/RENDERING.md §2.7), and their pictures
+ * live in shadow roots, which waitForStable can't see. Waits until nothing in the chat or the panel is busy and no
+ * block is loading (H10). A first dev compile of Mermaid can be slow, hence the minute.
+ */
+export async function waitForRich(page, timeout = 60_000) {
+  await page.waitForFunction(() => !document.querySelector(".chat-log [aria-busy='true'], [aria-label='Workspace panel'] [aria-busy='true'], figure.rich[data-rich-state='loading']"), null, { timeout })
+}
+
+// "POST /api/oc/session/*/message": a method and a path glob ("*" is one path segment, "**" any number).
+function requestMatcher(spec) {
+  const [method, glob] = spec.trim().split(/\s+/, 2)
+  const body = glob
+    .split("/")
+    .map((seg) => (seg === "**" ? ".*" : seg.split("*").map((p) => p.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join("[^/]+")))
+    .join("/")
+  const re = new RegExp(`^${body}$`)
+  return (c) => c.method === method.toUpperCase() && re.test(c.path)
+}
 
 /** Polls `ok()` every 50 ms until it holds; throws `what` after `ms`. */
 async function until(ok, what, ms = 10_000) {
@@ -1182,6 +1247,14 @@ async function until(ok, what, ms = 10_000) {
  *                                           happened since: it must not undo what the stream already showed)
  *   { dropStream: true }                    end the page's event stream like a network drop (the page reconnects itself)
  *   { awaitStream: true }                   wait until the page has its event stream open again (up to 10 s)
+ *   { offline: true }                       every JS chunk not loaded yet fails from here on (with the scenario option
+ *                                           storage: { "syrup.prefetch": "off" }, so the app's idle prefetch waits)
+ *   { download: sel, save: name }           click and keep the file it downloads (H4)
+ *   { openFile: name, javaScript?: false }  open a kept file from file:// in a fresh context; later steps and the
+ *                                           assertions act on it (openSavedFile)
+ * Assertions added in Round 2a: { requests: "METHOD /path/*", query?, body?, equals|min|max } (H1), { external: n }
+ * (H3), { file: name, contains?, notContains? } (H4). After the panel opens and after the last step the harness
+ * waits for rich blocks to finish drawing (waitForRich, H10).
  * Any step may carry `widths: [390]` to run at some widths only. Every step but `assert` waits 120 ms after itself.
  */
 async function runStep(page, step, ctx) {
@@ -1238,6 +1311,25 @@ async function runStep(page, step, ctx) {
   else if ("release" in step) handle.release(step.release)
   else if ("dropStream" in step) handle.drop()
   else if ("awaitStream" in step) await until(() => handle.connected(), "awaitStream: the page did not reconnect its event stream")
+  else if ("offline" in step) {
+    // From here on every JavaScript chunk the page hasn't loaded yet fails, as offline or after a deploy renamed them.
+    // (Pair it with storage: { "syrup.prefetch": "off" }, or the app's idle prefetch loads them first.)
+    // A copy: the request event fires before the route decides, so the live set would already hold the new chunk.
+    const seen = new Set(ctx.seenChunks)
+    await page.context().route(
+      (url) => url.pathname.startsWith("/_next/static/chunks/") && !seen.has(url.href),
+      (route) => {
+        handle.log.blocked.push(route.request().url())
+        return route.abort("blockedbyclient")
+      },
+    )
+  } else if ("download" in step) {
+    // A click that saves a file (the Share dialog's HTML export): kept as `save` for { file } and { openFile }.
+    const [dl] = await Promise.all([page.waitForEvent("download", { timeout: 60_000 }), page.locator(step.download).first().click()])
+    const dest = path.join(ctx.outDir, `${scenario.name}-${ctx.width}${ctx.suffix ?? ""}-${step.save}`)
+    await dl.saveAs(dest)
+    pageState.get(page)?.files.set(step.save, dest)
+  }
   await page.waitForTimeout(120)
 }
 
@@ -1355,6 +1447,31 @@ async function checkAssertion(page, a) {
       const ok = (a.minWidth === undefined || w >= a.minWidth) && (a.maxWidth === undefined || w <= a.maxWidth)
       return { ok, label: `box ${a.box} ${want}`, detail: ok ? "" : `${w}px wide` }
     }
+    if ("requests" in a) {
+      // H1: the page's /api requests matching a method and path glob (and a query or body substring).
+      const calls = pageState.get(page)?.handle?.log.calls ?? []
+      const match = requestMatcher(a.requests)
+      const n = calls.filter((c) => match(c) && (a.query === undefined || c.search.includes(a.query)) && (a.body === undefined || c.body.includes(a.body))).length
+      const ok = (a.equals === undefined || n === a.equals) && (a.min === undefined || n >= a.min) && (a.max === undefined || n <= a.max)
+      const want = a.equals !== undefined ? `= ${a.equals}` : [a.min !== undefined ? `≥ ${a.min}` : "", a.max !== undefined ? `≤ ${a.max}` : ""].filter(Boolean).join(" ")
+      return { ok, label: `requests ${a.requests}${a.body ? ` body~${a.body}` : ""} ${want}`, detail: ok ? "" : `made ${n}` }
+    }
+    if ("external" in a) {
+      // H3: requests to other origins the page tried (all blocked).
+      const list = pageState.get(page)?.external ?? []
+      const ok = list.length === a.external
+      return { ok, label: `external requests = ${a.external}`, detail: ok ? "" : `${list.length}: ${list.slice(0, 3).join(", ")}` }
+    }
+    if ("file" in a) {
+      // H4: a saved file's text.
+      const p = pageState.get(page)?.files.get(a.file)
+      if (!p) return { ok: false, label: `file ${a.file}`, detail: "no { download } step saved it" }
+      const text = readFileSync(p, "utf8")
+      const missing = (a.contains ?? []).filter((s) => !text.includes(s))
+      const present = (a.notContains ?? []).filter((s) => text.includes(s))
+      const ok = !missing.length && !present.length
+      return { ok, label: `file ${a.file}`, detail: ok ? "" : [missing.length ? `lacks ${missing.map((s) => JSON.stringify(s)).join(", ")}` : "", present.length ? `has ${present.map((s) => JSON.stringify(s)).join(", ")}` : ""].filter(Boolean).join("; ") }
+    }
     if ("inView" in a) {
       // The last visible match lies inside the window, and with `above`, wholly above that element's top (the composer
       // floats over the end of the chat, so text under it can't be read).
@@ -1420,8 +1537,67 @@ function watchDevServer(page) {
   return seen
 }
 
-export async function runScenario(browser, scenario, width, { base, events, outDir, scale = 1, full = true, cloudFrame = false }) {
+/**
+ * --cpu <rate>: the main thread runs `rate` times slower, as on a slow phone. Chromium throttles through the DevTools
+ * protocol (Emulation.setCPUThrottlingRate); WebKit has no such switch, so a script keeps its main thread busy for
+ * (1 - 1/rate) of every 16 ms from the first script on, which leaves the page the same share of the thread.
+ */
+async function throttleCpu(page, rate) {
+  if (!(rate > 1)) return
+  if (page.context().browser()?.browserType().name() === "chromium") {
+    const cdp = await page.context().newCDPSession(page)
+    await cdp.send("Emulation.setCPUThrottlingRate", { rate })
+    return
+  }
+  await page.addInitScript((r) => {
+    if (window.top !== window) return
+    const busy = 16 * (1 - 1 / r)
+    const hog = () => {
+      const t = performance.now()
+      while (performance.now() - t < busy) {
+        // the slow phone's share of the main thread
+      }
+      setTimeout(hog, 16 - busy)
+    }
+    setTimeout(hog, 0)
+  }, rate)
+}
+
+/**
+ * { openFile: name, javaScript?: false }: opens a file a { download } step saved (the HTML export) in a fresh context,
+ * as someone who received it would: from file://, with JavaScript on or off, every request to the web blocked and
+ * counted. Later steps and the assertions act on it; it is screenshotted as <scenario>-<width>-file.png (-file2, …).
+ */
+async function openSavedFile(browser, step, { scenario, width, scale, files, handle, result, outDir, suffix, contexts }) {
+  const p = files.get(step.openFile)
+  if (!p) throw new Error(`openFile: no { download } step saved ${step.openFile}`)
+  const ctx = await browser.newContext({ ...deviceFor(width, scale), locale: "en-US", timezoneId: "UTC", colorScheme: scenario.colorScheme ?? "light", javaScriptEnabled: step.javaScript !== false })
+  contexts.push(ctx)
+  const external = []
+  await ctx.route(
+    (url) => /^(https?|wss?):$/.test(url.protocol),
+    (route) => {
+      external.push(`${route.request().method()} ${route.request().url()}`)
+      return route.abort("blockedbyclient")
+    },
+  )
+  const page = await ctx.newPage()
+  const tag = `opened ${step.openFile}${step.javaScript === false ? " (no JavaScript)" : ""}`
+  page.on("console", (m) => m.type() === "error" && !/ERR_BLOCKED_BY_CLIENT/.test(m.text()) && result.consoleErrors.push(`${tag}: ${m.text().slice(0, 300)}`))
+  page.on("pageerror", (e) => result.pageErrors.push(`${tag}: ${e.message}`.slice(0, 400)))
+  await page.goto(pathToFileURL(p).href, { waitUntil: "load" })
+  await page.evaluate(() => document.fonts.ready).catch(() => {})
+  await page.waitForTimeout(300)
+  pageState.set(page, { handle, files, external })
+  const n = contexts.length
+  const shot = path.join(outDir, `${scenario.name}-${width}${suffix}-file${n > 1 ? n : ""}.png`)
+  await page.screenshot({ path: shot, fullPage: true, animations: "disabled", caret: "hide" })
+  return page
+}
+
+export async function runScenario(browser, scenario, width, { base, events, outDir, scale = 1, full = true, cloudFrame = false, cpu = 1, suffix = "" }) {
   const t0 = Date.now()
+  const fileContexts = []
   const device = deviceFor(width, scale)
   const channel = `${scenario.name}-${width}-${Math.random().toString(36).slice(2, 8)}`
   const context = await browser.newContext({ ...device, locale: "en-US", timezoneId: "UTC", colorScheme: scenario.colorScheme ?? "light", reducedMotion: scenario.reducedMotion ?? "no-preference", serviceWorkers: "block" })
@@ -1429,13 +1605,19 @@ export async function runScenario(browser, scenario, width, { base, events, outD
   let devUpdates = []
   try {
     const handle = await installFakeEngine(context, scenario, { base, events, channel })
+    // Chunks the page has asked for, so an { offline } step blocks only the ones it hasn't.
+    const seenChunks = new Set()
+    context.on("request", (r) => r.url().includes("/_next/static/chunks/") && seenChunks.add(r.url()))
     const page = await context.newPage()
+    await throttleCpu(page, cpu)
+    const files = new Map()
+    pageState.set(page, { handle, files, external: handle.log.external })
     devUpdates = watchDevServer(page)
     const ignored = new Map()
     page.on("console", (msg) => {
       const where = msg.location()?.url ? ` (${msg.location().url.replace(base, "")}:${msg.location().lineNumber})` : ""
       // A request the scenario blocks on purpose (`block`) fails, and the browser says so.
-      const blockedHere = scenario.block?.length && msg.type() === "error" && /net::ERR_BLOCKED_BY_CLIENT/.test(msg.text()) && handle.log.blocked.some((u) => (msg.location()?.url ?? "") === u)
+      const blockedHere = (scenario.block?.length || handle.log.blocked.length) && msg.type() === "error" && /net::ERR_BLOCKED_BY_CLIENT/.test(msg.text()) && handle.log.blocked.some((u) => (msg.location()?.url ?? "") === u)
       if (blockedHere) return void ignored.set("a request the scenario blocks on purpose failed (block)", (ignored.get("a request the scenario blocks on purpose failed (block)") ?? 0) + 1)
       const known = msg.type() === "error" && [...KNOWN_CONSOLE, ...(scenario.expectConsole ?? [])].find((k) => k.match.test(msg.text()))
       if (known) ignored.set(known.why, (ignored.get(known.why) ?? 0) + 1)
@@ -1453,13 +1635,20 @@ export async function runScenario(browser, scenario, width, { base, events, outD
     await settle("after loading")
     if (scenario.panel) {
       await openPanel(page, scenario.panel)
+      await waitForRich(page)
       await settle("after opening the panel")
     }
     const steps = scenario.steps ?? []
+    // The page steps and assertions act on: the app, or an exported file opened by { openFile } (H4).
+    let active = page
     for (let index = 0; index < steps.length; index++) {
       if (!forWidth(steps[index], width)) continue
       const t = Date.now()
-      await runStep(page, steps[index], { handle, scenario, result, index })
+      if ("openFile" in steps[index]) {
+        active = await openSavedFile(browser, steps[index], { scenario, width, scale, files, handle, result, outDir, suffix, contexts: fileContexts })
+        continue
+      }
+      await runStep(active, steps[index], { handle, scenario, result, index, outDir, width, suffix, seenChunks })
       // UI_HARNESS_TRACE=1: how long each step took, to find what makes a scenario slow.
       if (process.env.UI_HARNESS_TRACE) console.log(`\n  [trace] ${scenario.name} @ ${width} step ${index + 1} ${STEP_KINDS.find((k) => k in steps[index])}: ${Date.now() - t} ms`)
     }
@@ -1468,16 +1657,17 @@ export async function runScenario(browser, scenario, width, { base, events, outD
     // A block that matched nothing tests nothing (a renamed chunk, say).
     for (const glob of scenario.block ?? []) if (!handle.log.blocked.length) result.harness.push(`block: no request matched ${glob}, so the scenario tested nothing`)
     await networkQuiet(handle)
+    if (active === page) await waitForRich(page)
     await settle("before the screenshot")
     await page.waitForTimeout(scenario.settleMs ?? 200)
 
     result.overflow = (await measureOverflow(page, width)).problems
     for (const a of scenario.assert ?? []) {
       if (!forWidth(a, width)) continue
-      recordAssertion(result, scenario, await checkAssertion(page, a), a)
+      recordAssertion(result, scenario, await checkAssertion(active, a), a)
     }
 
-    const shot = path.join(outDir, `${scenario.name}-${width}.png`)
+    const shot = path.join(outDir, `${scenario.name}-${width}${suffix}.png`)
     await page.screenshot({ path: shot, animations: "disabled", caret: "hide", style: SCREENSHOT_CSS })
     result.screenshot = path.relative(ROOT, shot)
     const extra = full ? await hiddenHeight(page) : 0
@@ -1488,7 +1678,7 @@ export async function runScenario(browser, scenario, width, { base, events, outD
         for (const el of document.querySelectorAll("main *, [aria-label='Workspace panel'] *")) if (/auto|scroll/.test(getComputedStyle(el).overflowY)) el.dispatchEvent(new Event("scroll"))
       })
       await page.waitForTimeout(300)
-      const tall = path.join(outDir, `${scenario.name}-${width}-full.png`)
+      const tall = path.join(outDir, `${scenario.name}-${width}${suffix}-full.png`)
       await page.screenshot({ path: tall, animations: "disabled", caret: "hide", style: SCREENSHOT_CSS })
       result.full = path.relative(ROOT, tall)
       await page.setViewportSize(device.viewport)
@@ -1506,6 +1696,7 @@ export async function runScenario(browser, scenario, width, { base, events, outD
   } catch (err) {
     result.harness.push(err instanceof Error ? err.message.split("\n").slice(0, 3).join(" ") : String(err))
   } finally {
+    for (const c of fileContexts) await c.close().catch(() => {})
     await context.close().catch(() => {})
     events.drop(channel)
   }
@@ -1560,7 +1751,7 @@ export async function runScenarioSettled(browser, scenario, width, options, reru
 
 function parseArgs(argv) {
   const args = argv.filter((a) => a !== "--")
-  const o = { label: "latest", only: [], widths: [390, 1440], base: process.env.UI_HARNESS_BASE ?? DEFAULT_BASE, scale: 1, full: true, headed: false, list: false, cloudFrame: false, browser: "chromium", dir: SCENARIO_DIR }
+  const o = { label: "latest", only: [], widths: [390, 1440], base: process.env.UI_HARNESS_BASE ?? DEFAULT_BASE, scale: 1, full: true, headed: false, list: false, cloudFrame: false, browser: "chromium", dir: SCENARIO_DIR, cpu: 1, repeat: 1 }
   for (let i = 0; i < args.length; i++) {
     const a = args[i]
     const next = () => {
@@ -1576,6 +1767,8 @@ function parseArgs(argv) {
     else if (a === "--no-full") o.full = false
     else if (a === "--cloud-frame") o.cloudFrame = true
     else if (a === "--browser") o.browser = next()
+    else if (a === "--cpu") o.cpu = Number(next())
+    else if (a === "--repeat") o.repeat = Number(next())
     else if (a === "--headed") o.headed = true
     else if (a === "--list") o.list = true
     else if (a === "--dir") o.dir = path.resolve(next())
@@ -1583,6 +1776,8 @@ function parseArgs(argv) {
   }
   if (!/^[\w.-]+$/.test(o.label)) throw new Error(`--label must be a plain folder name, got ${o.label}`)
   if (o.widths.some((w) => !Number.isInteger(w) || w < 280 || w > 3840)) throw new Error(`--widths must be pixel widths like 390,1440`)
+  if (!(o.cpu >= 1 && o.cpu <= 20)) throw new Error(`--cpu must be a slowdown factor from 1 to 20, got ${o.cpu}`)
+  if (!(Number.isInteger(o.repeat) && o.repeat >= 1 && o.repeat <= 100)) throw new Error(`--repeat must be a count from 1 to 100, got ${o.repeat}`)
   if (!["chromium", "webkit"].includes(o.browser)) throw new Error(`--browser must be chromium or webkit, got ${o.browser}`)
   o.base = o.base.replace(/\/$/, "")
   return o
@@ -1664,17 +1859,20 @@ async function main() {
         if (s.widths && !s.widths.includes(width)) continue
         // A scenario may name the browsers it means something in (e.g. a Tab walk through links: WebKit skips links).
         if (s.browsers && !s.browsers.includes(o.browser)) continue
-        process.stdout.write(`${pad(s.name, 24)} ${pad(width, 6)}`)
-        const r = await runScenarioSettled(browser, s, width, { base: o.base, events, outDir, scale: o.scale, full: o.full, cloudFrame: o.cloudFrame })
-        results.push(r)
-        console.log(`${r.ok ? "ok  " : "FAIL"} ${(r.ms / 1000).toFixed(1)}s${r.attempts > 1 ? ` (attempt ${r.attempts}; the discarded ones are under Notes)` : ""}`)
+        for (let rep = 1; rep <= o.repeat; rep++) {
+          process.stdout.write(`${pad(s.name, 24)} ${pad(width, 6)}${o.repeat > 1 ? pad(`#${rep}`, 5) : ""}`)
+          const suffix = o.repeat > 1 ? `-${rep}` : ""
+          const r = await runScenarioSettled(browser, s, width, { base: o.base, events, outDir, scale: o.scale, full: o.full, cloudFrame: o.cloudFrame, cpu: o.cpu, suffix })
+          results.push(r)
+          console.log(`${r.ok ? "ok  " : "FAIL"} ${(r.ms / 1000).toFixed(1)}s${r.attempts > 1 ? ` (attempt ${r.attempts}; the discarded ones are under Notes)` : ""}`)
+        }
       }
     }
   } finally {
     await browser.close()
     events.close()
   }
-  writeFileSync(path.join(outDir, "report.json"), `${JSON.stringify({ base: o.base, label: o.label, browser: o.browser, frame: o.cloudFrame ? "cloud" : "local", at: new Date().toISOString(), results }, null, 2)}\n`)
+  writeFileSync(path.join(outDir, "report.json"), `${JSON.stringify({ base: o.base, label: o.label, browser: o.browser, frame: o.cloudFrame ? "cloud" : "local", at: new Date().toISOString(), cpu: o.cpu, repeat: o.repeat, results }, null, 2)}\n`)
   printSummary(results, outDir)
   return results.every((r) => r.ok) ? 0 : 1
 }

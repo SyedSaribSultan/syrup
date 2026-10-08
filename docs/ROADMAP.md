@@ -33,7 +33,7 @@ Related: [CAPABILITIES.md](CAPABILITIES.md) (research behind rounds 2–8), [MOT
 
 - **Ends in a push.** Typecheck, lint (no errors in `src`, `scripts`, `sidecar`), `pnpm test:router`, `pnpm test:diffs`, `pnpm test:transcript`, Playwright screenshots at 390 px and 1440 px of every screen the round touched, then push and watch the deploy.
 - **Local and cloud render the same.** Only the backend may differ.
-- **Nothing new in the main chunk.** Every renderer is a `next/dynamic` chunk loaded on first use and prefetched on idle. Heavy libraries (Mermaid, Excalidraw, Vega) load in the panel or on first use, never on page load.
+- **Nothing new in the main chunk.** Every renderer is a lazy `import()` chunk loaded on first use and prefetched on idle; panel-only views may use `next/dynamic`. Heavy libraries (Mermaid, Excalidraw, Vega) load in the panel or on first use, never on page load.
 - **First token first.** No round may make the chat's first token later. `pnpm bench:agent` before and after a router change.
 - **A fence renders when it closes.** While it streams, a skeleton of the right shape; the typewriter never fights a chart.
 - **Phones get a static picture in the chat and the interactive version in the panel.**
@@ -55,15 +55,17 @@ Done when: `pnpm bench:agent` shows the hard turn's first visible output under 5
 
 ### Round 2 — Rich fences, part 1: Mermaid, SVG, math (1–2 days)
 
+Round 2 is split: **2a** fences, **2b** the repair loop ([RENDERING.md](RENDERING.md) §3.2a, §3.2b). 2a depends on the streaming change (`message.part.delta`) being committed.
+
 What: the markdown renderer (`src/components/markdown.tsx`) turns closed fences into visuals.
 - ` ```mermaid ` → Mermaid 11, lazy chunk, rendered to SVG, hash-cached, zoom on click (panel).
 - ` ```svg ` → inline sanitized SVG (DOMPurify, no scripts, no external refs).
-- `$$ … $$` and `$ … $` → KaTeX.
-- **Repair loop** (decision 8): `mermaid.parse` on close; on error, one hidden `syrup/fast` call ("fix this Mermaid, return only the block"); on a second error, show the source with a copy button and a one-line note.
+- `$$ … $$` and `$ … $` → KaTeX, with the Pandoc dollar guard; `\(…\)` and `\[…\]` normalized.
+- **Repair loop** (decision 8; Round 2b): `mermaid.parse` on close; on error, one hidden `syrup/fast` call ("fix this Mermaid, return only the block"); on a second error, show the source with a copy button and a one-line note.
 - Phones: the SVG scales to the column; tap opens it in the panel.
 - Agent side: one paragraph in `prompt.ts` saying these fences render, so models use them.
 
-Done when: screenshots at both widths show a flowchart, a sequence diagram, inline math and an SVG; a deliberately broken diagram is repaired or shown as source; the main chunk size is unchanged (check `next build` output).
+Done when: screenshots at both widths show a flowchart, a sequence diagram, inline math and an SVG; a deliberately broken diagram is repaired or shown as source; `pnpm ui:weight --compare` passes.
 
 ### Round 3 — Rich fences, part 2: charts and tables (1–2 days)
 
@@ -153,7 +155,8 @@ User data export, WAF/CSP/status page, legal review, real-iPhone keyboard check 
 | 9 Motion M0 | **done** (`1fecd1c`, merged in `166d4d7`) |
 | 10 Motion M1 | **done** (`dd61233`, merged in `166d4d7`) |
 | Q Answer quality (added; [QUALITY.md](QUALITY.md)) | **agreed** 2026-10-08; order Q0 → Q1 → (Q2, Q5 alongside 2a) → Q3, Q4 → Q6 |
-| 2–8 Capabilities | queued; contract in [RENDERING.md](RENDERING.md); 2a starts alongside Q2 |
+| 2a Rich fences: Mermaid, SVG, math, the export ([RENDERING.md](RENDERING.md) §3.2a) | **done** 2026-10-08: Mermaid diagrams, sanitized SVG and KaTeX math in the chat, `/c/` views and the HTML export; tap or click opens the panel at full size; open fences are skeletons; autofix for common Mermaid breaks. Initial JS: chat 353.6 → 350.0 KB, "/" 345.4 → 295.6 KB (Preview tab and Files tree now load on demand). Reviewed independently: agent SVG, Mermaid and math reach no other site and cannot crash the app. Follow-ups: model repair is 2b |
+| 2b–8 Capabilities | queued; contract in [RENDERING.md](RENDERING.md) |
 | 11–12 Motion M2–M3 | queued (after the capability rounds that touch the same files) |
 
 Follow-ups found on the way:

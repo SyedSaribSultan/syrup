@@ -1,19 +1,22 @@
 "use client"
 
-import { createContext, memo, useContext, useRef, useState, type ComponentProps } from "react"
+import { createContext, memo, useContext, useMemo, useRef, useState, type ComponentProps } from "react"
 import ReactMarkdown, { type Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { useOptionalEngine } from "@/lib/engine-store"
 import { copyText, filePathIn } from "@/lib/file-actions"
+import { loadMath, MATH_MARK, useLazy } from "@/lib/rich/lazy"
+import { FenceSlot, InlineMath, MdContext, type FenceOrigin } from "./rich/slot"
 import { FileLink } from "./file-link"
 
 const InPre = createContext(false)
 
-/** Inline code that is a workspace file path becomes a FileLink; code blocks stay as they are. */
+/** Inline code that is a workspace file path becomes a FileLink; code blocks stay as they are. Inline math goes to KaTeX. */
 function Code({ node, children, ...props }: ComponentProps<"code"> & { node?: unknown }) {
-  void node
   const inPre = useContext(InPre)
   const directory = useOptionalEngine()?.directory ?? ""
+  const isMath = !inPre && typeof props.className === "string" && props.className.includes("math-inline")
+  if (isMath) return <InlineMath node={node as Parameters<typeof InlineMath>[0]["node"]}>{children}</InlineMath>
   const text = typeof children === "string" ? children : null
   const file = !inPre && text ? filePathIn(text, directory) : null
   if (!file) return <code {...props}>{children}</code>
@@ -29,14 +32,14 @@ const components: Components = {
     void node
     return <a {...props} target="_blank" rel="noreferrer" />
   },
-  pre: ({ node, ...props }) => {
-    void node
-    return (
+  // A fence may be a picture (Mermaid, SVG) or display math: the slot decides, and falls back to the code block.
+  pre: ({ node, ...props }) => (
+    <FenceSlot node={node as Parameters<typeof FenceSlot>[0]["node"]}>
       <InPre.Provider value={true}>
         <CodeBlock {...props} />
       </InPre.Provider>
-    )
-  },
+    </FenceSlot>
+  ),
   // Wide tables scroll inside themselves instead of widening the chat column.
   table: ({ node, ...props }) => {
     void node
@@ -50,7 +53,7 @@ const components: Components = {
 }
 
 /** A code block with a copy button: shown on hover with a mouse, always on touch screens. */
-function CodeBlock(props: ComponentProps<"pre">) {
+export function CodeBlock(props: ComponentProps<"pre">) {
   const ref = useRef<HTMLPreElement>(null)
   const [copied, setCopied] = useState(false)
   return (
@@ -72,12 +75,34 @@ function CodeBlock(props: ComponentProps<"pre">) {
   )
 }
 
-export const Markdown = memo(function Markdown({ text }: { text: string }) {
+type MathModule = Awaited<ReturnType<typeof loadMath>>
+
+const BASE_PLUGINS = [remarkGfm]
+/** One list per loaded parser, so the plugins keep their identity across renders. */
+let mathPlugins: { mod: MathModule; list: MathModule["plugins"] } | null = null
+function pluginsWith(mod: MathModule) {
+  if (mathPlugins?.mod !== mod) mathPlugins = { mod, list: [remarkGfm, ...mod.plugins] }
+  return mathPlugins.list
+}
+
+/**
+ * `final`: the text will not grow any more (finished, or the turn ended), so an unclosed fence is drawn rather than
+ * kept as a skeleton (docs/RENDERING.md §2.4). `origin`: the part it belongs to (repairs write back there, Round 2b).
+ */
+export const Markdown = memo(function Markdown({ text, final = true, origin }: { text: string; final?: boolean; origin?: FenceOrigin }) {
+  // The math parser loads the first time a text may hold math; until it has, the text shows as it is, marked busy.
+  const wantsMath = MATH_MARK.test(text)
+  const math = useLazy(loadMath, wantsMath)
+  const mod = wantsMath ? math.module : null
+  const source = mod ? mod.normalize(text) : text
+  const ctx = useMemo(() => ({ source, final, origin: origin ?? null }), [source, final, origin])
   return (
-    <div className="md">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
-        {text}
-      </ReactMarkdown>
+    <div className="md" aria-busy={(wantsMath && !math.module && !math.failed) || undefined}>
+      <MdContext.Provider value={ctx}>
+        <ReactMarkdown remarkPlugins={mod ? pluginsWith(mod) : BASE_PLUGINS} components={components}>
+          {source}
+        </ReactMarkdown>
+      </MdContext.Provider>
     </div>
   )
 })

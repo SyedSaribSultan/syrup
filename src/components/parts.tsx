@@ -1,7 +1,9 @@
 "use client"
 
-import { lazy, Suspense, useState } from "react"
+import { lazy, Suspense, useEffect, useMemo, useState } from "react"
 import { isOpenPart } from "@/lib/engine-store"
+import { prefetchFor } from "@/lib/rich/lazy"
+import type { FenceOrigin } from "./rich/slot"
 import type { Part, ToolPart } from "@/lib/oc"
 import { fmtCost, fmtDuration, fmtTokens } from "@/lib/format"
 import { Brew, Elapsed } from "./brew"
@@ -18,7 +20,7 @@ import { useReadOnly } from "./read-only"
 const LiveText = lazy(() =>
   import("@/lib/use-typewriter").then(
     (m) => ({ default: m.LiveText }),
-    () => ({ default: ({ text }: { text: string; live: boolean }) => <StaticText text={text} /> }),
+    () => ({ default: ({ text, origin }: { text: string; live: boolean; settled?: boolean; origin?: FenceOrigin }) => <StaticText text={text} origin={origin} /> }),
   ),
 )
 
@@ -27,11 +29,12 @@ export function preloadLiveText(): void {
   void import("@/lib/use-typewriter").catch(() => {})
 }
 
-/** Finished text, and a shared snapshot's: as it is, no typewriter, no timers. */
-function StaticText({ text }: { text: string }) {
+/** Finished text, and a shared snapshot's: as it is, no typewriter, no timers. Pictures in it load on idle. */
+function StaticText({ text, origin }: { text: string; origin?: FenceOrigin }) {
+  useEffect(() => prefetchFor(text), [text])
   return (
     <div className="chat-text">
-      <Markdown text={text} />
+      <Markdown text={text} origin={origin} />
     </div>
   )
 }
@@ -56,6 +59,12 @@ export function PartView({ part, streaming, live = false, frozen = false, paths 
   // Mounted while the part streamed in front of this page: it keeps the typewriter until the end, so the last
   // words finish typing after the part ends. Text that was already there when this mounted shows as it is.
   const [streamed] = useState(live)
+  const ended = part.type === "text" ? (part.time?.end ?? null) : null
+  // Where a fence came from (Round 2b writes repaired diagrams back into this part). Stable, so Markdown's memo holds.
+  const origin = useMemo<FenceOrigin | undefined>(
+    () => (part.type === "text" ? { from: "fence", sessionID: part.sessionID, messageID: part.messageID, partID: part.id, endedAt: ended } : undefined),
+    [part.type, part.sessionID, part.messageID, part.id, ended],
+  )
   switch (part.type) {
     case "text": {
       if (ro) return part.text ? <StaticText text={part.text} /> : null
@@ -70,11 +79,11 @@ export function PartView({ part, streaming, live = false, frozen = false, paths 
       return (
         <>
           {streamed ? (
-            <Suspense fallback={<StaticText text={part.text} />}>
-              <LiveText text={part.text} live={open && live} />
+            <Suspense fallback={<StaticText text={part.text} origin={origin} />}>
+              <LiveText text={part.text} live={open && live} settled={!open || !streaming} origin={origin} />
             </Suspense>
           ) : (
-            <StaticText text={part.text} />
+            <StaticText text={part.text} origin={origin} />
           )}
           {waiting}
         </>

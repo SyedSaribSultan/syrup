@@ -1,9 +1,8 @@
 /**
  * Acceptance fixture for Rounds 2–3 (docs/ROADMAP.md): one finished assistant reply
- * with every rich fence the chat will learn to draw. Today they all render as code
- * blocks (and the math as plain text); after the rounds they become a flowchart, a
- * sequence diagram, a bar chart, an inline SVG, typeset math, a sortable table and a
- * mind map. Every block is valid on its own (Mermaid 11, Vega-Lite 5, SVG 1.1, KaTeX,
+ * with every rich fence the chat will learn to draw. Round 2a draws the flowchart, the
+ * sequence diagram, the SVG and the math; the bar chart, the table and the mind map stay
+ * code blocks until Round 3. Every block is valid on its own (Mermaid 11, Vega-Lite 5, SVG 1.1, KaTeX,
  * RFC 4180 CSV, markmap), so a renderer that fails here has a bug, not bad input.
  */
 import { backgroundChats, chat, defineScenario, MIN, text, WORKSPACE_FILES } from "./_kit.mjs"
@@ -163,19 +162,40 @@ const c = chat("Diagrams and data for the launch review", { ago: 25 * MIN })
 c.user("For the launch review: sketch the checkout flow and the payment sequence, chart orders per weekday, draft a logo as SVG, show the rounding formula, give me the last twenty days as CSV and outline the launch as a mind map.")
 c.assistant([text(ANSWER, { ms: 14_000 })], { ttft: 1100 })
 
-export default defineScenario({
-  name: "chat-rich-fences",
-  description: "Rounds 2–3 acceptance: mermaid flowchart + sequence, vega-lite bar chart, svg, inline and display math, 20-row csv, markmap.",
+/** The chat, for the other Round 2a scenarios that reuse it (zoom, export). */
+export const RICH_CHAT = c
+export const RICH_ANSWER = ANSWER
+
+const assert = [
+  // Round 2a draws Mermaid, SVG and math; a round that turns another fence into a visual changes its line here.
+  { count: ".chat-log figure[data-rich-kind=mermaid][data-rich-state=ready] svg[aria-roledescription]", equals: 2 },
+  { count: ".chat-log pre code.language-mermaid", equals: 0 },
+  // .rich-host keeps the toolbar's icons out of the count.
+  { count: ".chat-log figure[data-rich-kind=svg][data-rich-state=ready] .rich-host svg", equals: 1 },
+  { count: ".chat-log .katex", equals: 5 },
+  { count: ".chat-log .katex-display", equals: 1 },
+  { hidden: "text=$x^2$" },
+  { count: ".chat-log pre code.language-vega-lite", equals: 1 },
+  { count: ".chat-log pre code.language-csv", equals: 1 },
+  { count: ".chat-log pre code.language-markmap", equals: 1 },
+  // Drawing never calls a model (repair is Round 2b) and never reaches another origin.
+  { requests: "POST /api/oc/session/*/message", equals: 0 },
+  { external: 0 },
+  // Seven 44 px buttons wouldn't fit a phone's column (358 px at 390: the chat's 16 px gutters): label, Open and ⋯ only.
+  { box: ".chat-log figure.rich .rich-bar", maxWidth: 358, widths: [390] },
+  { count: ".chat-log figure.rich .rich-bar button", max: 6, widths: [390] },
+]
+
+const base = {
   route: c.route,
   chats: [c, ...backgroundChats()],
   files: WORKSPACE_FILES,
-  assert: [
-    // Today: seven fenced blocks. When a round turns a fence into a visual, change its line here.
-    { count: ".chat-log pre code.language-mermaid", equals: 2 },
-    { count: ".chat-log pre code.language-vega-lite", equals: 1 },
-    { count: ".chat-log pre code.language-svg", equals: 1 },
-    { count: ".chat-log pre code.language-csv", equals: 1 },
-    { count: ".chat-log pre code.language-markmap", equals: 1 },
-    { text: "$x^2$" },
-  ],
-})
+  assert,
+}
+
+const variants = [
+  defineScenario({ ...base, name: "chat-rich-fences", description: "Rounds 2–3 acceptance: mermaid flowchart + sequence, vega-lite bar chart, svg, inline and display math, 20-row csv, markmap." }),
+  defineScenario({ ...base, name: "chat-rich-fences-dark", description: "The same in dark mode: Mermaid in the app's dark tokens, the agent SVG on a light paper card.", colorScheme: "dark" }),
+]
+
+export default variants

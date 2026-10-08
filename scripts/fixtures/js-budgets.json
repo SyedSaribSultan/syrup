@@ -1,0 +1,8 @@
+{
+  "note": "After-load budgets for pnpm ui:weight --budgets (docs/RENDERING.md §3.0, W1): the most gzip bytes of JS + CSS a scenario may load after the page beyond what chat-markdown loads after it; fonts as raw bytes, apart. The libraries spike's measurements plus about 10%. Panel scenarios (Round 4 on) run their panel step first.",
+  "budgets": {
+    "weight-svg": { "maxGzip": 35840, "what": "rich core (20 KB) + SVG renderer with DOMPurify (15 KB)" },
+    "weight-math": { "maxGzip": 90112, "maxFontBytes": 61440, "what": "math parser (3 KB) + KaTeX JS and CSS (85 KB); KaTeX fonts ≤ 60 KB" },
+    "weight-mermaid": { "maxGzip": 256000, "what": "rich core (20 KB) + Mermaid's common diagrams (230 KB); DOMPurify is Mermaid's own copy" }
+  }
+}

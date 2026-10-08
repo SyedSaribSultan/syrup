@@ -1,6 +1,6 @@
 # Answer quality
 
-Status: **agreed 2026-10-08 (decisions in §7); Q0, Q1, Q2 and Q5 done (Q1b, the judge, open); Round 2a in progress; Q3 and Q4 next.** This is the plan for making syrup's answers right, not only fast. It comes from one real chat that went wrong and five research reports on why. [ROADMAP.md](ROADMAP.md) gets a "Q" track once §7 is answered.
+Status: **agreed 2026-10-08 (decisions in §7); Q0, Q1, Q2 and Q5 done (Q1b, the judge, open); Round 2a done; Q3 and Q4 next.** This is the plan for making syrup's answers right, not only fast. It comes from one real chat that went wrong and five research reports on why. [ROADMAP.md](ROADMAP.md) gets a "Q" track once §7 is answered.
 
 Related: [ARCHITECTURE.md](ARCHITECTURE.md) (router, engine), [RENDERING.md](RENDERING.md) (rounds 2–8, which share files with this plan), [TESTING.md](TESTING.md) (the gate).
 

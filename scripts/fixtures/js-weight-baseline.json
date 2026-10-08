@@ -1,120 +1,120 @@
 {
   "version": 1,
   "note": "Initial JavaScript per route on a production build, engine faked by the UI harness fixtures. Written by scripts/js-weight.mjs --update; checked by --compare (docs/TESTING.md).",
-  "measuredAt": "2026-10-08T10:46:54.432Z",
+  "measuredAt": "2026-10-08T18:34:53.211Z",
   "next": "16.3.5",
-  "commit": "166d4d7",
-  "buildId": "JQoNRmG6-0ILl0TTPKRtJ",
+  "commit": "6a3362c",
+  "buildId": "_PY4qqz46pcXmnMyO8k--",
   "limitGzipBytes": 2048,
   "routes": [
     {
       "scenario": "chat-markdown",
       "route": "/s/ses_06ac5f4f8001NaTiy45uhGw3QU",
       "initial": {
-        "count": 16,
-        "encoded": 362711,
-        "decoded": 1162067,
-        "gzip": 362121,
+        "count": 17,
+        "encoded": 359298,
+        "decoded": 1151727,
+        "gzip": 358400,
         "main": {
-          "count": 7,
-          "gzip": 227673
+          "count": 6,
+          "gzip": 227570
         },
         "chunks": [
           {
-            "file": "/_next/static/chunks/2gun0rxvokuy2.js",
+            "file": "/_next/static/chunks/0w6uh_d3vmkvy.js",
             "main": true,
-            "encoded": 1986,
-            "decoded": 5364,
-            "gzip": 1969,
-            "modules": [75648, 85557]
+            "encoded": 7657,
+            "decoded": 28496,
+            "gzip": 7639,
+            "modules": [105197, 107050, 149975, 160080, 228852, 304374, 328158, 381684, 395099, 406617, 419402, 434841, 436037, 442857, 456564, 486835, 503449, 568138, 596305, 666663, 710499, 772621, 821381, 824393, 856261, 868989, 948760, 970039]
           },
           {
-            "file": "/_next/static/chunks/17zb84fhuyc1z.js",
+            "file": "/_next/static/chunks/34cyn27puyuu-.js",
             "main": true,
-            "encoded": 7835,
-            "decoded": 25610,
-            "gzip": 7817,
-            "modules": [5789, 7531, 12953, 15245, 16309, 17742, 22486, 42731, 46351, 46380, 46454, 49214, 56935, 62308, 65863, 72214, 73608, 74033, 80812, 85059, 89110, 94670]
+            "encoded": 9505,
+            "decoded": 31001,
+            "gzip": 9487,
+            "modules": [7531, 46351, 94670, 142731, 146380, 215245, 272214, 285557, 505789, 516309, 565863, 617742, 649214, 712953, 722486, 756935, 775648, 862308, 873608, 874033, 880812, 885059, 889110, 946454]
           },
           {
-            "file": "/_next/static/chunks/415v1k1k0ht5h.js",
-            "main": true,
-            "encoded": 7693,
-            "decoded": 28980,
-            "gzip": 7675,
-            "modules": [3449, 4374, 5197, 6617, 7050, 10499, 19402, 21381, 24393, 28158, 28852, 34841, 36037, 36437, 42857, 48760, 49975, 56261, 56564, 60080, 66663, 68138, 68989, 70039, 72621, 81684, 86835, 89036, 95099, 96305]
+            "file": "/_next/static/chunks/1e5-8nqvcn-a8.js",
+            "main": false,
+            "encoded": 982,
+            "decoded": 982,
+            "gzip": 531,
+            "modules": [758298]
           },
           {
-            "file": "/_next/static/chunks/turbopack-2zd2yis61eamr.js",
+            "file": "/_next/static/chunks/turbopack-35xvdjpgxh-_7.js",
             "main": true,
-            "encoded": 4350,
-            "decoded": 11012,
-            "gzip": 4332,
+            "encoded": 4336,
+            "decoded": 10980,
+            "gzip": 4318,
             "modules": []
           },
           {
-            "file": "/_next/static/chunks/222qr28_tgha3.js",
+            "file": "/_next/static/chunks/41-1-xxx_2uwa.js",
             "main": false,
-            "encoded": 684,
-            "decoded": 1311,
-            "gzip": 667,
-            "modules": [33204, 74721, 97287]
+            "encoded": 11118,
+            "decoded": 35330,
+            "gzip": 11100,
+            "modules": [16700, 89369, 245462, 349829, 356219, 402543, 474987, 511467, 553901, 573480, 589977, 628395, 646809, 649026, 700404, 702171, 776639, 788484, 821844, 865936, 907201, 928565, 928615, 941873, 970098, 980376]
           },
           {
-            "file": "/_next/static/chunks/22cci0hyr27nk.js",
-            "main": false,
-            "encoded": 11043,
-            "decoded": 35169,
-            "gzip": 11025,
-            "modules": [404, 2171, 2543, 7201, 11467, 16700, 21844, 28395, 28565, 28615, 41873, 45462, 46809, 49026, 49829, 53901, 56219, 65936, 70098, 73480, 74987, 76639, 80376, 88484, 89369, 89977]
-          },
-          {
-            "file": "/_next/static/chunks/2658brl3820pv.js",
+            "file": "/_next/static/chunks/2b5u510tt-wxo.js",
             "main": true,
-            "encoded": 45130,
-            "decoded": 165624,
-            "gzip": 45088,
-            "modules": [4298, 5069, 7648, 11948, 15999, 16717, 18372, 19615, 23812, 24885, 26854, 27608, 29473, 29603, 29636, 30367, 31285, 33036, 34997, 36906, 38186, 38437, 39091, 40192, 41779, 42555, 42748, 44279, 46337, 46803, 46808, 46838, 48279, 48943, 49070, 49545, 49770, 51645, 52143, 53682, 54144, 54843, 54896, 54916, 56421, 57297, 57670, 58183, 60149, 61978, 62767, 64984, 66426, 67586, 69668, 70177, 70441, 70947, 71425, 71438, 71525, 71546, 71738, 73251, 75015, 77095, 77439, 79675, 80750, 82059, 82950, 83475, 85552, 86565, 86706, 87427, 90915, 96450, 98398, 99829]
+            "encoded": 45364,
+            "decoded": 166558,
+            "gzip": 45322,
+            "modules": [29636, 33036, 42555, 46808, 49545, 56421, 75015, 86565, 115999, 124885, 129603, 136906, 139091, 148279, 177439, 187427, 207648, 218372, 219615, 227608, 254144, 254896, 258183, 273251, 280750, 329473, 338437, 340192, 346803, 352143, 364984, 366426, 367586, 370177, 371525, 383475, 411948, 426854, 434997, 446838, 449070, 462767, 469668, 485552, 504298, 542748, 553682, 557670, 577095, 582950, 630367, 641779, 649770, 651645, 679675, 689036, 716717, 748943, 760149, 770441, 771546, 782059, 790983, 798398, 799829, 805069, 823812, 836437, 838186, 844279, 870947, 871425, 871738, 886706, 931285, 946337, 954843, 954916, 957297, 961978, 990915, 996450]
           },
           {
-            "file": "/_next/static/chunks/03-tfpi5uhu7s.js",
+            "file": "/_next/static/chunks/3kggw14qiu__2.js",
             "main": false,
-            "encoded": 11401,
-            "decoded": 38168,
-            "gzip": 11383,
-            "modules": [47422, 49767, 53591, 70940, 97015]
+            "encoded": 1119,
+            "decoded": 2679,
+            "gzip": 1102,
+            "modules": [89776, 129860, 197287, 333204, 421465, 471102, 499624, 616952, 752142, 854791, 920348]
           },
           {
-            "file": "/_next/static/chunks/0x2r_huuxampg.js",
+            "file": "/_next/static/chunks/3xxhwnhtrn3g3.js",
             "main": false,
-            "encoded": 19327,
-            "decoded": 58348,
-            "gzip": 19302,
-            "modules": [4309, 32022, 63141, 68938, 77994]
+            "encoded": 11186,
+            "decoded": 38925,
+            "gzip": 11168,
+            "modules": [129014, 301844, 637408]
           },
           {
-            "file": "/_next/static/chunks/2oli45hydu7jh.js",
+            "file": "/_next/static/chunks/0awys23-kfm9r.js",
+            "main": false,
+            "encoded": 11434,
+            "decoded": 38277,
+            "gzip": 11416,
+            "modules": [253591, 370940, 447422, 649767, 797015]
+          },
+          {
+            "file": "/_next/static/chunks/3utlo9m6sdui7.js",
+            "main": false,
+            "encoded": 21095,
+            "decoded": 60155,
+            "gzip": 21069,
+            "modules": [64305, 92505, 175379, 185556, 250304, 347759, 417096, 424579, 477994, 490163, 498719, 499009, 516485, 600243, 643358, 763141, 802834, 807707, 818185, 904309]
+          },
+          {
+            "file": "/_next/static/chunks/2acw05rdsjt0j.js",
+            "main": false,
+            "encoded": 8615,
+            "decoded": 26693,
+            "gzip": 8597,
+            "modules": [166311, 346807, 719535, 804560, 850444]
+          },
+          {
+            "file": "/_next/static/chunks/21kjp-ctz4xvy.js",
             "main": true,
-            "encoded": 64673,
-            "decoded": 204593,
-            "gzip": 64616,
-            "modules": [48290, 50125, 61367, 94647]
-          },
-          {
-            "file": "/_next/static/chunks/28woqkyf7ookk.js",
-            "main": false,
-            "encoded": 480,
-            "decoded": 480,
-            "gzip": 332,
-            "modules": [19535, 46807, 66311]
-          },
-          {
-            "file": "/_next/static/chunks/1kneo-_d_v6mf.js",
-            "main": false,
-            "encoded": 48810,
-            "decoded": 157794,
-            "gzip": 48761,
-            "modules": [2834, 16485, 18185, 24579, 51521, 59596, 63185, 69090, 73435, 75609, 79475, 85556, 91920]
+            "encoded": 64685,
+            "decoded": 204608,
+            "gzip": 64628,
+            "modules": [250125, 561367, 694647, 848290]
           },
           {
             "file": "/_next/static/chunks/25jujvodo_e-j.js",
@@ -125,53 +125,97 @@
             "modules": [17960]
           },
           {
-            "file": "/_next/static/chunks/3xaxx6q_qy3z1.js",
+            "file": "/_next/static/chunks/2v_m6c5kd_u-_.js",
             "main": false,
-            "encoded": 16908,
-            "decoded": 53332,
-            "gzip": 16883,
-            "modules": [29014, 37408, 43358, 50304, 75379, 90163, 92505, 98719, 99009]
+            "encoded": 10204,
+            "decoded": 28977,
+            "gzip": 10186,
+            "modules": [124613, 674255, 790394]
           },
           {
-            "file": "/_next/static/chunks/09f_d_4_p16-7.js",
+            "file": "/_next/static/chunks/0jpe0e5dr4cvd.js",
             "main": false,
-            "encoded": 10182,
-            "decoded": 28950,
-            "gzip": 10164,
-            "modules": [24613, 74255, 90394]
+            "encoded": 671,
+            "decoded": 1322,
+            "gzip": 654,
+            "modules": [563491]
           },
           {
-            "file": "/_next/static/chunks/0rw0n5e3-p3ap.js",
+            "file": "/_next/static/chunks/3g09_lj6q-_i3.js",
             "main": false,
-            "encoded": 15949,
-            "decoded": 49514,
-            "gzip": 15931,
-            "modules": [30525, 44881, 50444, 56625, 71317, 80217, 80714, 88447, 90840, 97408]
+            "encoded": 11381,
+            "decoded": 30981,
+            "gzip": 11363,
+            "modules": [133220, 197408, 380217, 390840, 455470, 480714, 671317, 744881, 788447, 897802, 907714, 956625, 990769]
+          },
+          {
+            "file": "/_next/static/chunks/2b42jqzsyqc1-.js",
+            "main": false,
+            "encoded": 43686,
+            "decoded": 147945,
+            "gzip": 43644,
+            "modules": [369090, 559596, 573435, 763185, 851521, 975609]
           }
         ]
       },
       "afterLoad": {
-        "count": 3,
-        "gzip": 19104,
+        "count": 5,
+        "gzip": 37551,
         "chunks": [
           {
-            "file": "/_next/static/chunks/2r4u5uib_j00y.js",
-            "gzip": 1144,
-            "modules": [73957]
+            "file": "/_next/static/chunks/0y9hn76ysoosw.js",
+            "gzip": 1251,
+            "modules": [573957]
           },
           {
-            "file": "/_next/static/chunks/2c4pybkhjh7eq.js",
-            "gzip": 4150,
-            "modules": [7907, 35333]
+            "file": "/_next/static/chunks/1e1kkrc8-i3lm.js",
+            "gzip": 6057,
+            "modules": [121884, 832022]
           },
           {
-            "file": "/_next/static/chunks/13ypkz3ibe8sx.js",
-            "gzip": 13810,
-            "modules": [24613, 44881, 56625, 71317, 74255, 80217, 90394]
+            "file": "/_next/static/chunks/0aa34wsxipzdr.js",
+            "gzip": 12116,
+            "modules": [122619, 133220, 455470, 832022, 897802, 907714, 990769]
+          },
+          {
+            "file": "/_next/static/chunks/14aqckyyi46m7.js",
+            "gzip": 4158,
+            "modules": [235333, 907907]
+          },
+          {
+            "file": "/_next/static/chunks/0l44x7pzdkwmc.js",
+            "gzip": 13969,
+            "modules": [124613, 380217, 671317, 674255, 744881, 790394, 956625]
           }
         ]
       },
       "notLoaded": [],
+      "assets": [
+        {
+          "file": "/_next/static/chunks/1ujjrb1bpfk9o.css",
+          "type": "stylesheet",
+          "bytes": 92755,
+          "gzip": 17020
+        },
+        {
+          "file": "/_next/static/media/797e433ab948586e-s.p.0r6juujl39pe6.woff2",
+          "type": "font",
+          "bytes": 23108,
+          "gzip": 23136
+        },
+        {
+          "file": "/_next/static/media/8c2eb9ceedecfc8e-s.p.23aeddxv5enbo.woff2",
+          "type": "font",
+          "bytes": 37792,
+          "gzip": 37721
+        },
+        {
+          "file": "/_next/static/media/caa3a2e1cccd8315-s.p.0wgildi0cnwt9.woff2",
+          "type": "font",
+          "bytes": 29288,
+          "gzip": 29316
+        }
+      ],
       "errors": []
     },
     {
@@ -179,117 +223,109 @@
       "route": "/",
       "initial": {
         "count": 15,
-        "encoded": 354096,
-        "decoded": 1132410,
-        "gzip": 353654,
+        "encoded": 303575,
+        "decoded": 966802,
+        "gzip": 302737,
         "main": {
-          "count": 7,
-          "gzip": 227673
+          "count": 6,
+          "gzip": 227570
         },
         "chunks": [
           {
-            "file": "/_next/static/chunks/2gun0rxvokuy2.js",
+            "file": "/_next/static/chunks/0w6uh_d3vmkvy.js",
             "main": true,
-            "encoded": 1986,
-            "decoded": 5364,
-            "gzip": 1969,
-            "modules": [75648, 85557]
+            "encoded": 7657,
+            "decoded": 28496,
+            "gzip": 7639,
+            "modules": [105197, 107050, 149975, 160080, 228852, 304374, 328158, 381684, 395099, 406617, 419402, 434841, 436037, 442857, 456564, 486835, 503449, 568138, 596305, 666663, 710499, 772621, 821381, 824393, 856261, 868989, 948760, 970039]
           },
           {
-            "file": "/_next/static/chunks/17zb84fhuyc1z.js",
+            "file": "/_next/static/chunks/34cyn27puyuu-.js",
             "main": true,
-            "encoded": 7835,
-            "decoded": 25610,
-            "gzip": 7817,
-            "modules": [5789, 7531, 12953, 15245, 16309, 17742, 22486, 42731, 46351, 46380, 46454, 49214, 56935, 62308, 65863, 72214, 73608, 74033, 80812, 85059, 89110, 94670]
+            "encoded": 9505,
+            "decoded": 31001,
+            "gzip": 9487,
+            "modules": [7531, 46351, 94670, 142731, 146380, 215245, 272214, 285557, 505789, 516309, 565863, 617742, 649214, 712953, 722486, 756935, 775648, 862308, 873608, 874033, 880812, 885059, 889110, 946454]
           },
           {
-            "file": "/_next/static/chunks/415v1k1k0ht5h.js",
-            "main": true,
-            "encoded": 7693,
-            "decoded": 28980,
-            "gzip": 7675,
-            "modules": [3449, 4374, 5197, 6617, 7050, 10499, 19402, 21381, 24393, 28158, 28852, 34841, 36037, 36437, 42857, 48760, 49975, 56261, 56564, 60080, 66663, 68138, 68989, 70039, 72621, 81684, 86835, 89036, 95099, 96305]
+            "file": "/_next/static/chunks/1e5-8nqvcn-a8.js",
+            "main": false,
+            "encoded": 982,
+            "decoded": 982,
+            "gzip": 531,
+            "modules": [758298]
           },
           {
-            "file": "/_next/static/chunks/turbopack-2zd2yis61eamr.js",
+            "file": "/_next/static/chunks/turbopack-35xvdjpgxh-_7.js",
             "main": true,
-            "encoded": 4350,
-            "decoded": 11012,
-            "gzip": 4332,
+            "encoded": 4336,
+            "decoded": 10980,
+            "gzip": 4318,
             "modules": []
           },
           {
-            "file": "/_next/static/chunks/222qr28_tgha3.js",
+            "file": "/_next/static/chunks/41-1-xxx_2uwa.js",
             "main": false,
-            "encoded": 684,
-            "decoded": 1311,
-            "gzip": 667,
-            "modules": [33204, 74721, 97287]
+            "encoded": 11118,
+            "decoded": 35330,
+            "gzip": 11100,
+            "modules": [16700, 89369, 245462, 349829, 356219, 402543, 474987, 511467, 553901, 573480, 589977, 628395, 646809, 649026, 700404, 702171, 776639, 788484, 821844, 865936, 907201, 928565, 928615, 941873, 970098, 980376]
           },
           {
-            "file": "/_next/static/chunks/2658brl3820pv.js",
+            "file": "/_next/static/chunks/0jpe0e5dr4cvd.js",
+            "main": false,
+            "encoded": 671,
+            "decoded": 1322,
+            "gzip": 654,
+            "modules": [563491]
+          },
+          {
+            "file": "/_next/static/chunks/3kggw14qiu__2.js",
+            "main": false,
+            "encoded": 1119,
+            "decoded": 2679,
+            "gzip": 1102,
+            "modules": [89776, 129860, 197287, 333204, 421465, 471102, 499624, 616952, 752142, 854791, 920348]
+          },
+          {
+            "file": "/_next/static/chunks/21kjp-ctz4xvy.js",
             "main": true,
-            "encoded": 45130,
-            "decoded": 165624,
-            "gzip": 45088,
-            "modules": [4298, 5069, 7648, 11948, 15999, 16717, 18372, 19615, 23812, 24885, 26854, 27608, 29473, 29603, 29636, 30367, 31285, 33036, 34997, 36906, 38186, 38437, 39091, 40192, 41779, 42555, 42748, 44279, 46337, 46803, 46808, 46838, 48279, 48943, 49070, 49545, 49770, 51645, 52143, 53682, 54144, 54843, 54896, 54916, 56421, 57297, 57670, 58183, 60149, 61978, 62767, 64984, 66426, 67586, 69668, 70177, 70441, 70947, 71425, 71438, 71525, 71546, 71738, 73251, 75015, 77095, 77439, 79675, 80750, 82059, 82950, 83475, 85552, 86565, 86706, 87427, 90915, 96450, 98398, 99829]
+            "encoded": 64685,
+            "decoded": 204608,
+            "gzip": 64628,
+            "modules": [250125, 561367, 694647, 848290]
           },
           {
-            "file": "/_next/static/chunks/22cci0hyr27nk.js",
+            "file": "/_next/static/chunks/3xxhwnhtrn3g3.js",
             "main": false,
-            "encoded": 11043,
-            "decoded": 35169,
-            "gzip": 11025,
-            "modules": [404, 2171, 2543, 7201, 11467, 16700, 21844, 28395, 28565, 28615, 41873, 45462, 46809, 49026, 49829, 53901, 56219, 65936, 70098, 73480, 74987, 76639, 80376, 88484, 89369, 89977]
+            "encoded": 11186,
+            "decoded": 38925,
+            "gzip": 11168,
+            "modules": [129014, 301844, 637408]
           },
           {
-            "file": "/_next/static/chunks/03-tfpi5uhu7s.js",
-            "main": false,
-            "encoded": 11401,
-            "decoded": 38168,
-            "gzip": 11383,
-            "modules": [47422, 49767, 53591, 70940, 97015]
-          },
-          {
-            "file": "/_next/static/chunks/2oli45hydu7jh.js",
+            "file": "/_next/static/chunks/2b5u510tt-wxo.js",
             "main": true,
-            "encoded": 64673,
-            "decoded": 204593,
-            "gzip": 64616,
-            "modules": [48290, 50125, 61367, 94647]
+            "encoded": 45364,
+            "decoded": 166558,
+            "gzip": 45322,
+            "modules": [29636, 33036, 42555, 46808, 49545, 56421, 75015, 86565, 115999, 124885, 129603, 136906, 139091, 148279, 177439, 187427, 207648, 218372, 219615, 227608, 254144, 254896, 258183, 273251, 280750, 329473, 338437, 340192, 346803, 352143, 364984, 366426, 367586, 370177, 371525, 383475, 411948, 426854, 434997, 446838, 449070, 462767, 469668, 485552, 504298, 542748, 553682, 557670, 577095, 582950, 630367, 641779, 649770, 651645, 679675, 689036, 716717, 748943, 760149, 770441, 771546, 782059, 790983, 798398, 799829, 805069, 823812, 836437, 838186, 844279, 870947, 871425, 871738, 886706, 931285, 946337, 954843, 954916, 957297, 961978, 990915, 996450]
           },
           {
-            "file": "/_next/static/chunks/3xaxx6q_qy3z1.js",
+            "file": "/_next/static/chunks/0awys23-kfm9r.js",
             "main": false,
-            "encoded": 16908,
-            "decoded": 53332,
-            "gzip": 16883,
-            "modules": [29014, 37408, 43358, 50304, 75379, 90163, 92505, 98719, 99009]
+            "encoded": 11434,
+            "decoded": 38277,
+            "gzip": 11416,
+            "modules": [253591, 370940, 447422, 649767, 797015]
           },
           {
-            "file": "/_next/static/chunks/0x2r_huuxampg.js",
+            "file": "/_next/static/chunks/14aqckyyi46m7.js",
             "main": false,
-            "encoded": 19327,
-            "decoded": 58348,
-            "gzip": 19302,
-            "modules": [4309, 32022, 63141, 68938, 77994]
-          },
-          {
-            "file": "/_next/static/chunks/2c4pybkhjh7eq.js",
-            "main": false,
-            "encoded": 4168,
-            "decoded": 10499,
-            "gzip": 4150,
-            "modules": [7907, 35333]
-          },
-          {
-            "file": "/_next/static/chunks/13ypkz3ibe8sx.js",
-            "main": false,
-            "encoded": 13828,
-            "decoded": 38788,
-            "gzip": 13810,
-            "modules": [24613, 44881, 56625, 71317, 74255, 80217, 90394]
+            "encoded": 4176,
+            "decoded": 10515,
+            "gzip": 4158,
+            "modules": [235333, 907907]
           },
           {
             "file": "/_next/static/chunks/25jujvodo_e-j.js",
@@ -300,21 +336,71 @@
             "modules": [17960]
           },
           {
-            "file": "/_next/static/chunks/1kneo-_d_v6mf.js",
+            "file": "/_next/static/chunks/0l44x7pzdkwmc.js",
             "main": false,
-            "encoded": 48810,
-            "decoded": 157794,
-            "gzip": 48761,
-            "modules": [2834, 16485, 18185, 24579, 51521, 59596, 63185, 69090, 73435, 75609, 79475, 85556, 91920]
+            "encoded": 13987,
+            "decoded": 39156,
+            "gzip": 13969,
+            "modules": [124613, 380217, 671317, 674255, 744881, 790394, 956625]
+          },
+          {
+            "file": "/_next/static/chunks/3utlo9m6sdui7.js",
+            "main": false,
+            "encoded": 21095,
+            "decoded": 60155,
+            "gzip": 21069,
+            "modules": [64305, 92505, 175379, 185556, 250304, 347759, 417096, 424579, 477994, 490163, 498719, 499009, 516485, 600243, 643358, 763141, 802834, 807707, 818185, 904309]
           }
         ]
       },
       "afterLoad": {
-        "count": 0,
-        "gzip": 0,
-        "chunks": []
+        "count": 3,
+        "gzip": 61817,
+        "chunks": [
+          {
+            "file": "/_next/static/chunks/1e1kkrc8-i3lm.js",
+            "gzip": 6057,
+            "modules": [121884, 832022]
+          },
+          {
+            "file": "/_next/static/chunks/0aa34wsxipzdr.js",
+            "gzip": 12116,
+            "modules": [122619, 133220, 455470, 832022, 897802, 907714, 990769]
+          },
+          {
+            "file": "/_next/static/chunks/2b42jqzsyqc1-.js",
+            "gzip": 43644,
+            "modules": [369090, 559596, 573435, 763185, 851521, 975609]
+          }
+        ]
       },
       "notLoaded": [],
+      "assets": [
+        {
+          "file": "/_next/static/chunks/1ujjrb1bpfk9o.css",
+          "type": "stylesheet",
+          "bytes": 92755,
+          "gzip": 17020
+        },
+        {
+          "file": "/_next/static/media/797e433ab948586e-s.p.0r6juujl39pe6.woff2",
+          "type": "font",
+          "bytes": 23108,
+          "gzip": 23136
+        },
+        {
+          "file": "/_next/static/media/8c2eb9ceedecfc8e-s.p.23aeddxv5enbo.woff2",
+          "type": "font",
+          "bytes": 37792,
+          "gzip": 37721
+        },
+        {
+          "file": "/_next/static/media/caa3a2e1cccd8315-s.p.0wgildi0cnwt9.woff2",
+          "type": "font",
+          "bytes": 29288,
+          "gzip": 29316
+        }
+      ],
       "errors": []
     }
   ]

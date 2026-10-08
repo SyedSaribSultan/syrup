@@ -113,6 +113,8 @@ scenario.assert = [
   { text: "Save this as" },
   { text: LAST_LINE },
   { count: ".chat-log pre", equals: 1 },
+  // A python fence stays code: no picture, no skeleton (Round 2a).
+  { count: ".chat-log figure[data-rich-kind]", equals: 0 },
 ]
 
 export default scenario

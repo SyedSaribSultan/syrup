@@ -681,3 +681,205 @@ body {
   background-size: 16px 16px;
   background-position: 0 0, 8px 8px;
 }
+
+/*
+ * Rich output (docs/RENDERING.md §2.6): pictures drawn from fences. The clip is light DOM around the shadow root that
+ * holds agent markup: it confines anything that escapes the box (a :host rule, an overflow), and caps tall pictures
+ * in the chat. Agent SVG sits on a light paper card in dark mode; the HTML export puts every picture on one.
+ */
+figure.rich {
+  margin: 0;
+  min-width: 0;
+}
+.md > * + figure.rich {
+  margin-top: 0.75em;
+}
+.rich-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-height: 1.75rem;
+  margin-bottom: 0.25rem;
+}
+.rich-kind {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.rich-cap {
+  font-size: 12px;
+  color: var(--muted);
+}
+.rich-bar .rich-cap {
+  margin-left: 0.5rem;
+}
+.rich-clip {
+  contain: layout paint;
+  overflow: hidden;
+  position: relative;
+  isolation: isolate;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  padding: 0.75rem;
+  cursor: zoom-in;
+}
+.chat-log .rich-clip {
+  max-height: 600px;
+}
+.rich-view .rich-clip,
+.chat-log .rich-view .rich-clip {
+  /* Full size: the panel and the lightbox show all of it (the lightbox sits inside the chat's DOM). */
+  max-height: none;
+  cursor: default;
+}
+.rich-paper {
+  /* The light theme's surface, whatever the page's theme: dark-on-transparent drawings stay visible. */
+  background: #fbfaf6;
+  border-color: #e3e0d6;
+  color-scheme: light;
+}
+.rich-host {
+  display: block;
+  max-width: 100%;
+}
+.rich-img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+}
+.rich-fade {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 4rem;
+  background: linear-gradient(to bottom, transparent, var(--surface));
+  pointer-events: none;
+}
+.rich-paper .rich-fade {
+  background: linear-gradient(to bottom, transparent, #fbfaf6);
+}
+.rich-stage {
+  overflow: auto;
+}
+.rich-note {
+  margin-top: 0.4rem;
+  font-size: 13px;
+  color: var(--muted);
+}
+.rich-err {
+  display: block;
+  margin-top: 0.15rem;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.rich-link {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+@media (pointer: coarse) {
+  .rich-link {
+    display: inline-block;
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+/* The source under a picture opens from the toolbar; the export, which has no toolbar, shows its summary. */
+.rich-src > summary {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.rich-src-export > summary,
+figure[data-rich-state="pending"] .rich-src > summary {
+  position: static;
+  width: auto;
+  height: auto;
+  overflow: visible;
+  clip-path: none;
+  margin-top: 0.35rem;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.rich-src[open] .rich-source {
+  margin-top: 0.5rem;
+}
+/* Skeletons shaped like the picture they stand for (the breathing comes from .skel). */
+.rich-skel {
+  display: grid;
+  gap: 0.75rem;
+  align-content: center;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  padding: 1rem;
+}
+.rich-skel i {
+  display: block;
+  height: 1.75rem;
+  border-radius: 6px;
+}
+.rich-skel[data-shape="diagram"] {
+  justify-items: center;
+}
+.rich-skel[data-shape="diagram"] i:nth-child(1) { width: 38%; }
+.rich-skel[data-shape="diagram"] i:nth-child(2) { width: 24%; }
+.rich-skel[data-shape="diagram"] i:nth-child(3) { width: 44%; }
+.rich-skel[data-shape="diagram"] i:nth-child(4) { width: 30%; }
+.rich-skel[data-shape="chart"] {
+  grid-auto-flow: column;
+  align-items: end;
+  height: 100%;
+}
+.rich-skel[data-shape="chart"] i:nth-child(1) { height: 40%; }
+.rich-skel[data-shape="chart"] i:nth-child(2) { height: 70%; }
+.rich-skel[data-shape="chart"] i:nth-child(3) { height: 55%; }
+.rich-skel[data-shape="chart"] i:nth-child(4) { height: 85%; }
+.rich-skel[data-shape="table"] i { height: 1.1rem; }
+.rich-skel[data-shape="tree"] i:nth-child(2) { margin-left: 12%; width: 60%; }
+.rich-skel[data-shape="tree"] i:nth-child(3) { margin-left: 24%; width: 45%; }
+.rich-skel[data-shape="tree"] i:nth-child(4) { margin-left: 12%; width: 50%; }
+/* Math. Wide display math scrolls inside itself; open display math shows its TeX quietly until it closes. */
+.rich-tex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  contain: paint;
+}
+/* Inline math keeps to the column: a long formula scrolls inside itself, and nothing it draws leaves its box. */
+.rich-tex {
+  display: inline-block;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  vertical-align: middle;
+  contain: paint;
+}
+.rich-tex-raw {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  overflow-wrap: anywhere;
+}
+.rich-tex-raw-display {
+  display: block;
+  white-space: pre-wrap;
+}
+.md pre.rich-tex-open {
+  background: transparent;
+  border: 0;
+  padding: 0.25rem 0;
+  color: var(--muted);
+  white-space: pre-wrap;
+}
+.rich-tex-src {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  color: var(--muted);
+}
