@@ -4,8 +4,9 @@ import type http from "node:http"
 /**
  * Per-session routing memory: which backend a chat is stuck to (keeps the
  * provider's prompt cache warm and the model consistent), how long its
- * answers usually are, and whether it is escalated to "hard" after repeated
- * tool failures. Idle sessions expire after 30 minutes; at most 2000 kept.
+ * answers usually are, and whether it is escalated to "hard" (after repeated
+ * tool failures, or after a hard opening turn was answered fast). Idle
+ * sessions expire after 30 minutes; at most 2000 kept.
  */
 
 export type SessionState = {
@@ -17,7 +18,13 @@ export type SessionState = {
   stickyByFallback: boolean
   /** EWMA of completion tokens per answer. */
   outEwma: number
+  /** Hard (escalated) until then: repeated tool failures. */
   escalatedUntil: number
+  /**
+   * Hard (escalated) while a request carries at most this many user messages; 0 when not. A hard opening sets it to
+   * its own count plus one: the opening turn and the user's next turn (policy.difficulty).
+   */
+  escalatedThroughUser: number
   lastSeen: number
 }
 
@@ -58,7 +65,7 @@ export class Sessions {
     let s = this.map.get(key)
     if (s && t - s.lastSeen > TTL_MS) s = undefined
     if (s) this.map.delete(key)
-    else s = { key, sticky: null, stickyAt: 0, stickyByFallback: false, outEwma: 600, escalatedUntil: 0, lastSeen: t }
+    else s = { key, sticky: null, stickyAt: 0, stickyByFallback: false, outEwma: 600, escalatedUntil: 0, escalatedThroughUser: 0, lastSeen: t }
     s.lastSeen = t
     this.map.set(key, s)
     if (this.map.size > CAP) this.prune(t)
@@ -70,6 +77,15 @@ export class Sessions {
       if (this.map.size <= CAP && t - s.lastSeen <= TTL_MS) break
       if (this.map.size > CAP || t - s.lastSeen > TTL_MS) this.map.delete(k)
     }
+  }
+
+  /**
+   * A state that is never stored, for a request that must neither read nor change its chat's routing memory: a title
+   * call shares the chat's session id, and on a chat using Fast it would otherwise make the chat sticky to its backend.
+   * `outEwma` is what the ranking expects the request to write.
+   */
+  detached(key: string, outEwma: number): SessionState {
+    return { key, sticky: null, stickyAt: 0, stickyByFallback: false, outEwma, escalatedUntil: 0, escalatedThroughUser: 0, lastSeen: this.now() }
   }
 
   /** `reason` is why this backend served the turn; a sticky repeat keeps the earlier reason. */

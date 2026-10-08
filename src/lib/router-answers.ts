@@ -14,6 +14,8 @@ export function answerStart(a: Answer): number {
 
 // OpenCode's small_model calls (the chat title) go to syrup/fast with the chat's session id but no tools, so their
 // prompt is a fraction of a real step's, which always carries the agent prompt and tool schemas (20K+ tokens).
+// Since 2026-10-07 the router recognises title calls exactly and records them without the session id, so they never
+// reach this list; the guess remains for rows recorded before that, and by an older sandbox sidecar.
 const SMALL_CALL_MAX_INPUT = 4_000
 
 function isSmallCall(a: Answer, peers: readonly Answer[]): boolean {
@@ -73,6 +75,7 @@ export function routerSwitch(mine: readonly Answer[], all: readonly Answer[], cr
   if (to.reason === "escalated" || (to.reason === "fallback" && to.attempts === 1)) {
     if (prev && backendKey(prev.providerId, prev.modelId) !== toKey) return { kind: to.reason === "escalated" ? "escalated" : "unavailable", to, from: prev }
   }
-  if (to.attempts > 1) return { kind: "retried", to }
+  // A hedge is a race, not a retry: the partner answered first while the first pick was still working on it.
+  if (to.attempts > 1 && to.reason !== "hedge") return { kind: "retried", to }
   return null
 }

@@ -80,6 +80,17 @@ export function chunkKind(j: unknown): "content" | "end" | "error" | null {
   return end ? "end" : null
 }
 
+/** The answer text a chunk (or a whole non-streamed completion) carries: its content strings, never its reasoning. */
+export function contentText(j: unknown): string {
+  if (!j || typeof j !== "object") return ""
+  let out = ""
+  for (const ch of (j as Chunk).choices ?? []) {
+    const v = (ch.delta ?? ch.message)?.content
+    if (typeof v === "string") out += v
+  }
+  return out
+}
+
 const MAX_REASONING = 400_000
 
 /** Collects what the router needs from a response while it streams to the client. */

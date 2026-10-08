@@ -5,10 +5,10 @@ import { ALIASES, BASE_URL, CandidateCache, type Alias, type Candidate } from ".
 import { ServedModels } from "./served"
 import { displayName, providerName } from "../../lib/model-registry"
 import { Health, type Cool } from "./health"
-import { applySticky, difficulty, dynamicBlock, estimatePromptTokens, isOpening, rank, staticFit, type Exclusion, type Msg, type RequestShape, type Scored } from "./policy"
+import { appendTitleText, applySticky, difficulty, dynamicBlock, estimatePromptTokens, fallbackTitle, hasTitleText, hedgePartner, isOpening, isTitleCall, rank, staticFit, type Exclusion, type Msg, type RequestShape, type Scored } from "./policy"
 import { InterleavedReasoning, Signatures } from "./reasoning-cache"
 import { Sessions, sessionHeader, sessionKey, type SessionState } from "./sessions"
-import { chunkKind, SseScanner, StreamTap, type SseLine, type Usage } from "./sse"
+import { chunkKind, contentText, SseScanner, StreamTap, type SseLine, type Usage } from "./sse"
 import type { RouterEvent, RouterStore } from "./store"
 import { classifyEmpty, classifyFailure, classifyNetwork, classifyTimeout, errorObject, learnFromHeaders, type Classified } from "./upstream-errors"
 
@@ -44,6 +44,11 @@ export type RouterTiming = {
    */
   hedgeMinMs: number
   hedgeMaxMs: number
+  /**
+   * OpenCode's chat-title call (policy.isTitleCall) is optional: one backend gets this long to the first text of its
+   * title (thinking does not count, see runAttempt's scan), with no failover, then the router lets the title go and answers with a title made from the chat's first message.
+   */
+  leashMs: number
 }
 
 /**
@@ -64,10 +69,35 @@ const DEFAULT_TIMING: RouterTiming = {
   candidateCacheMs: 60_000,
   hedgeMinMs: 1_500,
   hedgeMaxMs: 4_000,
+  // Decision 16 (ROADMAP.md): "4 s deadline, then skip: a title is optional". Replayed on the 22 title calls of
+  // 2026-10-07, Gemini's bad day: 9 had their first token within 4 s (0.6–1.4 s), and failover inside the same 4 s
+  // would have saved one more, so a single attempt loses almost nothing.
+  leashMs: 4_000,
 }
 
 /** How far back a fresh router reads other processes' attempts to seed its health memory. */
 const SEED_WINDOW_MS = 15 * 60_000
+
+/**
+ * Output budget of a title call. OpenCode asks for its alias limit (32K) like a main turn, but a title is one line of
+ * at most 50 characters and OpenCode keeps at most 100. The cap bounds a model that rambles or thinks at length: once
+ * the title's first text commits, the leash no longer applies (one title on 2026-10-07 streamed 14,070 tokens for 7 minutes),
+ * and a late title overwrites a rename the user made meanwhile. Leaves room for low-effort reasoning.
+ */
+const TITLE_MAX_TOKENS = 512
+/** What the ranking expects a title call to write, so its pick is about the first token rather than decode speed. */
+const TITLE_OUT_TOKENS = 50
+/** Why a title was let go, besides its leash running out (titleFallback). */
+const TITLE_NO_MODEL = "no model can take it right now"
+const TITLE_FAILED = "the model it was sent to could not answer"
+const TITLE_CAPPED = "the model used up the title's output budget before writing one"
+/** The error column of a let-go title's row: the title the chat got was the router's own, not a model's. */
+const syntheticNote = (why: string) => `synthetic title from the first message (${why})`
+/**
+ * A hard opening's hedge partner below the first pick's opening floor starts only once the first pick is this late,
+ * relative to its predicted first token (policy.hedgePartner, `patient`).
+ */
+const PATIENT_HEDGE = 1.25
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 
@@ -162,8 +192,10 @@ function clamp(v: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, v))
 }
 
-function emptyMessage(tap: StreamTap): string {
-  return tap.finishReason ? `finished (${tap.finishReason}) without any content` : "stream ended without any content"
+/** Why an answer counts as empty: no content at all, or (a title) reasoning but no title text. */
+function emptyMessage(tap: StreamTap, what: "content" | "title" = "content"): string {
+  const none = what === "title" ? "a title, only thinking" : "any content"
+  return tap.finishReason ? `finished (${tap.finishReason}) without ${none}` : `stream ended without ${none}`
 }
 
 function newId(prefix: string, bytes = 8): string {
@@ -198,8 +230,12 @@ type Ctx = {
   body: Record<string, unknown>
   shape: RequestShape
   session: SessionState
-  /** The engine's session id (events, logs), null when it sent none. */
+  /** The engine's session id (logs), null when it sent none. */
   sessionId: string | null
+  /** The session id written to router_events: the engine's, except null for a title call, so the chat never lists its attempts. */
+  eventSessionId: string | null
+  /** OpenCode's chat-title call on Fast: leashed (RouterTiming.leashMs), one backend; let go with a title made from the first message. */
+  title: boolean
   /** Stickiness / cache key: the session id or a content hash. */
   sessionKey: string
   started: number
@@ -213,11 +249,21 @@ type Ctx = {
 
 type Failed = { kind: "failed"; c: Candidate; cls: Classified; httpStatus: number | null; body?: string }
 type StreamFail = { reason: "stream_error" | "stream_idle" | "truncated"; message: string }
-/** "hedged": another attempt produced the first token first; this one was cut and says nothing about its backend's health. */
-type AttemptResult = { kind: "done" } | { kind: "aborted" } | { kind: "hedged" } | Failed
+/**
+ * "hedged": another attempt produced the first token first; this one was cut and says nothing about its backend's health.
+ * "leashed": the router let a title call go (its leash ran out before the first token, or it used up the title's own
+ * output cap before writing anything), which says nothing about health either. `why` is for the logs.
+ */
+type AttemptResult = { kind: "done" } | { kind: "aborted" } | { kind: "hedged" } | { kind: "leashed"; why: string } | Failed
+
+/** Lets the request loop move an attempt's first-token deadline (counted from the attempt's start) before it commits. */
+type AttemptControl = { extend?: (deadlineMs: number) => void }
 
 export function createRouter({ store, log, secret, baseURLs, now = Date.now, timing: timingOverride }: RouterOptions): Router {
   const timing: RouterTiming = { ...DEFAULT_TIMING, ...timingOverride }
+  const leashWhy = () => `no first token within ${+(timing.leashMs / 1000).toFixed(1)}s`
+  /** A title whose model was still thinking when its leash ran out: its first token came in time, its title did not. */
+  const thinkingWhy = () => `no title within ${+(timing.leashMs / 1000).toFixed(1)}s, the model was still thinking`
   const urls = { ...BASE_URL, ...baseURLs }
   const candidates = new CandidateCache(urls, timing.candidateCacheMs, now)
   const served = new ServedModels(now)
@@ -308,7 +354,11 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
 
     // Skipped once a model has rejected the parameter (health.noReasoningParam): Gemma on Google's endpoint 400s on it.
     if (ctx.alias === "fast" && c.reasoning && !health.noReasoningParam(c) && body.reasoning_effort === undefined && body.reasoning === undefined) {
-      if (c.providerID === "google" || c.providerID === "openai") out.reasoning_effort = "low"
+      // A title gets Google's least thinking: its hidden thoughts count against the title's small output cap
+      // (TITLE_MAX_TOKENS) and delay its first visible token inside the leash. "minimal" is accepted by every Gemini
+      // model through the OpenAI-compatible endpoint (3.x Flash and Flash-Lite: minimal; 3.x Pro: low; 2.5: 1,024 tokens).
+      if (c.providerID === "google") out.reasoning_effort = ctx.title ? "minimal" : "low"
+      else if (c.providerID === "openai") out.reasoning_effort = "low"
       else if ((c.providerID === "groq" || c.providerID === "cerebras") && /gpt-oss/.test(c.modelID)) out.reasoning_effort = "low"
       else if (c.providerID === "openrouter") out.reasoning = { effort: "low" }
     }
@@ -375,7 +425,7 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
       outputTokens: 0,
       cost: 0,
       error: cls.message,
-      sessionId: ctx.sessionId,
+      sessionId: ctx.eventSessionId,
       ttftMs: null,
       retryAt,
       reason: cls.reason,
@@ -404,7 +454,7 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
       outputTokens: usage.completion_tokens ?? 0,
       cost: costOf(c, usage),
       error: null,
-      sessionId: ctx.sessionId,
+      sessionId: ctx.eventSessionId,
       ttftMs,
       retryAt: null,
       reason: "aborted",
@@ -441,7 +491,7 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
       outputTokens: usage.completion_tokens ?? 0,
       cost: costOf(c, usage),
       error: streamError,
-      sessionId: ctx.sessionId,
+      sessionId: ctx.eventSessionId,
       ttftMs,
       retryAt: null,
       reason: fail ? fail.reason : reason,
@@ -472,7 +522,7 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
       outputTokens: 0,
       cost: 0,
       error: `request budget used up (x-ratelimit-remaining-requests: 0); resets in ${inMin < 120 ? `${inMin} min` : `${(inMin / 60).toFixed(1)} h`}`,
-      sessionId: ctx.sessionId,
+      sessionId: ctx.eventSessionId,
       ttftMs: null,
       retryAt: cool.until,
       reason: cool.reason,
@@ -481,35 +531,84 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
 
   // ---------------------------------------------------------------- one attempt
 
-  async function attemptOnce(ctx: Ctx, s: Scored, attempt: number, deadlineMs: number, reason: string): Promise<AttemptResult> {
+  async function attemptOnce(ctx: Ctx, s: Scored, attempt: number, deadlineMs: number, reason: string, control: AttemptControl = {}): Promise<AttemptResult> {
     const learned: { cool: Cool | null } = { cool: null }
-    const r = await runAttempt(ctx, s, attempt, deadlineMs, reason, learned)
+    const r = await runAttempt(ctx, s, attempt, deadlineMs, reason, learned, control)
     // After the attempt's own event, so it is the backend's newest row.
     if (learned.cool) exhausted(ctx, s.c, attempt, learned.cool)
     return r
   }
 
-  async function runAttempt(ctx: Ctx, s: Scored, attempt: number, deadlineMs: number, reason: string, learned: { cool: Cool | null }): Promise<AttemptResult> {
+  async function runAttempt(ctx: Ctx, s: Scored, attempt: number, deadlineMs: number, reason: string, learned: { cool: Cool | null }, control: AttemptControl): Promise<AttemptResult> {
     const c = s.c
     const { res } = ctx
     const ac = new AbortController()
     ctx.controllers.add(ac)
     let timedOut = false
     let idled = false
-    let timer: ReturnType<typeof setTimeout> = setTimeout(() => {
-      timedOut = true
-      ac.abort()
-    }, deadlineMs)
+    let ended = false
+    let committed = false
+    // A title call commits on its title, not on its thinking: the text it has written so far (scan), and whether
+    // anything else meaningful (reasoning) has arrived before that text.
+    let titleText = ""
+    let thinking = false
+    // Real time, not the injectable clock: the timer runs on it.
+    const realStart = performance.now()
+    const arm = (ms: number) =>
+      setTimeout(
+        () => {
+          timedOut = true
+          ac.abort()
+        },
+        Math.max(0, ms - (performance.now() - realStart)),
+      )
+    let timer: ReturnType<typeof setTimeout> = arm(deadlineMs)
+    control.extend = (ms: number) => {
+      if (ended || committed || timedOut || ms <= deadlineMs) return
+      deadlineMs = ms
+      clearTimeout(timer)
+      timer = arm(ms)
+    }
     const { out, restored } = outboundBody(c, s, ctx)
     const attemptStart = now()
-    /** Another attempt of this request committed first (hedge): this one is cut, and its wait only teaches a first-token lower bound. */
+    /**
+     * Cut before its first token by the router's own choice: recorded as aborted, with no cooldown and no error rate.
+     * The wait teaches a first-token lower bound when it is one (`teach`).
+     */
+    const cut = (why: "hedged" | "title_skipped", teach = true, note: string | null = null): number => {
+      const waited = now() - attemptStart
+      if (teach) health.firstTokenAfter(c, ctx.shape.promptTokens, waited)
+      record({ alias: ctx.alias, providerId: c.providerID, modelId: c.modelID, keyId: c.keyID, tier: c.tier, status: "aborted", httpStatus: null, attempts: attempt, latencyMs: now() - ctx.started, inputTokens: 0, outputTokens: 0, cost: 0, error: note, sessionId: ctx.eventSessionId, ttftMs: null, retryAt: null, reason: why })
+      return waited
+    }
+    /**
+     * A title that ended with no title text at its output cap: its thinking, hidden (Gemini) or streamed as reasoning
+     * (big-pickle, mimo, kimi, gpt-oss), used up the budget the router itself set (TITLE_MAX_TOKENS). Let go like the
+     * leash: the backend answered, so no cooldown, no error rate, no estimate.
+     */
+    const titleCapped = (tap: StreamTap): AttemptResult | null => {
+      if (!ctx.title || tap.finishReason !== "length") return null
+      const waited = cut("title_skipped", false, syntheticNote(TITLE_CAPPED))
+      log("router", "attempt.title_skipped", { reqID: ctx.reqID, attempt, backend: c.backend, waitedMs: waited, why: "output_cap" }, { sessionId: ctx.sessionId })
+      return { kind: "leashed", why: TITLE_CAPPED }
+    }
+    /** Another attempt of this request committed first (hedge): this one is cut. */
     const lostHedge = () => ctx.commit.by !== null && ctx.commit.by !== c.id
     const hedged = (): AttemptResult => {
-      const waited = now() - attemptStart
-      health.failure(c, { reason: "timeout", status: "timeout", scope: "none", retryAt: null, unhealthy: false, message: "lost the first-token race" }, ctx.shape.promptTokens, waited)
-      record({ alias: ctx.alias, providerId: c.providerID, modelId: c.modelID, keyId: c.keyID, tier: c.tier, status: "aborted", httpStatus: null, attempts: attempt, latencyMs: now() - ctx.started, inputTokens: 0, outputTokens: 0, cost: 0, error: null, sessionId: ctx.sessionId, ttftMs: null, retryAt: null, reason: "hedged" })
+      const waited = cut("hedged")
       log("router", "attempt.hedged", { reqID: ctx.reqID, attempt, backend: c.backend, waitedMs: waited, winner: ctx.commit.by }, { sessionId: ctx.sessionId })
       return { kind: "hedged" }
+    }
+    /**
+     * No first token by the deadline: a failure that cools the backend, except on a title call, whose leash just lets go.
+     * A title that was still thinking at its leash teaches no first-token lesson: its first token came in time.
+     */
+    const timeout = (httpStatus: number | null): AttemptResult => {
+      if (!ctx.title) return failed(ctx, c, attempt, attemptStart, classifyTimeout(deadlineMs, now()), httpStatus, deadlineMs)
+      const why = thinking ? thinkingWhy() : leashWhy()
+      const waited = cut("title_skipped", !thinking, syntheticNote(why))
+      log("router", "attempt.title_skipped", { reqID: ctx.reqID, attempt, backend: c.backend, waitedMs: waited, why: thinking ? "thinking" : "leash" }, { sessionId: ctx.sessionId })
+      return { kind: "leashed", why }
     }
     log(
       "router",
@@ -518,7 +617,6 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
       { sessionId: ctx.sessionId },
     )
     health.begin(c)
-    let ended = false
     const finish = () => {
       if (ended) return
       ended = true
@@ -537,8 +635,8 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
         aborted(ctx, c, attempt, attemptStart, null, {})
         return { kind: "aborted" }
       }
-      const cls = timedOut ? classifyTimeout(deadlineMs, now()) : classifyNetwork(err instanceof Error ? (err.cause instanceof Error ? err.cause.message : err.message) : String(err), now())
-      return failed(ctx, c, attempt, attemptStart, cls, null, timedOut ? deadlineMs : null)
+      if (timedOut) return timeout(null)
+      return failed(ctx, c, attempt, attemptStart, classifyNetwork(err instanceof Error ? (err.cause instanceof Error ? err.cause.message : err.message) : String(err), now()), null, null)
     }
     const upHeaders = pickHeaders(upstream.headers)
 
@@ -553,7 +651,7 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
         aborted(ctx, c, attempt, attemptStart, null, {})
         return { kind: "aborted" }
       }
-      if (timedOut && !text) return failed(ctx, c, attempt, attemptStart, classifyTimeout(deadlineMs, now()), upstream.status, deadlineMs)
+      if (timedOut && !text) return timeout(upstream.status)
       const cls = classifyFailure({ status: upstream.status, headers: upHeaders, body: text, providerID: c.providerID, promptTokens: ctx.shape.promptTokens, now: now(), overloads: health.overloads(c) })
       return failed(ctx, c, attempt, attemptStart, cls, upstream.status, null, text)
     }
@@ -575,8 +673,8 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
           aborted(ctx, c, attempt, attemptStart, null, {})
           return { kind: "aborted" }
         }
-        const cls = timedOut ? classifyTimeout(deadlineMs, now()) : classifyNetwork(err instanceof Error ? err.message : String(err), now())
-        return failed(ctx, c, attempt, attemptStart, cls, 200, timedOut ? deadlineMs : null)
+        if (timedOut) return timeout(200)
+        return failed(ctx, c, attempt, attemptStart, classifyNetwork(err instanceof Error ? err.message : String(err), now()), 200, null)
       }
       finish()
       if (lostHedge()) return hedged()
@@ -594,7 +692,9 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
         aborted(ctx, c, attempt, attemptStart, null, tap.usage)
         return { kind: "aborted" }
       }
-      if (chunkKind(j) !== "content") return failed(ctx, c, attempt, attemptStart, classifyEmpty(now(), emptyMessage(tap)), 200, null)
+      // A title that is all reasoning has no title in it: OpenCode keeps only the answer's text.
+      const noTitle = ctx.title && chunkKind(j) === "content" && !hasTitleText(contentText(j))
+      if (chunkKind(j) !== "content" || noTitle) return titleCapped(tap) ?? failed(ctx, c, attempt, attemptStart, classifyEmpty(now(), emptyMessage(tap, noTitle ? "title" : "content")), 200, null)
       ctx.commit.by = c.id
       succeeded(ctx, c, attempt, attemptStart, reason, null, 0, tap, null)
       res.writeHead(200, responseHeaders(c, attempt, reason, ctx, contentType))
@@ -614,7 +714,7 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
         aborted(ctx, c, attempt, attemptStart, null, {})
         return { kind: "aborted" }
       }
-      if (timedOut && !text) return failed(ctx, c, attempt, attemptStart, classifyTimeout(deadlineMs, now()), 200, deadlineMs)
+      if (timedOut && !text) return timeout(200)
       const err = errorObject(text)
       const cls =
         err && text.includes('"error"')
@@ -627,7 +727,6 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
     const reader = upstream.body.getReader()
     const scanner = new SseScanner()
     const pending: Uint8Array[] = []
-    let committed = false
     let ttftMs: number | null = null
     let firstAt = 0
     let embedded: { status: number; body: string } | null = null
@@ -645,6 +744,9 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
     /**
      * Looks at parsed lines; returns true when one of them commits the response.
      * Only visible output commits: a finish reason, usage or [DONE] before any is an empty answer, which fails over.
+     * A title call commits only on its title text (policy.hasTitleText): its reasoning is buffered and its leash keeps
+     * running, so a title that thinks until its output cap, or stalls or dies before writing one, is let go with the
+     * router's own title instead of being answered with nothing (OpenCode would keep its timestamp title for good).
      */
     const scan = (lines: SseLine[]): boolean => {
       let commit = false
@@ -659,7 +761,14 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
             return false
           }
           streamError = `upstream error event: ${(errorObject(JSON.stringify(line.json))?.message ?? "unknown").slice(0, 200)}`
-        } else if (kind === "content") commit = true
+        } else if (kind === "content") {
+          if (!ctx.title || committed) commit = true
+          else {
+            titleText = appendTitleText(titleText, contentText(line.json))
+            if (hasTitleText(titleText)) commit = true
+            else thinking = true
+          }
+        }
       }
       return commit
     }
@@ -717,10 +826,10 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
         return failed(ctx, c, attempt, attemptStart, cls, 200, null, e.body)
       }
       if (caught) {
-        const cls = timedOut ? classifyTimeout(deadlineMs, now()) : classifyNetwork(caught instanceof Error ? caught.message : String(caught), now())
-        return failed(ctx, c, attempt, attemptStart, cls, 200, timedOut ? deadlineMs : null)
+        if (timedOut) return timeout(200)
+        return failed(ctx, c, attempt, attemptStart, classifyNetwork(caught instanceof Error ? caught.message : String(caught), now()), 200, null)
       }
-      return failed(ctx, c, attempt, attemptStart, classifyEmpty(now(), emptyMessage(tap)), 200, null)
+      return titleCapped(tap) ?? failed(ctx, c, attempt, attemptStart, classifyEmpty(now(), emptyMessage(tap, thinking ? "title" : "content")), 200, null)
     }
 
     // Committed: the client has (part of) an answer from this backend.
@@ -762,6 +871,35 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
     if (sec < 120) return `${sec}s`
     if (sec < 7200) return `${Math.round(sec / 60)} min`
     return `${(sec / 3600).toFixed(1)} h`
+  }
+
+  /**
+   * A title call the router lets go (decision 16, option e): answered at once with a successful completion whose text
+   * is a title made from the chat's first message (policy.fallbackTitle), in the shape the request asked for. Any error
+   * would leave OpenCode's default "New session - <ISO timestamp>" for good: OpenCode titles a chat only while it has
+   * exactly one real user message, and it swallows a title error. A stream is a role-and-content chunk, a "stop"
+   * chunk, a usage chunk (no tokens were spent) and [DONE], as the AI SDK's OpenAI-compatible parser expects.
+   */
+  function titleFallback(res: http.ServerResponse, ctx: Pick<Ctx, "reqID" | "sessionId" | "stream" | "body">, why: string, detail: Record<string, unknown> = {}) {
+    const messages: Msg[] = Array.isArray(ctx.body.messages) ? (ctx.body.messages as Msg[]) : []
+    const title = fallbackTitle(messages)
+    log("router", "request.title_skipped", { reqID: ctx.reqID, why, synthetic: true, title, ...detail }, { sessionId: ctx.sessionId })
+    const id = newId("chatcmpl-syrup")
+    const created = Math.floor(now() / 1000)
+    const model = typeof ctx.body.model === "string" ? ctx.body.model : "syrup/fast"
+    const usage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }
+    const headers = { "cache-control": "no-cache", "x-syrup-request": ctx.reqID, "x-syrup-reason": "title_skipped", "x-syrup-title": "synthetic" }
+    if (!ctx.stream) {
+      return json(res, 200, { id, object: "chat.completion", created, model, choices: [{ index: 0, message: { role: "assistant", content: title }, finish_reason: "stop" }], usage }, headers)
+    }
+    const chunk = (choices: unknown[], extra: Record<string, unknown> = {}) => `data: ${JSON.stringify({ id, object: "chat.completion.chunk", created, model, choices, ...extra })}\n\n`
+    res.writeHead(200, { "content-type": "text/event-stream", ...headers })
+    res.end(
+      chunk([{ index: 0, delta: { role: "assistant", content: title }, finish_reason: null }]) +
+        chunk([{ index: 0, delta: {}, finish_reason: "stop" }]) +
+        chunk([], { usage }) +
+        "data: [DONE]\n\n",
+    )
   }
 
   function contextResponse(res: http.ServerResponse, promptTokens: number) {
@@ -811,7 +949,10 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
     const messages: Msg[] = Array.isArray(body.messages) ? (body.messages as Msg[]) : []
     const sessionId = sessionHeader(req)
     const sKey = sessionKey(sessionId, messages)
-    const session = sessions.touch(`${alias}:${sKey}`)
+    // OpenCode's chat title (decision 16): optional, so it is leashed, and it must not touch the chat's routing memory.
+    // On a chat using Fast it shares the chat's session key, and its answer would make the chat sticky to its backend.
+    const title = alias === "fast" && isTitleCall(messages, body.tools)
+    const session = title ? sessions.detached(`${alias}:${sKey}`, TITLE_OUT_TOKENS) : sessions.touch(`${alias}:${sKey}`)
 
     let base: Candidate[]
     let unserved = 0
@@ -822,16 +963,18 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
       unserved = f.dropped
     } catch (err) {
       log("router", "request.catalog_failed", { reqID, err }, { level: "error", sessionId })
+      if (title) return titleFallback(res, { reqID, sessionId, stream, body }, TITLE_NO_MODEL)
       return json(res, 503, { error: { type: "syrup_catalog_unavailable", message: `syrup router: could not load the model catalog or keys (${err instanceof Error ? err.message : String(err)}). Retry in a moment.` } }, { "retry-after": "5" })
     }
 
     const est = estimatePromptTokens(raw.length, messages)
     const t = now()
     const diff = difficulty(alias, messages, session, t)
+    const requestedOut = num(body.max_completion_tokens) ?? num(body.max_tokens) ?? 8192
     const shape: RequestShape = {
       alias,
       promptTokens: est.tokens,
-      requestedOut: num(body.max_completion_tokens) ?? num(body.max_tokens) ?? 8192,
+      requestedOut: title ? Math.min(requestedOut, TITLE_MAX_TOKENS) : requestedOut,
       hasImage: est.hasImage,
       hard: diff.hard,
       hardWhy: diff.why,
@@ -880,6 +1023,7 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
         hard: shape.hard,
         why: shape.hardWhy ?? undefined,
         opening: shape.opening || undefined,
+        title: title || undefined,
         session: sKey,
         sticky: session.sticky ?? undefined,
         pick: pick.reason,
@@ -895,12 +1039,15 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
 
     if (base.length === 0) {
       log("router", "request.no_backend", { reqID, alias }, { level: "warn", sessionId })
+      if (title) return titleFallback(res, { reqID, sessionId, stream, body }, TITLE_NO_MODEL)
       return json(res, 503, {
         error: { type: "syrup_no_backend", message: "syrup router: no connected provider can serve this request. Add an API key under Providers, or pick a model directly." },
       })
     }
 
     if (pick.ordered.length === 0) {
+      // A title never waits for a cooldown: the 429 below carries a retry-after the AI SDK would honour, twice.
+      if (title) return titleFallback(res, { reqID, sessionId, stream, body }, TITLE_NO_MODEL, { excluded })
       if (staticOk.length > 0) return coolingResponse(res, { reqID, alias, sessionId }, staticOk.length, soonest, [...coolingDetail.values()])
       log("router", "request.infeasible", { reqID, alias, promptTokens: shape.promptTokens, excluded }, { level: "warn", sessionId })
       if (shape.hasImage && (excluded.vision ?? 0) === base.length) {
@@ -925,6 +1072,8 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
       shape,
       session,
       sessionId,
+      eventSessionId: title ? null : sessionId,
+      title,
       sessionKey: sKey,
       started,
       res,
@@ -939,10 +1088,18 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
     let attempt = 0
     // Context/TPM rejections come back in milliseconds and say nothing about health, so they do not use up the attempt budget.
     let counted = 0
+    // A title call's leash: set at its first attempt (the warm-up and catalog wait before it do not count) and shared
+    // by the only other try it may get, the same backend sent plain after refusing the thinking parameter.
+    let leashEnd = 0
+    let leashed: string | null = null
     while (counted < MAX_ATTEMPTS && attempt < MAX_TOTAL_ATTEMPTS && !clientGone) {
       const elapsed = now() - started
       if (attempt > 0 && elapsed >= budget) {
         budgetExceeded = true
+        break
+      }
+      if (title && leashEnd > 0 && now() >= leashEnd) {
+        leashed = leashWhy()
         break
       }
       // Re-check: an earlier attempt may have cooled a whole key (401) or a shared free-model cap.
@@ -954,34 +1111,61 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
       attempt++
       const isLast = usable.length === 1 || counted === MAX_ATTEMPTS - 1
       let deadline: number
-      if (!stream) deadline = Math.max(1000, budget - elapsed)
+      if (title) {
+        if (leashEnd === 0) leashEnd = now() + timing.leashMs
+        deadline = leashEnd - now()
+      } else if (!stream) deadline = Math.max(1000, budget - elapsed)
       else if (isLast) deadline = timing.lastDeadlineMs
       else deadline = Math.min(clamp(2 * s.predTtftMs, timing.minDeadlineMs, timing.maxDeadlineMs), Math.max(budget - elapsed, timing.minDeadlineMs))
       const sentReasoningParam = alias === "fast" && s.c.reasoning && !health.noReasoningParam(s.c)
       const reason = attempt === 1 ? pick.reason : "fallback"
 
-      // The chat's opening turn, Auto, routine: hedge the first attempt. If its backend has said nothing after
-      // 0.8× its predicted first-token time, the next adequate free, non-scarce backend starts too and whichever
-      // produces a token first answers; the other is cut and recorded as "hedged" (no health penalty). One
-      // request of free quota, spent only on the turn where the user stares at a blank screen.
-      const partner = stream && alias === "auto" && shape.opening && !shape.hard && attempt === 1 ? usable.slice(1).find((x) => !x.c.scarce && !x.c.costs) : undefined
+      // A chat's opening turn on Auto, routine or hard: hedge the first attempt. If its backend has said nothing after
+      // 0.8× its predicted first-token time (1.25× and uncapped for a partner below the first pick's floor, so a strong
+      // pick that is on time is never pre-empted), the next adequate free, non-scarce backend starts too
+      // (policy.hedgePartner) and whichever produces a token first answers; the other is cut and recorded as "hedged"
+      // (no health penalty). One request of free quota, spent only on the turn where the user stares at a blank screen.
+      let hedge = stream && attempt === 1 ? hedgePartner(shape, s, usable.slice(1)) : undefined
+      const hedgeMs = hedge?.patient ? Math.max(timing.hedgeMinMs, PATIENT_HEDGE * s.predTtftMs) : clamp(0.8 * s.predTtftMs, timing.hedgeMinMs, timing.hedgeMaxMs)
+      // Not before the first pick's own deadline: past it, the partner is simply the next fallback.
+      if (hedgeMs >= deadline) hedge = undefined
       let results: AttemptResult[]
-      if (partner) {
-        const hedgeMs = clamp(0.8 * s.predTtftMs, timing.hedgeMinMs, timing.hedgeMaxMs)
-        const p1 = attemptOnce(ctx, s, attempt, deadline, reason)
+      if (hedge) {
+        const { partner } = hedge
+        // Nothing usable behind the pair: whichever of the two is left is the last candidate, and gets the last
+        // candidate's deadline, so two slow-but-working backends never both time out where one alone would have answered.
+        const lastPair = usable.length === 2
+        const first: AttemptControl = {}
+        const p1 = attemptOnce(ctx, s, attempt, deadline, reason, first)
         const early = await Promise.race([p1, sleep(hedgeMs).then(() => null)])
+        // The partner was picked before the first attempt began: check it again now that the first one is in flight
+        // (a one-at-a-time key is busy) and time has passed (a cooldown, a used-up minute budget).
+        const blocked = early ? null : dynamicBlock(partner.c, shape, partner.outTokens, health, now())
         if (early) results = [early]
-        else {
+        else if (blocked) {
+          log("router", "hedge.skipped", { reqID, first: s.c.backend, second: partner.c.backend, why: blocked.ok ? undefined : blocked.why }, { sessionId })
+          results = [await p1]
+        } else {
           tried.add(partner.c.id)
           attempt++
-          const d2 = Math.min(clamp(2 * partner.predTtftMs, timing.minDeadlineMs, timing.maxDeadlineMs), Math.max(budget - (now() - started), timing.minDeadlineMs))
-          log("router", "hedge.start", { reqID, first: s.c.backend, second: partner.c.backend, afterMs: Math.round(hedgeMs) }, { sessionId })
-          const p2 = attemptOnce(ctx, partner, attempt, d2, "hedge")
-          results = await Promise.all([p1, p2])
+          const d2 = lastPair ? timing.lastDeadlineMs : Math.min(clamp(2 * partner.predTtftMs, timing.minDeadlineMs, timing.maxDeadlineMs), Math.max(budget - (now() - started), timing.minDeadlineMs))
+          log("router", "hedge.start", { reqID, first: s.c.backend, second: partner.c.backend, afterMs: Math.round(hedgeMs), patient: hedge.patient || undefined, lastPair: lastPair || undefined }, { sessionId })
+          const second: AttemptControl = {}
+          const p2 = attemptOnce(ctx, partner, attempt, d2, "hedge", second)
+          const survivor = (r: AttemptResult, other: AttemptControl) => {
+            if (lastPair && r.kind === "failed") other.extend?.(timing.lastDeadlineMs)
+            return r
+          }
+          results = await Promise.all([p1.then((r) => survivor(r, second)), p2.then((r) => survivor(r, first))])
         }
       } else results = [await attemptOnce(ctx, s, attempt, deadline, reason)]
 
       if (results.some((r) => r.kind === "done" || r.kind === "aborted")) return
+      const letGo = results.find((r): r is Extract<AttemptResult, { kind: "leashed" }> => r.kind === "leashed")
+      if (letGo) {
+        leashed = letGo.why
+        break
+      }
       let retryPlain = false
       for (const r of results) {
         if (r.kind !== "failed") continue
@@ -995,6 +1179,8 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
         if (r.cls.reason !== "context" && r.cls.reason !== "tpm") counted++
       }
       if (retryPlain) continue
+      // A title gets one backend: whatever it answered, nothing else is tried.
+      if (title) break
     }
 
     if (clientGone) {
@@ -1003,6 +1189,10 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
     }
 
     const summary = failures.map((f) => `${f.c.backend}: ${f.cls.message}`)
+    if (title) {
+      const why = leashed ?? (attempt > 0 ? TITLE_FAILED : TITLE_NO_MODEL)
+      return titleFallback(res, ctx, why, { attempts: attempt, failures: summary })
+    }
     log("router", "request.all_failed", { reqID, alias, attempts: attempt, budgetExceeded, failures: summary }, { level: "error", sessionId })
 
     const firstBad = failures.find((f) => f.cls.reason === "bad_request" && f.httpStatus === 400 && f.body)

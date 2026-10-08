@@ -16,7 +16,7 @@ export type Msg = { role?: string; content?: unknown; tool_calls?: unknown[] }
 export type RequestShape = {
   alias: Alias
   promptTokens: number
-  /** Output tokens the caller allows (max_completion_tokens ?? max_tokens ?? 8192). */
+  /** Output tokens the caller allows (max_completion_tokens ?? max_tokens ?? 8192), capped on a title call (core.ts). */
   requestedOut: number
   hasImage: boolean
   hard: boolean
@@ -116,26 +116,221 @@ function workSignals(text: string): string[] {
   return out
 }
 
+function userMessages(messages: Msg[]): number {
+  let n = 0
+  for (const m of messages) if (m.role === "user") n++
+  return n
+}
+
 /**
  * Judged from the latest user message, so every step of a turn (tool calls, a continuation after a cut-off)
  * shares its verdict. Hard for planning/debugging-type asks, for substantial work (two or more work signals),
- * or while the session keeps failing tool calls. Auto only.
+ * or while the session keeps failing tool calls (then for ESCALATE_MS). Auto only.
+ *
+ * Answer fast, escalate after (decision 13): a hard opening turn is answered by the quickest adequate model (rank),
+ * so it escalates its session by turns, not by the clock: the opening turn's own tool-call steps (their latest user
+ * message is still the hard one) and the whole next user turn are hard, even when that reply reads as routine
+ * ("ok, do it") and however long the user took to write it. The user turn after that is judged on its own again.
+ * The session's 30-minute idle expiry (sessions.ts) bounds it. applySticky then moves the chat to the strongest grade
+ * on offer and keeps it there.
  */
 export function difficulty(alias: Alias, messages: Msg[], session: SessionState, now: number): { hard: boolean; why: string | null } {
   if (alias !== "auto") return { hard: false, why: null }
   const failures = trailingToolFailures(messages)
   if (failures >= 2) session.escalatedUntil = now + ESCALATE_MS
-  const ask = [...messages].reverse().find((m) => m.role === "user")
-  if (ask) {
-    const text = textOf(ask.content).slice(0, 20_000)
-    const m = HARD_RE.exec(text)
-    if (m) return { hard: true, why: `keyword:${m[1].toLowerCase()}` }
-    const signals = workSignals(text)
-    if (signals.length >= 2) return { hard: true, why: `work:${signals.join("+")}` }
-  }
-  if (failures >= 2) return { hard: true, why: `tool_failures:${failures}` }
-  if (session.escalatedUntil > now) return { hard: true, why: "escalated" }
+  const users = userMessages(messages)
+  // A later user turn has begun: the opening's escalation is over (cleared, so a compacted history cannot revive it).
+  if (session.escalatedThroughUser > 0 && users > session.escalatedThroughUser) session.escalatedThroughUser = 0
+  const verdict = askVerdict(messages) ?? (failures >= 2 ? { hard: true, why: `tool_failures:${failures}` } : null)
+  if (verdict && isOpening(messages)) session.escalatedThroughUser = users + 1
+  if (verdict) return verdict
+  if (session.escalatedUntil > now || (session.escalatedThroughUser > 0 && users <= session.escalatedThroughUser)) return { hard: true, why: "escalated" }
   return { hard: false, why: null }
+}
+
+/** Hard because of what the latest user message asks (a keyword, or two or more work signals); null when it reads as routine. */
+function askVerdict(messages: Msg[]): { hard: true; why: string } | null {
+  const ask = [...messages].reverse().find((m) => m.role === "user")
+  if (!ask) return null
+  const text = textOf(ask.content).slice(0, 20_000)
+  const m = HARD_RE.exec(text)
+  if (m) return { hard: true, why: `keyword:${m[1].toLowerCase()}` }
+  const signals = workSignals(text)
+  return signals.length >= 2 ? { hard: true, why: `work:${signals.join("+")}` } : null
+}
+
+// ---------------------------------------------------------------- title calls
+
+/** The first line of OpenCode's title prompt (its hidden "title" agent, title.txt) and the fixed ask sent after it (session/prompt.ts). */
+const TITLE_SYSTEM = "You are a title generator. You output ONLY a thread title. Nothing else."
+const TITLE_ASK = "Generate a title for this conversation:"
+
+/**
+ * OpenCode's chat-title call: the title prompt as the system message, then the fixed ask, then the chat's first user
+ * message, no tools. It is the only call OpenCode makes to its small model (syrup/fast) in a chat, once per chat, on a
+ * fiber of its own that the turn never waits on. Recognised by both fixed texts, not by size: a title carries the whole
+ * first message (a pasted log or an attached file makes it large), and a compaction of a short chat on Fast is small
+ * and tool-less too, but it is part of the turn. If OpenCode ever changes either text, the call simply routes normally.
+ */
+export function isTitleCall(messages: Msg[], tools: unknown): boolean {
+  const hasTools = Array.isArray(tools) ? tools.length > 0 : tools != null
+  if (hasTools) return false
+  const [system, ask] = messages
+  return system?.role === "system" && textOf(system.content).startsWith(TITLE_SYSTEM) && ask?.role === "user" && textOf(ask.content).trim() === TITLE_ASK
+}
+
+/** OpenCode's own limit for a title is 100 characters; its title prompt asks for at most 50. */
+const FALLBACK_TITLE_MAX = 50
+/** The title when the first message has no usable text (an image or a file alone). */
+export const FALLBACK_TITLE_EMPTY = "New chat"
+
+/** One line of the user's message as plain text: markdown markers dropped, whitespace collapsed; "" when nothing is left. */
+function plainLine(line: string): string {
+  const s = line
+    .replace(/^\s*(?:>\s?)+/, "") // blockquote
+    .replace(/^\s*#{1,6}\s+/, "") // heading
+    .replace(/^\s*(?:[-*+]|\d{1,9}[.)])\s+/, "") // list item
+    .replace(/^\[[ xX]\]\s+/, "") // task box
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1") // image: its alt text
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1") // link: its text
+    .replace(/`+([^`]*)`+/g, "$1") // inline code
+    // bold, strikethrough — only at word edges, so 2**10 survives; __name__ around one identifier is Python, kept as written
+    .replace(/(^|[^\w*~])(\*\*|__|~~)(?=\S)(.+?)(?<=\S)\2(?![\w*~])/g, (all, pre, mark, inner) => (mark === "__" && /^\w+$/.test(inner) ? all : `${pre}${inner}`))
+    .replace(/(^|[^\w*])\*(?=\S)([^*]+?)(?<=\S)\*(?![\w*])/g, "$1$2") // *emphasis*
+    .replace(/(^|[^\w])_(?=\S)([^_]+?)(?<=\S)_(?!\w)/g, "$1$2") // _emphasis_, never snake_case
+    .replace(/\s+/g, " ") // first, so a tab between words becomes a space rather than being dropped below
+    .replace(/[\p{Cc}\p{Cf}]/gu, "") // control and format characters: ANSI escapes, zero-width, direction overrides
+    .replace(/ {2,}/g, " ")
+    .trim()
+  // Something a person can read must be left: a letter or a digit.
+  return MARKUP_ONLY.test(s) || !/[\p{L}\p{N}]/u.test(s) ? "" : s
+}
+
+/** A rule, a table separator or a line of nothing but markup. */
+const MARKUP_ONLY = /^[-*_=~#>|`:+\s]*$/
+
+/** At most `max` characters (code points), cut at a word boundary with an ellipsis when it does not fit. */
+function fitTitle(s: string, max: number): string {
+  // Grapheme clusters, so a cut never splits a flag or a family emoji.
+  const chars = Array.from(new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(s), (g) => g.segment)
+  if (chars.length <= max) return s
+  // Room for the ellipsis inside the limit.
+  const room = chars.slice(0, max - 1)
+  let end = room.length
+  if (chars[max - 1] !== " ") {
+    const space = room.lastIndexOf(" ")
+    // A word boundary, unless it would throw away more than half (one long path or URL): then a hard cut.
+    if (space >= max / 2) end = space
+  }
+  const head = room
+    .slice(0, end)
+    .join("")
+    .replace(/[\s,.;:!?(\-–—]+$/, "")
+  return `${head || room.join("")}…`
+}
+
+/**
+ * How much of one line the markdown stripping sees. A title keeps 50 characters, and plainLine's regexes are
+ * quadratic on markers that never close ("**a " or "[" repeated): uncapped, one 200 KB pasted line held the event loop
+ * for about a minute, and in local mode the router shares the app's Node process.
+ */
+const TITLE_LINE_CAP = 1_000
+/** Lines and characters of prose plainLine may look at before the title falls back to the code (a message of only markup). */
+const TITLE_PROSE_LINES = 200
+const TITLE_PROSE_CHARS = 20_000
+
+/** The start of a line, without its leading whitespace, at most TITLE_LINE_CAP code units and never half a surrogate pair. */
+function lineHead(line: string): string {
+  const s = line.trimStart()
+  if (s.length <= TITLE_LINE_CAP) return s
+  const cut = /[\uD800-\uDBFF]/.test(s[TITLE_LINE_CAP - 1]) ? TITLE_LINE_CAP - 1 : TITLE_LINE_CAP
+  return s.slice(0, cut)
+}
+
+const REMINDER_OPEN = "<system-reminder>"
+const REMINDER_CLOSE = "</system-reminder>"
+
+/** OpenCode's <system-reminder> blocks replaced by a line break, in one pass; an unclosed one is left as it is. */
+function stripReminders(text: string): string {
+  let out = ""
+  let from = 0
+  for (;;) {
+    const open = text.indexOf(REMINDER_OPEN, from)
+    if (open < 0) break
+    const close = text.indexOf(REMINDER_CLOSE, open + REMINDER_OPEN.length)
+    if (close < 0) break
+    out += `${text.slice(from, open)}\n`
+    from = close + REMINDER_CLOSE.length
+  }
+  return out + text.slice(from)
+}
+
+/**
+ * The title the router answers with when it lets a title call go (decision 16, option e): made from the chat's first
+ * user message, the title request's third message. Its first line that has text once code fences and markdown are
+ * stripped, whitespace collapsed, cut at a word boundary to at most 50 characters with an ellipsis. A message that is
+ * nothing but code gives the code's first line; one with no text at all (an image alone) gives "New chat". Never empty.
+ * Linear in the message: one pass over its lines, and the regexes only ever see a bounded head of a few of them.
+ */
+export function fallbackTitle(messages: Msg[]): string {
+  // OpenCode sends history up to the first user message with a real (non-synthetic) part, so that message comes LAST;
+  // synthetic turns before it (a shell "!cmd") come first.
+  const first = [...messages.slice(2)].reverse().find((m) => m?.role === "user")
+  // OpenCode strips closed <think> blocks from a title, so a line made only of one would leave no title at all.
+  const text = first ? stripReminders(textOf(first.content)).replace(/<think>[\s\S]{0,20000}?<\/think>/g, "\n") : ""
+  let firstCode: string | null = null
+  let lines = 0
+  let chars = 0
+  // The open fence ("```" or "~~~", three or more), or null outside one. An unclosed fence runs to the end.
+  let fence: string | null = null
+  for (let from = 0; from <= text.length; ) {
+    let end = text.indexOf("\n", from)
+    if (end < 0) end = text.length
+    const raw = text.slice(from, end)
+    from = end + 1
+    const line = raw.endsWith("\r") ? raw.slice(0, -1) : raw
+    // A blank line is neither a fence nor text, in a code block or out of one.
+    if (!line) continue
+    const m =/^\s{0,3}(`{3,}|~{3,})/.exec(line)
+    if (fence) {
+      if (m && m[1][0] === fence[0] && m[1].length >= fence.length && line.trim() === m[1]) fence = null
+      else if (firstCode === null) {
+        const s = lineHead(line).replace(/\s+/g, " ").trim()
+        if (s) firstCode = s
+      }
+      continue
+    }
+    if (m) {
+      fence = m[1]
+      continue
+    }
+    // Nothing but markup (a rule, a table separator): no text survives plainLine, so it costs no budget.
+    if (MARKUP_ONLY.test(line)) continue
+    if (lines >= TITLE_PROSE_LINES || chars >= TITLE_PROSE_CHARS) continue
+    const head = lineHead(line)
+    lines++
+    chars += head.length
+    const s = plainLine(head)
+    if (s) return fitTitle(s, FALLBACK_TITLE_MAX)
+  }
+  return firstCode ? fitTitle(firstCode, FALLBACK_TITLE_MAX) : FALLBACK_TITLE_EMPTY
+}
+
+/** How much of a model's title answer is looked at for visible text; a title is one line of at most 100 characters. */
+const TITLE_TEXT_CAP = 16_000
+
+/** A title answer's text so far plus one more piece, kept to TITLE_TEXT_CAP. */
+export function appendTitleText(sofar: string, piece: string): string {
+  return sofar.length >= TITLE_TEXT_CAP ? sofar : sofar + piece.slice(0, TITLE_TEXT_CAP - sofar.length)
+}
+
+/**
+ * Whether a model's title answer has a title in it: non-whitespace text once <think> blocks are dropped (an unclosed
+ * one runs to the end), as OpenCode strips them before saving a title. Reasoning fields are never text: OpenCode keeps
+ * only the answer's text, so a title that is all thinking leaves the chat named "New session - <timestamp>".
+ */
+export function hasTitleText(text: string): boolean {
+  return /\S/.test(text.replace(/<think>[\s\S]*?(?:<\/think>|$)/g, ""))
 }
 
 // ---------------------------------------------------------------- feasibility
@@ -188,50 +383,113 @@ export type Scored = {
   predTtftMs: number
   predMs: number
   outTokens: number
+  /** On an Auto opening turn: the model is below the turn's opening floor (openingFloor), so speed may not promote it. */
+  belowFloor: boolean
 }
 
 const GRADE_RANK: Record<Grade, number> = { small: 0, mid: 1, strong: 2, frontier: 3 }
 
-/** Quality a free model needs to be picked for its speed on a chat's opening turn. */
+/** Quality a free model needs to be picked for its speed on a chat's routine opening turn. */
 const OPENING_QUALITY_FLOOR = 60
+/** Grade a free model needs to be picked for its speed on a hard opening turn: the registry's strong grade (quality 72+). */
+const HARD_OPENING_GRADE: Grade = "strong"
+
+/**
+ * Which models count as adequate for an opening turn's speed pick. Routine turns: quality 60+. Hard turns: the strong
+ * grade, or quality 60+ when no free model is strong. The free models set the floor; when none of them clears quality
+ * 60, every candidate does (a paid-only key set keeps its floor too). Null (no floor) when nothing clears quality 60.
+ */
+function openingFloor(hard: boolean, pool: { c: Candidate }[]): ((c: Candidate) => boolean) | null {
+  const strong = (c: Candidate) => GRADE_RANK[c.info.grade] >= GRADE_RANK[HARD_OPENING_GRADE]
+  const routine = (c: Candidate) => c.info.quality >= OPENING_QUALITY_FLOOR
+  for (const set of [pool.filter((f) => !f.c.costs), pool]) {
+    if (hard && set.some((f) => strong(f.c))) return strong
+    if (set.some((f) => routine(f.c))) return routine
+  }
+  return null
+}
+
+/**
+ * Quality a free model needs for a paid key to be held back (free first): 70, or 84 on a hard turn. A request that is
+ * hard only because its session is escalated uses the routine bar: the escalation buys a stronger grade among the
+ * models the chat would use anyway, never a paid key that the request's own words would not have bought.
+ */
+function freeBar(shape: RequestShape): number {
+  return shape.hard && shape.hardWhy !== "escalated" ? 84 : 70
+}
+
+/**
+ * Free first: a paid key is held back when a good free model can take the request (freeBar), and on a hard opening
+ * when a free model clears the opening floor: speed alone never buys a paid model.
+ */
+function paidHeldBack(shape: RequestShape, pool: readonly { c: Candidate }[], floor: ((c: Candidate) => boolean) | null): boolean {
+  const bar = freeBar(shape)
+  return pool.some((f) => !f.c.costs && (f.c.info.quality >= bar || (shape.hard && floor !== null && floor(f.c))))
+}
 
 /**
  * Orders feasible candidates, best first.
  * Auto: quality − time − risk − scarcity − paid, where time is cheap on hard turns and scarcity only applies to routine ones.
- * On a chat's routine opening turn, time means the predicted first token and weighs four times more: the user is
- * looking at a blank screen and nothing is cached yet, so the model that answers first wins among adequate ones.
+ * On a chat's opening turn, time means the predicted first token and weighs four times more: the user is looking at a
+ * blank screen and nothing is cached yet, so the model that answers first wins among adequate ones (openingFloor). A
+ * hard opening asks more of "adequate" and escalates its session for what follows (difficulty).
  * Fast: least predicted wall time (first token weighted double), quality floor 50.
  */
 export function rank(shape: RequestShape, feasible: { c: Candidate; outTokens: number }[], session: SessionState, health: Health): Scored[] {
   let pool = feasible
   if (shape.alias === "fast" && pool.some((f) => f.c.info.quality >= 50)) pool = pool.filter((f) => f.c.info.quality >= 50)
-  const opening = shape.alias === "auto" && shape.opening && !shape.hard
+  const opening = shape.alias === "auto" && shape.opening
   // Speed must not promote a weak model over adequate ones; it ranks below them, but stays in the list as a fallback.
-  const adequateFree = opening && pool.some((f) => !f.c.costs && f.c.info.quality >= OPENING_QUALITY_FLOOR)
+  const adequate = opening ? openingFloor(shape.hard, pool) : null
+  const holdPaid = shape.alias === "auto" && paidHeldBack(shape, pool, adequate)
   const expectedOut = session.outEwma
   const scored = pool.map(({ c, outTokens }) => {
     const predTtftMs = health.predictTtftMs(c, shape.promptTokens)
     const genMs = (Math.min(expectedOut, outTokens) / health.tps(c)) * 1000
     const predMs = predTtftMs + genMs
     const err = health.errRate(c)
+    const belowFloor = adequate !== null && !adequate(c)
     let score: number
     if (shape.alias === "auto") {
       // Free first: a paid key only wins when no good free model can take the turn (a frontier one on hard turns).
-      const freeBar = shape.hard ? 84 : 70
-      const freeGood = c.costs && pool.some((f) => !f.c.costs && f.c.info.quality >= freeBar)
-      const paid = c.costs ? (freeGood ? 40 : 0) + costTier(c.model) : 0
+      const paid = c.costs ? (holdPaid ? 40 : 0) + costTier(c.model) : 0
       const scarcity = !shape.hard && c.scarce ? 25 : 0
       const time = opening ? 6 * (predTtftMs / 1000) : (shape.hard ? 0.5 : 1.5) * (predMs / 1000)
-      const weak = adequateFree && c.info.quality < OPENING_QUALITY_FLOOR ? 30 : 0
+      const weak = belowFloor ? 30 : 0
       score = c.info.quality - time - err * 40 - scarcity - paid - weak
     } else {
       const freeExists = c.costs && pool.some((f) => !f.c.costs)
       const paid = c.costs ? (freeExists ? 5 : 0) + costTier(c.model) : 0
       score = -(2 * predTtftMs + genMs) / 1000 - err * 10 - (c.scarce ? 20 : 0) - paid
     }
-    return { c, score, predTtftMs, predMs, outTokens }
+    return { c, score, predTtftMs, predMs, outTokens, belowFloor }
   })
   return scored.sort((a, b) => b.score - a.score || b.c.info.quality - a.c.info.quality || (a.c.id < b.c.id ? -1 : a.c.id > b.c.id ? 1 : 0))
+}
+
+export type Hedge = {
+  partner: Scored
+  /**
+   * The partner is below the opening floor that the first pick clears (a hard opening's quality-60 partner racing a
+   * strong first pick): it may answer only once the first pick is actually late, never pre-empt one that is on time.
+   */
+  patient: boolean
+}
+
+/**
+ * The backend that races the first one when it is slow to start on an Auto opening turn (core.ts hedges it): the next
+ * in the order that is free and not scarce, so the race spends one request of plentiful free quota, never money or a
+ * small daily allowance (decision 15), and not on the first pick's own one-at-a-time key, which is busy with it. On a
+ * hard opening the partner must also clear the routine floor: its answer may be the one the user gets, and a weak
+ * model only stays a fallback. Routine openings race as shipped (2026-10-07).
+ */
+export function hedgePartner(shape: RequestShape, first: Scored, rest: readonly Scored[]): Hedge | undefined {
+  if (shape.alias !== "auto" || !shape.opening) return undefined
+  const partner = rest.find(
+    (s) => !s.c.scarce && !s.c.costs && !(s.c.serial && s.c.keyScope === first.c.keyScope) && (!shape.hard || s.c.info.quality >= OPENING_QUALITY_FLOOR),
+  )
+  if (!partner) return undefined
+  return { partner, patient: shape.hard && partner.belowFloor && !first.belowFloor }
 }
 
 export type Pick = { ordered: Scored[]; reason: "sticky" | "best" | "escalated" | "fallback"; note?: string }
@@ -242,12 +500,14 @@ const RELEASE_MARGIN = 6
 /**
  * Session stickiness on top of the ranking. The sticky backend goes first
  * unless: it is unavailable (fallback), the turn is hard and it is below the
- * best grade on offer (escalated), it spends scarce free quota and this is a
- * new routine user turn (released at a turn boundary, where a switch costs
- * least), it has become far slower than the alternative, or the best backend
- * is at least as good a model, now scores clearly higher, and either this is
- * a new user turn or the session only landed on the sticky one through
- * failover. Tool-call continuations of a chosen backend stay put.
+ * best grade on offer (escalated: the best-ranked model of that grade goes
+ * first; this also moves a chat off the quick model that answered its hard
+ * opening, at the very next request), it spends scarce
+ * free quota and this is a new routine user turn (released at a turn boundary,
+ * where a switch costs least), it has become far slower than the alternative,
+ * or the best backend is at least as good a model, now scores clearly higher,
+ * and either this is a new user turn or the session only landed on the sticky
+ * one through failover. Tool-call continuations of a chosen backend stay put.
  */
 export function applySticky(ranked: Scored[], session: SessionState, shape: RequestShape): Pick {
   const sid = session.sticky
@@ -258,8 +518,15 @@ export function applySticky(ranked: Scored[], session: SessionState, shape: Requ
   // A failover is a stopgap for one turn: every new user message gets a fresh pick, judged on its own prompt.
   if (shape.lastIsUser && session.stickyByFallback) return { ordered: ranked, reason: "best", note: "released_fallback" }
   if (shape.hard) {
-    const required = ranked.some((s) => s.c.info.grade === "frontier") ? 3 : ranked.some((s) => s.c.info.grade === "strong") ? 2 : 0
-    if (GRADE_RANK[st.c.info.grade] < required) return { ordered: ranked, reason: i === 0 ? "best" : "escalated" }
+    // The best grade on offer, among models the request may use: paid keys only where free first lets them win.
+    const offer = paidHeldBack(shape, ranked, null) ? ranked.filter((s) => !s.c.costs) : ranked
+    const required = offer.some((s) => s.c.info.grade === "frontier") ? 3 : offer.some((s) => s.c.info.grade === "strong") ? 2 : 0
+    if (GRADE_RANK[st.c.info.grade] < required) {
+      // The best-ranked model of that grade goes first, whatever outranks it: never a same-grade or weaker one. Once
+      // there, it has the grade the rule asks for, so it stays sticky.
+      const target = offer.find((s) => GRADE_RANK[s.c.info.grade] >= required)!
+      return { ordered: [target, ...ranked.filter((s) => s !== target)], reason: "escalated" }
+    }
   }
   if (st.c.scarce && shape.lastIsUser && !shape.hard) return { ordered: ranked, reason: "best", note: "released_scarce" }
   const best = ranked[0]
