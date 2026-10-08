@@ -1,7 +1,7 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import type { MessageEntry } from "@/lib/engine-store"
+import { memo, useEffect, useState } from "react"
+import type { MessageEntry, PartStream } from "@/lib/engine-store"
 import type { Part } from "@/lib/oc"
 import { fmtCost, fmtTokens } from "@/lib/format"
 import { modelLabel, switchNote } from "@/lib/model-label"
@@ -32,9 +32,18 @@ type Props = {
   rating?: Rating | null
   /** Set only on the last reply of a turn, which is the one that gets thumbs. */
   onRate?: (rating: Rating | 0, model: RatedModel) => void
+  /** Parts this page watched from their first character, live or frozen by a dropped stream (the engine store's `live`). */
+  live?: Record<string, PartStream>
 }
 
-export function MessageView({ entry, streaming, rating = null, onRate }: Props) {
+/**
+ * One message. Memoized: while a reply streams the store changes every animation frame, and only the message being
+ * written changes with it. `onRate` is a new closure on every render of the chat but always calls the same
+ * per-session `rate`, so only whether it is set matters.
+ */
+export const MessageView = memo(MessageViewImpl, (a, b) => a.entry === b.entry && a.streaming === b.streaming && a.rating === b.rating && !!a.onRate === !!b.onRate && a.live === b.live)
+
+function MessageViewImpl({ entry, streaming, rating = null, onRate, live }: Props) {
   const { info, parts } = entry
   // A shared snapshot: its router answers come with it, nothing is fetched and no timer runs.
   const ro = useReadOnly()
@@ -113,7 +122,7 @@ export function MessageView({ entry, streaming, rating = null, onRate }: Props) 
     <div className="group relative">
       <div className="space-y-1">
         {visible.map((p) => (
-          <PartView key={p.id} part={p} streaming={streaming} />
+          <PartView key={p.id} part={p} streaming={streaming} live={live?.[p.id] === "live"} frozen={live?.[p.id] === "frozen"} paths={info.path} />
         ))}
         {streaming && visible.length === 0 && (
           <div className="py-2">

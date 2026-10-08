@@ -1,6 +1,6 @@
 # Testing
 
-Status: **in use from Round 1 (2026-10-07).** How every round in [ROADMAP.md](ROADMAP.md) proves itself before it is pushed: the gate commands, the UI harness (fixture screens at 390 px and 1440 px) and the JavaScript-weight probe.
+Status: **in use from Round 1 (2026-10-07). Round 1b (2026-10-08) added live streaming, reload and pane scenarios, then stream-drop, stale-read, end-of-reply and offline-chunk ones.** How every round in [ROADMAP.md](ROADMAP.md) proves itself before it is pushed: the gate commands, the UI harness (fixture screens at 390 px and 1440 px) and the JavaScript-weight probe.
 
 **Quick start**
 
@@ -20,6 +20,7 @@ pnpm exec eslint src scripts sidecar
 pnpm test:router
 pnpm test:diffs
 pnpm test:transcript
+node scripts/fixtures/settled-blocks-check.mjs
 pnpm ui:harness --label round-2
 pnpm ui:weight --compare
 ```
@@ -45,6 +46,7 @@ Other agents share this checkout and its dev server, so a failure is not always 
 
 - **Playwright answers the app's API** from the scenario's data: everything under `/api/oc/**`, the router views, the workspace file API and the other local routes a chat screen calls (table in §2.4).
 - **The event stream is real and stays open.** The page's `/api/oc/event` request is handed to a small SSE server inside the harness (`route.continue({ url })`, invisible to the page). The client never hits its reconnect loop, and the sidebar dot stays on "Connected to engine". A step can push more events (`emit`).
+- **The stream replays nothing, like the engine's.** The page learns a busy session or a pending permission or question by asking (`/session/status`, `/permission`, `/question`), on the first connect and on every reconnect. Events a step emits change what later reads return, so a reload in a step sees what the engine would have stored.
 - **The fake follows OpenCode 1.18.32 wherever the screen can tell.** That covers what the engine stores, what it streams and how its tools title and word their results. It was checked against the running app and the engine's own code (§5).
 - **The clock is frozen** at `NOW` in `scripts/fixtures/ui/_kit.mjs` (`page.clock.setFixedTime`), so "2h ago" and "Running… 12s" never drift. Timers still run.
 - **The workspace list is seeded** in localStorage (`syrup.workspaces`, `syrup.directory`) before the app boots, so the fixture's folder is the open one.
@@ -63,9 +65,9 @@ pnpm ui:harness --list                              # names and what each one sh
 pnpm ui:harness --dir ../my-scenarios               # scenarios from another folder (§3, step 3)
 ```
 
-Other flags: `--base <url>` (default `http://127.0.0.1:3000`, or `UI_HARNESS_BASE`), `--scale 2` (sharper screenshots), `--no-full`, `--cloud-frame` (§2.3).
+Other flags: `--base <url>` (default `http://127.0.0.1:3000`, or `UI_HARNESS_BASE`), `--scale 2` (sharper screenshots), `--no-full`, `--cloud-frame` (§2.3). `UI_HARNESS_TRACE=1` prints how long each step took, to find what makes a scenario slow.
 
-A full run takes about 45 seconds. The first run after the dev server starts is slower, because routes compile on demand.
+A full run takes about two minutes (the streaming scenarios wait for text to finish typing). The first run after the dev server starts is slower, because routes compile on demand.
 
 ### 2.2 What you get
 
@@ -99,18 +101,18 @@ The hosted app puts the shell inside a flex row on `/w/…` pages (`src/componen
 | `GET /api/oc/config/providers`, `/api/oc/provider` | `engine.providers`: syrup Auto and Fast, Google (three models), OpenCode Zen |
 | `GET /api/oc/session?directory=` | the scenario's sessions in that folder, newest first |
 | `GET /api/oc/session/:id`, `PATCH`, `DELETE` | that session (renames and deletes apply to the page's copy) |
-| `GET /api/oc/session/:id/message` | `engine.messages[id]`, parts included. A text or reasoning part that is still streaming comes back **empty**, as the engine stores it |
-| `GET /api/oc/session/status` | `engine.status` (the client doesn't ask for it today) |
-| `POST /api/oc/session`, `…/prompt_async`, `…/abort`, `…/permissions/:id` | a new empty session; accepted; nothing runs |
-| `GET /api/oc/permission`, `/api/oc/question` | `engine.permissions`, `engine.questions` |
-| `GET /api/oc/event` (SSE, held open) | `server.connected`, then live events: `session.status` for each busy session, each streaming part's text as `message.part.delta` events, `permission.asked`, `question.asked`, `engine.events`. Then a `server.heartbeat` every 10 s, and whatever `emit` steps push |
+| `GET /api/oc/session/:id/message` | `engine.messages[id]`, parts included. A text or reasoning part that is still streaming comes back **empty**, as the engine stores it. A `later` part (§3.1) is left out until a step emits its opening update |
+| `GET /api/oc/session/status` | the busy sessions in `engine.status` (the client asks on every connect) |
+| `POST /api/oc/session`, `…/prompt_async`, `…/abort`, `…/permissions/:id` | a new empty session; accepted; nothing runs. An answered permission or question is no longer pending |
+| `GET /api/oc/permission`, `/api/oc/question` | `engine.permissions`, `engine.questions` (the client asks on every connect) |
+| `GET /api/oc/event` (SSE, held open) | `server.connected`, then `engine.events` (none by default), a `server.heartbeat` every 10 s, and whatever `emit` steps push. Nothing is replayed: no `session.status` for a busy session, no pending request, no text a streaming part already has |
 | `GET /api/oc/file?path=` | a folder listing built from `files`, in the engine's shape |
 | `GET /api/oc/file/content` | the file from `files` |
 | `GET /api/workspace/files?op=stat\|raw` | size and bytes from `files` (the Preview tab) |
 | `GET /api/workspace/home`, `/api/workspace?probe=1` | Home's path; the fixture's folders exist |
 | `GET /api/workspace?path=` | the folder picker's listing: the fixture's folders and the folders above them |
 | `POST /api/workspace/reveal`, `/api/workspace/pick` | nothing happens on the host |
-| `GET /api/router/answers` (`&live=1`) | `engine.answers` (one per finished assistant step, from the kit), plus `engine.attempts` |
+| `GET /api/router/answers` (`&live=1`) | `engine.answers` (one per finished assistant step, from the kit), plus `engine.attempts`. A routed step that was still streaming gets its answer when a step emits its `message.updated` with `time.completed` (the kit prepares it in `engine.pendingAnswers`), as the router writes its row when the request ends |
 | `GET /api/router/status`, `GET /api/providers` | `engine.router`, `engine.keys` (one free Google key) |
 | `GET /api/feedback`, `POST /api/logs`, `GET /api/shares` | no ratings; swallowed; no shares |
 | `/ingest/**` (PostHog) | `204`, nothing sent |
@@ -124,8 +126,17 @@ All play in one fictional project, `acme-shop` (`C:\Users\dev\code\acme-shop`), 
 |---|---|---|
 | `new-chat` | `/` | Heading, composer, "Working in …", sidebar chats, no "no keys" hint |
 | `chat-markdown` | a finished chat | Headings, nested and numbered lists, task list, code blocks, GFM table, quote, file links, two very long URLs that must wrap |
-| `chat-tools` | a busy chat, scrolled to its end | Reasoning, grep, read, write, a failed edit (red row, its error), the edit that worked, patch ("Edited 2 files"), a test run the engine stopped at its timeout, a passing run, todowrite, a running build, the Changes count |
-| `chat-streaming` | a busy chat | The last reply is still streaming and stops inside an unclosed ` ```python ` fence. Its text is a **known gap** today (§3.3) |
+| `chat-tools` | a busy chat, scrolled to its end | Reasoning, grep, read, write, a failed edit (red row, its error, its path relative to the project like the rows that worked), the edit that worked, patch ("Edited 2 files"), a test run the engine stopped at its timeout, a passing run, todowrite, a running build, the Changes count |
+| `chat-streaming` | a busy chat, watched live | The reply starts after the page opened and streams in as `message.part.delta` events. Its text grows on screen (checked mid-stream), a chat switched away from and back to shows it at once, and it stops inside an unclosed ` ```python ` fence |
+| `chat-joined-midstream` | a chat opened mid-reply | The streaming part is served empty: "Writing…" while deltas this page can't place arrive, then the whole reply at once when the part ends (no typing out again), then the turn ends |
+| `chat-stream-drop` | the stream drops mid-reply | The text the page watched from the first word stays, with "Writing…" under it, during the drop and after the reconnect's re-read. Deltas after the drop wait (the page lost some), and the final update brings the whole reply once |
+| `chat-stale-read-end`, `-step`, `-reconnect` | a read older than the stream | A messages read the engine answered before the reply ended (or before a new step started) reaches the page after it: the chat opened again, or a reconnect's re-read. It must not blank the reply, undo its completion or drop the step (`hold` / `release` steps) |
+| `chat-stream-end`, `chat-stream-end-bursty` | a long reply ends | The turn ends milliseconds after the last delta, while the typewriter is still behind: with no scroll step, the reply's last line and its thumbs end up above the composer (`inView`). Steady and bursty deltas |
+| `chat-streaming-inline-fence` | a reply streaming | A line starting with inline ` ```code``` ` is a paragraph, not a fence: the code block after it (with a blank line inside) stays one block while it streams |
+| `chat-streaming-end-keeps` | a reply ending | The part ends while a code block shows "Copied": the text keeps its DOM, so that state (a selection, a sideways scroll) survives |
+| `chat-streaming-offline` | the streaming code can't load | The use-typewriter chunk is blocked (`block`): the reply shows as plain text and the chat stays on screen |
+| `chat-reload-busy`, `chat-reload-question` | a reload mid-turn | Busy status and the pending permission (or question) come only from the page's reads: Stop and the card show on the first load and again after a reload |
+| `panel-saved-width` | chat + Files pane | A pane saved 1100 px wide (on a 1920 px monitor) opened at 1440 px: the chat keeps 440 px on open, after a resize to 1920 and back, and while the edge is dragged. The title keeps room (the token totals step aside while the pane is open). Phones: the full-screen layer |
 | `chat-rich-fences` | a finished chat | Acceptance fixture for Rounds 2–3: two Mermaid diagrams, Vega-Lite, SVG, inline and display math, a 20-row CSV, a markmap. Valid input, so a renderer that fails here has a bug |
 | `panel-preview`, `panel-preview-csv` | chat + Preview | `docs/launch-plan.md` rendered as Markdown; `data/orders.csv` as a table |
 
@@ -168,11 +179,14 @@ All play in one fictional project, `acme-shop` (`C:\Users\dev\code\acme-shop`), 
 - **Chats:** `chat(title, { ago, directory, model, routed, id })`, then `.user(text, { after, diffs, files })` and `.assistant(parts, { open, routed, ttft, tokens })`.
   - `open: true` means still streaming: no completed time, no step-finish, and the session is busy.
   - `.busy()` marks a session busy without an open message.
-- **Text parts:** `text(s, { ms, open })` and `reasoning(s, { ms, open })`. An `open` part is still streaming: it is served empty and its text arrives as `message.part.delta` events (§5).
+- **Text parts:** `text(s, { ms, open, later })` and `reasoning(s, { ms, open, later })`. An `open` part is still streaming and is served empty, as the engine stores it. The page loaded it mid-stream, so it shows "Writing…" until the part's final update.
+  - **`later: true`:** the part starts after the page opened. No read returns it until a step emits `partStart(part)`. Then its `partDeltas(part, text)` grow on screen, as for a page that watches a reply from its first word. `s` is the text it will stream.
+  - **Streaming helpers:** `openParts(scenario, chatId)` finds a chat's open parts after `defineScenario`. `partStart(part)`, `partDeltas(part, text, size)` and `partEnd(part, { text, at })` build the events OpenCode 1.18 sends: the empty opening `message.part.updated`, the `message.part.delta` events, and the final update with the whole text.
+  - **Router answers:** a finished routed step gets its answer in `engine.answers`. An `open` routed step gets one in `engine.pendingAnswers`, which the fake moves to `answers` when a step emits the message's completion, so the finished reply names its model ("Auto → Gemini 3.5 Flash") as it does in the app.
 - **Tool parts:** `tool(name, input, { status, output, error, title, metadata, ms })`, with `status` one of `"completed" | "error" | "running" | "pending"`, in the shapes OpenCode stores:
   - **completed:** gets the engine's own title (the relative path for file tools, the command for bash, the pattern for grep, "N todos" for todowrite) and `metadata.truncated`.
   - **running:** has no title, so the row shows its input. Bash streams `metadata: { output }`.
-  - **error:** carries only the message, so a failed file tool shows its absolute path.
+  - **error:** carries only the message, no title. The client still names the file relative to the project (from the message's `path.root`), like the rows that worked.
   - For an open part, `ms` is how long it has been running ("Running… 12s").
 - **Tool results, word for word:** `readResult(rel, content, { offset, limit })` gives a read's `output` and `metadata`. `bashResult(stdout, { exit, timeoutMs })` gives a command's. A command stopped at its timeout **completes** with `exit: null` and the engine's note; it is not an error. A real error example is an edit whose old text didn't match: `"Could not find oldString in the file. It must match exactly, including whitespace, indentation, and line endings."`
 - **Other parts:** `patch(files)` and `file({ filename, mime, url })`.
@@ -191,15 +205,29 @@ All play in one fictional project, `acme-shop` (`C:\Users\dev\code\acme-shop`), 
 - **`steps`** run in order after the screen settles. Selectors are Playwright selectors (CSS, `text=…`, `:has-text()`). Any step or assertion can carry `widths: [390]`.
   - `{ click }`, `{ tap }`, `{ hover }`, `{ fill: [sel, text] }`, `{ type: [sel, text] }`, `{ press: key }` or `{ press: [sel, key] }`
   - `{ waitFor: sel }`, `{ wait: ms }`, `{ scroll: [sel, "top" | "bottom"] }`
-  - `{ emit: event | event[] }` pushes engine events into the open stream, in the engine's shape. To finish `chat-streaming`'s turn, emit these in order:
-    1. `message.part.updated` with its text part: the full text, now ending in a closing fence, with `time.end` set. That is how the engine ends a streamed part.
+  - `{ emit: event | event[], every }` pushes engine events into the open stream, in the engine's shape. With `every` (ms) they go one at a time, like a model writing. The fake's stored state follows, so a reload afterwards reads it. To end a streaming turn, emit these in order (`chat-joined-midstream` does):
+    1. `partEnd(part, { text })`: the whole text with `time.end` set. That is how the engine ends a streamed part.
     2. `message.updated` with the message's `info` plus `time.completed`.
     3. `session.idle` with the `sessionID`.
 
-    The chat then shows the text, shows Send again and puts the thumbs under the reply. Read the parts from `scenario.engine.messages` after `defineScenario`.
+    The chat then shows the text, shows Send again and puts the thumbs under the reply. Get the parts with `openParts`, or from `scenario.engine.messages` after `defineScenario`.
+  - `{ settle: true }` waits until the screen stops changing.
+  - `{ assert: assertion }` checks one thing right there, mid-scenario (any assertion shape, `gap` too). It is reported as "step N: …".
+  - `{ reload: true }` reloads the page and waits for it like the first load. `{ back: true }` is the back button.
+  - `{ resize: [width, height] }` resizes the window (the run's own checks still measure at its width). `{ drag: [sel, dx] }` presses on an element, moves `dx` pixels sideways and lets go.
+  - **Races with the engine's reads:**
+    - `{ hold: chatId }`: from then on, that chat's messages reads are answered with the fake's state **as of the request**, but reach the page only on `{ release: chatId }`. That is a read the engine answered before what the stream sends next.
+    - `{ held: chatId }` waits until such a read is waiting (up to 10 s).
+    - Reads still held when the steps end are released before the final checks.
+  - **Stream drops:** `{ dropStream: true }` ends the page's event stream like a network drop. The page reconnects by itself about 1.5 s later, then re-reads its state and the chats it shows. `{ awaitStream: true }` waits until it has (up to 10 s). An `emit` while the stream is down fails.
   - **Clicking a tool row:** click its toggle, `div.cursor-pointer:has-text('…') > button[aria-expanded]`. The middle of a row can be its file link, which opens the file instead.
-- **`assert`:** `{ visible: sel }`, `{ hidden: sel }`, `{ text: "…" }` (visible text on the page), `{ count: sel, equals | min | max }`. Add `gap: "why"` to make one a known gap (§3.3).
+- **`assert`:**
+  - `{ visible: sel }`, `{ hidden: sel }`, `{ text: "…" }` (visible text on the page), `{ count: sel, equals | min | max }`.
+  - `{ box: sel, minWidth | maxWidth }`: the first visible match's width in px.
+  - `{ inView: sel, above }`: the last visible match lies inside the window, and with `above` (a selector) wholly above that element's top. For example, the end of a reply above the composer: `above: "div:has(> textarea[data-composer])"`. Assertions run before the full-page screenshot grows the window.
+  - Add `gap: "why"` to make one a known gap (§3.3).
 - **`ready`:** extra selectors to wait for before anything else. Chat routes already wait for the messages, `/` for "Working in".
+- **`block`:** URL globs whose requests fail, as offline or after a deploy removed old chunks (`["**/*use-typewriter*"]`). The browser's "Failed to load resource" for them is listed under Notes, not failed. A glob that blocks nothing fails the run, because the scenario would test nothing.
 - **Also:** `settleMs`, `widths`, `colorScheme: "dark"`, `reducedMotion: "reduce"`, `model` (the picked model), `panelPrefs`.
 
 ### 3.3 Known gaps
@@ -209,12 +237,14 @@ An assertion with a `gap` note describes something the app gets wrong today: `{ 
 - **It must fail.** Its failure doesn't fail the run. It is listed under "Known gaps" on every run, so it stays in sight.
 - **Once it passes, the run fails** with "passes now, so this gap is closed: delete its gap note in …". Delete the note in the same change that fixed the app, so the assertion guards the fix from then on.
 - **Use it only for an app gap you can name,** never to quiet a flaky check.
-- **Today's only gap:** `chat-streaming`'s reply text. OpenCode 1.18 streams text only as `message.part.delta` events and stores the part empty until it ends, and `src/lib/engine-store.tsx` ignores those events. So a streaming reply shows no text until each part finishes. Round 2's rule ("while a fence streams, a skeleton of the right shape") needs the client to apply deltas first.
+- **No gaps today.** Round 1b closed the last one, `chat-streaming`'s reply text: the client now applies `message.part.delta` events.
 
 ### 3.4 Things that look odd but are right
 
 - **The screen settles by itself.** The harness waits until the page's text stops changing, so typewriter animations and lazy renderers finish before the shot.
-- **Busy chats are shown as if watched live.** The engine replays nothing when the stream opens, and the client doesn't ask for `/session/status`. So the harness sends a busy session's `session.status` right after connecting, as the engine does when a step starts. Opening such a chat cold in the real app shows it idle (§6).
+- **A streaming part shows "Writing…", not its text.** That is right for a page that opened mid-stream: the engine stores the part empty and replays nothing, so the page could only show the tail. A scenario that wants the text growing on screen starts the part `later` and streams it in steps (`chat-streaming`).
+- **After a stream drop the text stops growing.** The page keeps what it saw (a true beginning) with "Writing…" under it, and ignores later deltas, because the ones sent during the drop are lost. The rest arrives with the part's final update (`chat-stream-drop`).
+- **The pointer is part of the screenshot.** A click leaves the mouse where it was, and a row under it shows its hover state. `chat-streaming` hovers the composer after clicking a sidebar row, so the shot matches the baseline.
 - **A reader's position is part of the scenario.** Clicks scroll the clicked row into view. `chat-tools` scrolls back to the end afterwards, where someone reading a busy chat is.
 - **The clock is frozen for `Date`, not for timers.** Under the frozen clock the page's Resource Timing API returns nothing; measure network with Playwright's events instead (the JS-weight probe does).
 
@@ -275,7 +305,7 @@ It leaves out fields nothing displays yet: edit's `filediff`, grep's match count
 
 1. **Messages:** fetch a real session through the app, for example `curl "http://127.0.0.1:3000/api/oc/session/<id>/message?directory=<folder>"`. Compare its parts with what the kit builds.
 2. **Tool wording:** search the engine binary for the texts the kit copies: `End of file - total`, `shell tool terminated command`, `Could not find oldString`, `` todos` ``.
-3. **Events:** compare the events the engine defines (`message.part.delta`, `session.status`, `permission.asked`) with the cases `src/lib/engine-store.tsx` handles.
+3. **Events:** compare the events the engine defines (`message.part.delta`, `session.status`, `permission.asked`, `permission.replied` and its `requestID`) with the cases `src/lib/engine-store.tsx` handles, and the reads it makes on connect (`/session/status`, `/permission`, `/question`).
 
 ---
 
@@ -284,4 +314,6 @@ It leaves out fields nothing displays yet: edit's `filediff`, grep's match count
 - **Chromium by default, WebKit on request.** `--browser webkit` runs Safari's engine (phone layout has differed between engines before). Neither is a real iPhone: the keyboard, safe areas and Safari's toolbars still need a device.
 - **Local mode only.** The cloud layout chain is emulated for layout checks (§2.3). Cloud routes and sign-in are not faked.
 - **Dev mode.** The harness runs against `pnpm dev`, so it sees development warnings (good) and is slower than production (fine). Dev-server updates mid-run are retried (§2.2).
-- **A reload drops state in the real app.** The engine sends no state when the stream opens, and the client reads neither `/session/status` nor `/permission` nor `/question`. After a reload, a busy chat shows Send instead of Stop until its next step starts, and a pending permission or question disappears while the agent waits for it. The harness's busy scenarios show the chat as watched live (§3.4), so they don't catch this.
+- **A reply opened mid-stream waits for its end.** The engine stores a streaming part empty and replays nothing. So a page that opens (or reloads) while a part is being written shows "Writing…" for that part until it ends, then the whole part. Parts that start after that stream normally. A page that loses its stream keeps the text it already saw, with "Writing…" under it. A reload does not keep it: the page would need its own copy, for example in sessionStorage.
+- **Block splitting is checked by a script, not a test runner.** How a streaming reply is cut into blocks (`settledBlocks` in `src/lib/use-typewriter.ts`) must never change how it looks. `node scripts/fixtures/settled-blocks-check.mjs` renders every prefix of a set of tricky replies whole and block by block, with the chat's Markdown plugins, and compares them (§1). `chat-streaming-inline-fence` checks one case on screen. Add a sample when the splitter gets a new rule.
+- **Streaming smoothness is measured by hand, not gated.** The harness checks what a streaming screen shows, not its frame rate. Round 1b measured a 5,000-character reply at 100 deltas a second with a scratch script (see that round's report). Measure again after changing `src/components/parts.tsx` or `src/lib/use-typewriter.ts`.

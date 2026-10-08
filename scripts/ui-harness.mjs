@@ -11,7 +11,9 @@
  * stays "connected" and a step can push more events. Nothing reaches the real
  * engine, the host's file manager or analytics. The fake follows OpenCode 1.18.32
  * where the UI can tell: a streaming text part is stored empty and its text arrives
- * as message.part.delta events; the stream replays nothing when it opens.
+ * as message.part.delta events; the stream replays nothing when it opens, so the page
+ * learns busy sessions and pending permissions and questions by asking for them; events
+ * a step emits change what later reads return, as they would in the engine.
  *
  *   pnpm dev                                           # in another terminal (or any running local syrup)
  *   pnpm ui:harness                                    # every scenario at 390 and 1440 px → screenshots/harness/latest/
@@ -105,9 +107,10 @@ function validate(s) {
   if (!/^[a-z0-9][a-z0-9-]*$/.test(s.name ?? "")) return `name must be kebab-case, got ${JSON.stringify(s.name)}`
   if (typeof s.route !== "string" || !s.route.startsWith("/")) return `${s.name}: route must start with "/"`
   if (!s.engine || typeof s.engine.directory !== "string") return `${s.name}: engine.directory is missing (use defineScenario from _kit.mjs)`
-  for (const step of s.steps ?? []) if (!STEP_KINDS.some((k) => k in step)) return `${s.name}: unknown step ${JSON.stringify(step)}`
-  for (const a of s.assert ?? []) {
-    if (!["visible", "hidden", "text", "count"].some((k) => k in a)) return `${s.name}: unknown assertion ${JSON.stringify(a)}`
+  if (s.block !== undefined && !(Array.isArray(s.block) && s.block.every((g) => typeof g === "string" && g))) return `${s.name}: block must be a list of URL globs`
+  for (const step of s.steps ?? []) if (!STEP_KINDS.some((k) => k in step)) return `${s.name}: unknown step ${JSON.stringify(step).slice(0, 200)}`
+  for (const a of [...(s.assert ?? []), ...(s.steps ?? []).filter((x) => "assert" in x).map((x) => x.assert)]) {
+    if (!a || !ASSERT_KINDS.some((k) => k in a)) return `${s.name}: unknown assertion ${JSON.stringify(a)}`
     if ("gap" in a && !(typeof a.gap === "string" && a.gap.trim())) return `${s.name}: an assertion's gap must say, in words, why it fails today`
   }
   return null
@@ -164,6 +167,8 @@ export async function startEventServer() {
       for (const res of ch?.clients ?? []) for (const ev of events) res.write(frame(ev))
       return ch?.clients.size ?? 0
     },
+    /** How many pages hold this channel's stream open. */
+    clients: (channel) => channels.get(channel)?.clients.size ?? 0,
     drop(channel) {
       const ch = channels.get(channel)
       for (const res of ch?.clients ?? []) res.end()
@@ -216,6 +221,9 @@ function engineState(scenario) {
     messages: e.messages ?? {},
     status: e.status ?? {},
     answers: e.answers ?? {},
+    pendingAnswers: e.pendingAnswers ?? {},
+    /** Messages reads held back by a `hold` step, per session: { gate, release(), waiting }. */
+    holds: new Map(),
     attempts: e.attempts ?? {},
     permissions: e.permissions ?? [],
     questions: e.questions ?? [],
@@ -239,15 +247,48 @@ const notFound = (message) => json({ name: "NotFoundError", data: { message } },
  */
 const isStreaming = (part) => (part.type === "text" || part.type === "reasoning") && !!part.time && part.time.end === undefined
 
-/** A message as GET /session/:id/message returns it: streaming parts as stored, empty. */
-const stored = (m) => ({ info: m.info, parts: m.parts.map((p) => (isStreaming(p) ? { ...p, text: "" } : p)) })
+/** Marks a part the kit built with `later: true`: it starts after the page opened, so no read returns it until a step emits its opening update. */
+const LATER = "__harnessStartsLater"
 
-/** Splits streamed text into delta-sized pieces (by code point, so no emoji is cut in half). */
-function deltas(text, size = 64) {
-  const cps = Array.from(text)
-  const out = []
-  for (let i = 0; i < cps.length; i += size) out.push(cps.slice(i, i + size).join(""))
-  return out
+/** A message as GET /session/:id/message returns it: streaming parts as stored, empty; parts that haven't started yet left out. */
+const stored = (m) => ({ info: m.info, parts: m.parts.filter((p) => !p[LATER]).map((p) => (isStreaming(p) ? { ...p, text: "" } : p)) })
+
+/**
+ * Keeps the fake's stored state in step with an event a scenario emits, the way the engine's own
+ * state changes before it publishes the event: a reload or a re-read after it sees the same thing.
+ * Deltas change nothing stored (the engine writes a streaming part only when it starts and ends).
+ */
+function applyEvent(st, ev) {
+  const p = ev.properties ?? {}
+  const messagesOf = (sid) => (st.messages[sid] ??= [])
+  if (ev.type === "message.part.updated" && p.part) {
+    const list = messagesOf(p.part.sessionID)
+    const msg = list.find((m) => m.info.id === p.part.messageID)
+    if (!msg) return
+    const i = msg.parts.findIndex((x) => x.id === p.part.id)
+    if (i >= 0) msg.parts[i] = structuredClone(p.part)
+    else msg.parts.push(structuredClone(p.part))
+  } else if (ev.type === "message.updated" && p.info) {
+    const list = messagesOf(p.info.sessionID)
+    const msg = list.find((m) => m.info.id === p.info.id)
+    if (msg) msg.info = structuredClone(p.info)
+    else list.push({ info: structuredClone(p.info), parts: [] })
+    // The router writes its row for a step when the request ends; a routed step that completes here gets the one the kit prepared.
+    const done = p.info.time?.completed
+    const pending = st.pendingAnswers[p.info.sessionID] ?? []
+    const i = pending.findIndex((x) => x.messageID === p.info.id)
+    if (done && i >= 0) {
+      const { messageID: _id, created, ...row } = pending.splice(i, 1)[0]
+      void _id
+      const ts = done - 40
+      ;(st.answers[p.info.sessionID] ??= []).push({ ts, ...row, latencyMs: ts - (created + 120) })
+    }
+  } else if (ev.type === "session.status" && p.sessionID) st.status[p.sessionID] = p.status
+  else if (ev.type === "session.idle" && p.sessionID) st.status[p.sessionID] = { type: "idle" }
+  else if (ev.type === "permission.asked" && !st.permissions.some((x) => x.id === p.id)) st.permissions.push(structuredClone(p))
+  else if (ev.type === "permission.replied") st.permissions = st.permissions.filter((x) => x.id !== p.requestID)
+  else if (ev.type === "question.asked" && !st.questions.some((x) => x.id === p.id)) st.questions.push(structuredClone(p))
+  else if (ev.type === "question.replied" || ev.type === "question.rejected") st.questions = st.questions.filter((x) => x.id !== p.requestID)
 }
 
 /** Windows or POSIX path helpers, by the look of the fixture's paths. */
@@ -345,12 +386,17 @@ function engineApi(st, method, p, q, body) {
       st.prompts.push({ sessionID: m[1], body })
       return { status: 204, body: "" }
     }
+    // An answered permission is no longer pending (a reload must not bring its card back).
+    if (m[2].startsWith("permissions/") && method === "POST") st.permissions = st.permissions.filter((x) => x.id !== m[2].slice("permissions/".length))
     if (method === "POST") return json(true)
     return json([])
   }
   if (method === "GET" && p === "/permission") return json(st.permissions)
   if (method === "GET" && p === "/question") return json(st.questions)
-  if (method === "POST" && /^\/question\/[^/]+\/(reply|reject)$/.test(p)) return json(true)
+  if (method === "POST" && (m = p.match(/^\/question\/([^/]+)\/(reply|reject)$/))) {
+    st.questions = st.questions.filter((x) => x.id !== m[1])
+    return json(true)
+  }
   if (method === "GET" && p === "/file") {
     const entries = listFolder(st, directory, q.get("path") ?? ".")
     return entries ? json(entries) : notFound(`No such directory: ${q.get("path")}`)
@@ -428,27 +474,15 @@ function appApi(st, method, p, q, body) {
 }
 
 /**
- * What the event stream sends after server.connected, for one workspace folder. The real engine
- * replays nothing when a stream opens: it sends server.connected, then events as things happen.
- * So these are the live events of a page that was watching while they happened: the
- * session.status a busy session sent when its step started, the text a streaming part has
- * received so far as message.part.delta events (OpenCode 1.18 streams text only as deltas),
- * the permission and question requests, then the scenario's own `engine.events`.
+ * What the event stream sends after server.connected: only the scenario's own `engine.events`.
+ * The real engine replays nothing when a stream opens (no session.status for a busy session, no
+ * pending permission or question, no text a streaming part already has), so the page asks for
+ * those itself (GET /session/status, /permission, /question) and a part that is already streaming
+ * is one it joined mid-stream. A scenario that wants a page watching a part from its start opens
+ * the part with `later: true` and emits its opening update and deltas in steps (docs/TESTING.md).
  */
-function liveEvents(st, directory) {
-  const inDir = (sid) => {
-    const s = st.sessions.get(sid)
-    return !!s && samePath(s.directory, directory || st.directory)
-  }
-  const out = []
-  for (const [sessionID, status] of Object.entries(st.status)) if (inDir(sessionID) && status.type !== "idle") out.push({ type: "session.status", properties: { sessionID, status } })
-  for (const [sessionID, list] of Object.entries(st.messages)) {
-    if (!inDir(sessionID)) continue
-    for (const msg of list) for (const part of msg.parts) if (isStreaming(part) && part.text) for (const delta of deltas(part.text)) out.push({ type: "message.part.delta", properties: { sessionID, messageID: part.messageID, partID: part.id, field: "text", delta } })
-  }
-  for (const p of st.permissions) if (inDir(p.sessionID)) out.push({ type: "permission.asked", properties: p })
-  for (const q of st.questions) if (inDir(q.sessionID)) out.push({ type: "question.asked", properties: q })
-  return [...out, ...st.events]
+function openingEvents(st) {
+  return st.events
 }
 
 /**
@@ -459,8 +493,9 @@ function liveEvents(st, directory) {
 export async function installFakeEngine(context, scenario, { base, events, channel }) {
   const origin = new URL(base).origin
   const st = engineState(scenario)
-  const log = { unmocked: [], external: [], harness: [], requests: 0, lastRequestAt: Date.now() }
-  events.open(channel, (directory) => liveEvents(st, directory))
+  const log = { unmocked: [], external: [], harness: [], blocked: [], requests: 0, lastRequestAt: Date.now() }
+  for (const ev of st.events) applyEvent(st, ev)
+  events.open(channel, () => openingEvents(st))
 
   await context.clock.setFixedTime(new Date(st.now))
   const seed = {
@@ -500,6 +535,12 @@ export async function installFakeEngine(context, scenario, { base, events, chann
           body = req.postDataJSON()
         } catch {}
         const res = url.pathname.startsWith("/api/oc/") ? engineApi(st, method, url.pathname.slice("/api/oc".length), url.searchParams, body) : appApi(st, method, url.pathname, url.searchParams, body)
+        // A held messages read: the engine answers now (its state as of the request), the answer reaches the page on `release`.
+        const held = method === "GET" && /^\/api\/oc\/session\/[^/]+\/message$/.test(url.pathname) ? st.holds.get(url.pathname.split("/")[4]) : undefined
+        if (res && held) {
+          held.waiting++
+          await held.gate
+        }
         if (res) return await route.fulfill(res)
         log.unmocked.push(`${method} ${url.pathname}${url.search}`)
         return await route.fulfill(json({ error: `ui-harness: no fixture for ${method} ${url.pathname}` }, 501))
@@ -519,7 +560,44 @@ export async function installFakeEngine(context, scenario, { base, events, chann
       return route.abort("blockedbyclient")
     },
   )
-  return { log, state: st, push: (evs) => events.push(channel, Array.isArray(evs) ? evs : [evs]) }
+  // Requests a scenario blocks (`block`, globs): the network failing for them, as offline or after a deploy removed old chunks.
+  for (const glob of scenario.block ?? []) {
+    await context.route(glob, (route) => {
+      log.blocked.push(route.request().url())
+      return route.abort("blockedbyclient")
+    })
+  }
+  const push = (evs) => {
+    const list = Array.isArray(evs) ? evs : [evs]
+    for (const ev of list) applyEvent(st, ev)
+    return events.push(channel, list)
+  }
+  return {
+    log,
+    state: st,
+    push,
+    /** From now on, the session's messages reads are answered with the state as of the request, and held until `release`. */
+    hold(sessionID) {
+      let release
+      const gate = new Promise((r) => (release = r))
+      st.holds.set(sessionID, { gate, release, waiting: 0 })
+    },
+    /** How many of the session's reads are being held. */
+    held: (sessionID) => st.holds.get(sessionID)?.waiting ?? 0,
+    release(sessionID) {
+      st.holds.get(sessionID)?.release()
+      st.holds.delete(sessionID)
+    },
+    releaseAll() {
+      for (const id of [...st.holds.keys()]) this.release(id)
+    },
+    /** Ends the page's event stream like a network drop; the page reconnects by itself (about 1.5 s later). */
+    drop() {
+      events.drop(channel)
+      events.open(channel, () => openingEvents(st))
+    },
+    connected: () => events.clients(channel) > 0,
+  }
 }
 
 // ---------------------------------------------------------------- waiting for a screen
@@ -550,7 +628,7 @@ async function networkQuiet(handle, quietMs = 500, maxMs = 5_000) {
 
 /**
  * Waits until the page's text and element count stop changing for `quietMs`: the typewriter
- * replays a streamed reply with an exponential catch-up (about 5 s for 1,300 characters), and
+ * reveals text that grows while it is on screen (at most about 1.5 s behind the stream), and
  * later rounds add renderers that load on first use. False if it was still changing at `maxMs`.
  */
 export async function waitForStable(page, quietMs = 600, maxMs = 12_000) {
@@ -599,17 +677,43 @@ async function openPanel(page, { tab = "files", file }) {
   })
 }
 
-const STEP_KINDS = ["click", "tap", "hover", "fill", "type", "press", "waitFor", "wait", "emit", "scroll"]
+const STEP_KINDS = ["click", "tap", "hover", "fill", "type", "press", "waitFor", "wait", "emit", "scroll", "settle", "assert", "reload", "back", "resize", "drag", "hold", "held", "release", "dropStream", "awaitStream"]
+const ASSERT_KINDS = ["visible", "hidden", "text", "count", "box", "inView"]
+
+/** Polls `ok()` every 50 ms until it holds; throws `what` after `ms`. */
+async function until(ok, what, ms = 10_000) {
+  const t0 = Date.now()
+  while (!(await ok())) {
+    if (Date.now() - t0 > ms) throw new Error(what)
+    await new Promise((r) => setTimeout(r, 50))
+  }
+}
 
 /**
  * Steps (all selectors are Playwright selectors: CSS, text=…, role=…):
  *   { click: sel } · { tap: sel } · { hover: sel } · { fill: [sel, text] } · { type: [sel, text] }
  *   { press: key } or { press: [sel, key] } · { waitFor: sel } · { wait: ms }
- *   { emit: event | event[] }   push engine events into the open stream, e.g. a part update
+ *   { emit: event | event[], every?: ms }   push engine events into the open stream (with `every`, one at a time,
+ *                                           that many ms apart, like a model writing); the fake's stored state follows
  *   { scroll: [sel, "top" | "bottom"] }
- * Any step may carry `widths: [390]` to run at some widths only.
+ *   { settle: true }                        wait until the screen stops changing (typewriter, lazy renderers)
+ *   { assert: assertion }                   check something now, mid-scenario (same shapes as `assert`, `gap` too)
+ *   { reload: true }                        reload the page and wait for it like the first load (the stream
+ *                                           replays nothing, so the page must restore what it shows)
+ *   { back: true }                          the browser's back button
+ *   { resize: [width, height] }             resize the window (the run's checks still measure at its own width)
+ *   { drag: [sel, dx] }                     press on the element, move dx pixels sideways (negative: left), let go
+ *   { hold: sessionID }                     from now on, that chat's messages reads are answered with the engine's state
+ *                                           as of the request but reach the page only on { release: sessionID }
+ *   { held: sessionID }                     wait until such a read is being held (up to 10 s)
+ *   { release: sessionID }                  let the held reads through (a read the engine answered before what
+ *                                           happened since: it must not undo what the stream already showed)
+ *   { dropStream: true }                    end the page's event stream like a network drop (the page reconnects itself)
+ *   { awaitStream: true }                   wait until the page has its event stream open again (up to 10 s)
+ * Any step may carry `widths: [390]` to run at some widths only. Every step but `assert` waits 120 ms after itself.
  */
-async function runStep(page, step, handle) {
+async function runStep(page, step, ctx) {
+  const { handle, scenario, result, index } = ctx
   if ("click" in step) await page.locator(step.click).first().click()
   else if ("tap" in step) await page.locator(step.tap).first().tap()
   else if ("hover" in step) await page.locator(step.hover).first().hover()
@@ -621,9 +725,52 @@ async function runStep(page, step, handle) {
   } else if ("waitFor" in step) await page.locator(step.waitFor).first().waitFor({ state: "visible" })
   else if ("wait" in step) await page.waitForTimeout(step.wait)
   else if ("emit" in step) {
-    if (!handle.push(step.emit)) throw new Error("emit: the event stream is not connected")
+    const list = [step.emit].flat()
+    if (!step.every) {
+      if (!handle.push(list)) throw new Error("emit: the event stream is not connected")
+    } else {
+      for (const ev of list) {
+        if (!handle.push(ev)) throw new Error("emit: the event stream is not connected")
+        await new Promise((r) => setTimeout(r, step.every))
+      }
+    }
   } else if ("scroll" in step) await page.locator(step.scroll[0]).first().evaluate((el, to) => (el.scrollTop = to === "top" ? 0 : el.scrollHeight), step.scroll[1])
+  else if ("settle" in step) {
+    if (!(await waitForStable(page))) result.notes.push(`step ${index + 1}: the screen was still changing; checked anyway`)
+  } else if ("assert" in step) {
+    recordAssertion(result, scenario, await checkAssertion(page, step.assert), step.assert, `step ${index + 1}: `)
+    return
+  } else if ("reload" in step) {
+    await page.reload({ waitUntil: "load", timeout: 90_000 })
+    await waitUntilReady(page, scenario)
+  } else if ("back" in step) {
+    await page.goBack({ waitUntil: "commit" })
+  } else if ("resize" in step) await page.setViewportSize({ width: step.resize[0], height: step.resize[1] })
+  else if ("drag" in step) {
+    // Press in the middle of the element, move sideways in small steps (each one a pointermove), let go.
+    const box = await page.locator(step.drag[0]).first().boundingBox()
+    if (!box) throw new Error(`drag: ${step.drag[0]} is not on screen`)
+    const x = box.x + box.width / 2
+    const y = box.y + box.height / 2
+    await page.mouse.move(x, y)
+    await page.mouse.down()
+    await page.mouse.move(x + step.drag[1], y, { steps: 12 })
+    await page.mouse.up()
+  } else if ("hold" in step) handle.hold(step.hold)
+  else if ("held" in step) await until(() => handle.held(step.held) > 0, `held: no messages read of ${step.held} arrived`)
+  else if ("release" in step) handle.release(step.release)
+  else if ("dropStream" in step) handle.drop()
+  else if ("awaitStream" in step) await until(() => handle.connected(), "awaitStream: the page did not reconnect its event stream")
   await page.waitForTimeout(120)
+}
+
+/** Adds one assertion's outcome. A known gap (`gap`) must fail, and fails the run once it passes. */
+function recordAssertion(result, scenario, r, a, prefix = "") {
+  const labelled = { ...r, label: `${prefix}${r.label}` }
+  if (!a.gap) result.assertions.push(labelled)
+  // A known gap must fail until the app is fixed; once it passes, its note has to go, or the gap would hide a regression later.
+  else if (r.ok) result.assertions.push({ ...labelled, ok: false, detail: `passes now, so this gap is closed: delete its gap note in ${scenario.file}` })
+  else result.assertions.push({ ...labelled, ok: true, gap: a.gap })
 }
 
 // ---------------------------------------------------------------- checks
@@ -720,6 +867,33 @@ async function checkAssertion(page, a) {
       const want = a.equals !== undefined ? `= ${a.equals}` : [a.min !== undefined ? `≥ ${a.min}` : "", a.max !== undefined ? `≤ ${a.max}` : ""].filter(Boolean).join(" ")
       return { ok, label: `count ${a.count} ${want}`, detail: ok ? "" : `found ${n}` }
     }
+    if ("box" in a) {
+      // The first visible match's rendered width, in CSS pixels.
+      const el = page.locator(a.box).filter({ visible: true }).first()
+      const want = [a.minWidth !== undefined ? `width ≥ ${a.minWidth}` : "", a.maxWidth !== undefined ? `width ≤ ${a.maxWidth}` : ""].filter(Boolean).join(", ")
+      if (!(await el.count())) return { ok: false, label: `box ${a.box} ${want}`, detail: "nothing visible matches" }
+      const w = Math.round((await el.boundingBox())?.width ?? 0)
+      const ok = (a.minWidth === undefined || w >= a.minWidth) && (a.maxWidth === undefined || w <= a.maxWidth)
+      return { ok, label: `box ${a.box} ${want}`, detail: ok ? "" : `${w}px wide` }
+    }
+    if ("inView" in a) {
+      // The last visible match lies inside the window, and with `above`, wholly above that element's top (the composer
+      // floats over the end of the chat, so text under it can't be read).
+      const label = `in view ${a.inView}${a.above ? ` above ${a.above}` : ""}`
+      const el = page.locator(a.inView).filter({ visible: true }).last()
+      if (!(await el.count())) return { ok: false, label, detail: "nothing visible matches" }
+      const box = await el.boundingBox()
+      let limit = page.viewportSize()?.height ?? 0
+      if (a.above) {
+        const over = await page.locator(a.above).filter({ visible: true }).first().boundingBox()
+        if (!over) return { ok: false, label, detail: `${a.above}: nothing visible matches` }
+        limit = Math.min(limit, over.y)
+      }
+      const top = Math.round(box?.y ?? -1)
+      const bottom = Math.round((box?.y ?? 0) + (box?.height ?? 0))
+      const ok = !!box && top >= 0 && bottom <= limit + 1
+      return { ok, label, detail: ok ? "" : `spans ${top}–${bottom}px; the visible area ends at ${Math.round(limit)}px` }
+    }
   } catch (err) {
     return { ok: false, label: JSON.stringify(a), detail: err instanceof Error ? err.message.split("\n")[0] : String(err) }
   }
@@ -781,6 +955,9 @@ export async function runScenario(browser, scenario, width, { base, events, outD
     const ignored = new Map()
     page.on("console", (msg) => {
       const where = msg.location()?.url ? ` (${msg.location().url.replace(base, "")}:${msg.location().lineNumber})` : ""
+      // A request the scenario blocks on purpose (`block`) fails, and the browser says so.
+      const blockedHere = scenario.block?.length && msg.type() === "error" && /net::ERR_BLOCKED_BY_CLIENT/.test(msg.text()) && handle.log.blocked.some((u) => (msg.location()?.url ?? "") === u)
+      if (blockedHere) return void ignored.set("a request the scenario blocks on purpose failed (block)", (ignored.get("a request the scenario blocks on purpose failed (block)") ?? 0) + 1)
       const known = msg.type() === "error" && KNOWN_CONSOLE.find((k) => k.match.test(msg.text()))
       if (known) ignored.set(known.why, (ignored.get(known.why) ?? 0) + 1)
       else if (msg.type() === "error") result.consoleErrors.push(`${msg.text().slice(0, 400)}${where}`)
@@ -799,7 +976,18 @@ export async function runScenario(browser, scenario, width, { base, events, outD
       await openPanel(page, scenario.panel)
       await settle("after opening the panel")
     }
-    for (const step of scenario.steps ?? []) if (forWidth(step, width)) await runStep(page, step, handle)
+    const steps = scenario.steps ?? []
+    for (let index = 0; index < steps.length; index++) {
+      if (!forWidth(steps[index], width)) continue
+      const t = Date.now()
+      await runStep(page, steps[index], { handle, scenario, result, index })
+      // UI_HARNESS_TRACE=1: how long each step took, to find what makes a scenario slow.
+      if (process.env.UI_HARNESS_TRACE) console.log(`\n  [trace] ${scenario.name} @ ${width} step ${index + 1} ${STEP_KINDS.find((k) => k in steps[index])}: ${Date.now() - t} ms`)
+    }
+    // Reads a scenario held and never released reach the page now, before the final checks.
+    handle.releaseAll()
+    // A block that matched nothing tests nothing (a renamed chunk, say).
+    for (const glob of scenario.block ?? []) if (!handle.log.blocked.length) result.harness.push(`block: no request matched ${glob}, so the scenario tested nothing`)
     await networkQuiet(handle)
     await settle("before the screenshot")
     await page.waitForTimeout(scenario.settleMs ?? 200)
@@ -807,11 +995,7 @@ export async function runScenario(browser, scenario, width, { base, events, outD
     result.overflow = (await measureOverflow(page, width)).problems
     for (const a of scenario.assert ?? []) {
       if (!forWidth(a, width)) continue
-      const r = await checkAssertion(page, a)
-      if (!a.gap) result.assertions.push(r)
-      // A known gap must fail until the app is fixed; once it passes, its note has to go, or the gap would hide a regression later.
-      else if (r.ok) result.assertions.push({ ...r, ok: false, detail: `passes now, so this gap is closed: delete its gap note in ${scenario.file}` })
-      else result.assertions.push({ ...r, ok: true, gap: a.gap })
+      recordAssertion(result, scenario, await checkAssertion(page, a), a)
     }
 
     const shot = path.join(outDir, `${scenario.name}-${width}.png`)

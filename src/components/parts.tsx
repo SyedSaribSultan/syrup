@@ -1,24 +1,33 @@
 "use client"
 
-import { useState } from "react"
+import { lazy, Suspense, useState } from "react"
+import { isOpenPart } from "@/lib/engine-store"
 import type { Part, ToolPart } from "@/lib/oc"
 import { fmtCost, fmtDuration, fmtTokens } from "@/lib/format"
 import { Brew, Elapsed } from "./brew"
 import { FileLink } from "./file-link"
 import { Markdown } from "./markdown"
 import { useReadOnly } from "./read-only"
-import { useTypewriter } from "@/lib/use-typewriter"
 
-/** Streamed answer text types out; the typewriter is its arrival animation, so it gets no fade. */
-function TypedText({ text, live, end }: { text: string; live: boolean; end?: number }) {
-  return (
-    <div className="chat-text">
-      <Markdown text={useTypewriter(text, live, end)} />
-    </div>
-  )
+/**
+ * Text this page watches stream in (src/lib/use-typewriter.ts): typewriter, paced Markdown, settled blocks. Loaded on
+ * first use (and warmed by preloadLiveText when a chat opens), so it adds nothing to a page's initial JavaScript.
+ * If its chunk can't load (offline, or a tab left open across a deploy whose old chunks are gone), the text shows as
+ * it is, without the typewriter: a failed import would otherwise reach the route's error page and take the chat with it.
+ */
+const LiveText = lazy(() =>
+  import("@/lib/use-typewriter").then(
+    (m) => ({ default: m.LiveText }),
+    () => ({ default: ({ text }: { text: string; live: boolean }) => <StaticText text={text} /> }),
+  ),
+)
+
+/** Fetches the streaming-text code ahead of the first reply, after the page has loaded. */
+export function preloadLiveText(): void {
+  void import("@/lib/use-typewriter").catch(() => {})
 }
 
-/** A shared snapshot shows text as it is: no typewriter, no timers. */
+/** Finished text, and a shared snapshot's: as it is, no typewriter, no timers. */
 function StaticText({ text }: { text: string }) {
   return (
     <div className="chat-text">
@@ -27,16 +36,54 @@ function StaticText({ text }: { text: string }) {
   )
 }
 
+/** Where an assistant step ran (its message's `path`): file tool rows name their file relative to it (relToStep). */
+export type StepPaths = { cwd: string; root: string }
+
+type PartProps = {
+  part: Part
+  /** The message is still being written (busy session, last reply). */
+  streaming: boolean
+  /** This page watched the part from its first character, so its text is whole and grows from deltas. */
+  live?: boolean
+  /** Was live, then the stream dropped: its text is a true beginning that stops growing until the part's final update. */
+  frozen?: boolean
+  paths?: StepPaths
+}
+
 /** Renders one message part. Unknown/structural parts render nothing. */
-export function PartView({ part, streaming }: { part: Part; streaming: boolean }) {
+export function PartView({ part, streaming, live = false, frozen = false, paths }: PartProps) {
   const ro = !!useReadOnly()
+  // Mounted while the part streamed in front of this page: it keeps the typewriter until the end, so the last
+  // words finish typing after the part ends. Text that was already there when this mounted shows as it is.
+  const [streamed] = useState(live)
   switch (part.type) {
-    case "text":
-      return part.text ? ro ? <StaticText text={part.text} /> : <TypedText text={part.text} live={streaming} end={part.time?.end} /> : null
+    case "text": {
+      if (ro) return part.text ? <StaticText text={part.text} /> : null
+      const open = isOpenPart(part)
+      // Joined mid-stream (opened or reloaded while it was being written): the engine has only the part's
+      // beginning, which this page never saw. Wait for the whole text rather than show a tail.
+      if (open && !live && !frozen && streaming) return <Brew label="Writing" since={part.time?.start} />
+      // The stream dropped while this page watched the part: what it saw stays, and the rest comes with the final update.
+      const waiting = open && frozen && streaming ? <Brew label="Writing" since={part.time?.start} /> : null
+      if (!part.text) return waiting
+      // One shape for every state below, so the text's subtree (a selection, a code block's scroll) survives the changes.
+      return (
+        <>
+          {streamed ? (
+            <Suspense fallback={<StaticText text={part.text} />}>
+              <LiveText text={part.text} live={open && live} />
+            </Suspense>
+          ) : (
+            <StaticText text={part.text} />
+          )}
+          {waiting}
+        </>
+      )
+    }
     case "reasoning":
       return <Reasoning text={part.text} done={!!part.time?.end || !streaming} ms={part.time?.end && part.time.start ? part.time.end - part.time.start : null} ro={ro} />
     case "tool":
-      return <Tool part={part} live={streaming} ro={ro} />
+      return <Tool part={part} live={streaming} ro={ro} paths={paths} />
     case "step-finish":
       return (
         <div className="mt-1 text-[11px] text-muted">
@@ -75,7 +122,13 @@ export function PartView({ part, streaming }: { part: Part; streaming: boolean }
 
 function Reasoning({ text, done, ms, ro = false }: { text: string; done: boolean; ms: number | null; ro?: boolean }) {
   const [open, setOpen] = useState(false)
-  if (!text) return null
+  // Thinking with nothing to show yet (just started, or joined mid-stream: its text comes whole when it ends).
+  if (!text)
+    return done || ro ? null : (
+      <div className="my-1">
+        <Brew mood="think" timerAfter={0} />
+      </div>
+    )
   const label = ms != null && ms >= 1000 ? `Thought for ${fmtDuration(ms)}` : "Thought"
   // Read-only: a native disclosure, so it opens before hydration and in the static HTML export.
   if (ro)
@@ -142,19 +195,46 @@ function toolPath(part: ToolPart): string | null {
   return typeof p === "string" && p ? p : null
 }
 
-function toolSummary(part: ToolPart): string {
+/** Folder paths compare case-insensitively on Windows drives and ignore slash style. */
+function norm(p: string): string {
+  const s = p.replace(/\\/g, "/").replace(/\/+$/, "")
+  return /^[a-z]:/i.test(s) ? s.toLowerCase() : s
+}
+
+/**
+ * `file` relative to the workspace the step ran in (or, failing that, its project root), spelled with the file's own
+ * separators, as the engine titles a finished file tool (path.relative(worktree, file)) and as file links elsewhere
+ * in the chat read. A running call has no title yet and a failed one never gets one, and a folder outside git has
+ * "/" as its worktree (titles like Users\me\notes.md), so file rows always name the file this way.
+ */
+export function relToStep(file: string, paths?: StepPaths): string {
+  const f = norm(file)
+  for (const base of [paths?.cwd, paths?.root]) {
+    if (!base) continue
+    const b = norm(base)
+    // A filesystem root ("/" for a folder outside git, or a bare drive) says nothing useful.
+    if (!b || /^[a-z]:$/i.test(b)) continue
+    if (f.startsWith(`${b}/`)) return file.slice(base.replace(/[\\/]+$/, "").length + 1)
+  }
+  return file
+}
+
+function toolSummary(part: ToolPart, paths?: StepPaths): string {
   const st = part.state
+  // A file tool's title is only its path; every state of the row names the file the same way.
+  const file = toolPath(part)
+  if (file) return relToStep(file, paths)
   if ("title" in st && st.title) return st.title
   const input = st.input ?? {}
   const first = input.filePath ?? input.path ?? input.pattern ?? input.command ?? input.url ?? input.description ?? input.query
   return typeof first === "string" ? first : ""
 }
 
-function Tool({ part, live, ro = false }: { part: ToolPart; live: boolean; ro?: boolean }) {
+function Tool({ part, live, ro = false, paths }: { part: ToolPart; live: boolean; ro?: boolean; paths?: StepPaths }) {
   const [open, setOpen] = useState(false)
   const st = part.state
   const label = TOOL_LABEL[part.tool] ?? part.tool
-  const summary = toolSummary(part)
+  const summary = toolSummary(part, paths)
   const file = toolPath(part)
   const finished = st.status === "completed" || st.status === "error"
   // Only animate while the message is still streaming; a row left running by an aborted turn goes quiet.

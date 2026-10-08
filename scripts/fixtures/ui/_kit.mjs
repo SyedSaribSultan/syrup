@@ -72,13 +72,54 @@ const sha = (s) => createHash("sha1").update(s).digest("hex")
 /**
  * Part specs. Each takes `ms` (how long it took; for an open part, how long it has been running)
  * and `open` (still streaming: no end time). The chat builder adds ids, session and message ids and times.
+ *
+ * An open text or reasoning part is served empty, as the engine stores it, and the page loads it mid-stream:
+ * it shows "Writing…" until the part's final update (`partEnd`). With `later: true` the part hasn't started
+ * when the page opens: no read returns it until a step emits `partStart(part)`, and from then on its
+ * `partDeltas` grow on screen, as for a page that watches a reply from its first word. `body` is the text
+ * the part will have streamed (or, open without `later`, has streamed so far).
  */
-export function text(body, { ms = 1500, open = false } = {}) {
-  return { spec: "text", ms, open, part: { type: "text", text: body } }
+export function text(body, { ms = 1500, open = false, later = false } = {}) {
+  return { spec: "text", ms, open, later: open && later, part: { type: "text", text: body } }
 }
 
-export function reasoning(body, { ms = 3000, open = false } = {}) {
-  return { spec: "reasoning", ms, open, part: { type: "reasoning", text: body, metadata: {} } }
+export function reasoning(body, { ms = 3000, open = false, later = false } = {}) {
+  return { spec: "reasoning", ms, open, later: open && later, part: { type: "reasoning", text: body, metadata: {} } }
+}
+
+/** Set on a `later` part in the scenario data; the harness serves no part carrying it (scripts/ui-harness.mjs LATER). */
+const LATER = "__harnessStartsLater"
+
+/** A part as the engine sends it, without the kit's marks. */
+function enginePart(part) {
+  const { [LATER]: _later, ...rest } = part
+  void _later
+  return structuredClone(rest)
+}
+
+/** The update OpenCode 1.18 sends when a text or reasoning part starts: the part, empty, with only a start time. */
+export function partStart(part) {
+  const p = enginePart(part)
+  return { type: "message.part.updated", properties: { sessionID: p.sessionID, part: { ...p, text: "", time: { start: p.time?.start ?? NOW } }, time: p.time?.start ?? NOW } }
+}
+
+/** `text` as the message.part.delta events a model's stream arrives in, `size` code points each (no emoji cut in half). */
+export function partDeltas(part, text = part.text, size = 24) {
+  const cps = Array.from(text)
+  const out = []
+  for (let i = 0; i < cps.length; i += size) out.push({ type: "message.part.delta", properties: { sessionID: part.sessionID, messageID: part.messageID, partID: part.id, field: "text", delta: cps.slice(i, i + size).join("") } })
+  return out
+}
+
+/** The update that ends a streamed part: its whole text and an end time. The engine stores this; it is the part from now on. */
+export function partEnd(part, { text = part.text, at = NOW } = {}) {
+  const p = enginePart(part)
+  return { type: "message.part.updated", properties: { sessionID: p.sessionID, part: { ...p, text, time: { start: p.time?.start ?? at, end: at } }, time: at } }
+}
+
+/** The open text or reasoning parts of a scenario's chat, in order (to stream them in steps). */
+export function openParts(scenario, sessionID) {
+  return (scenario.engine.messages[sessionID] ?? []).flatMap((m) => m.parts).filter((p) => (p.type === "text" || p.type === "reasoning") && p.time && p.time.end === undefined)
 }
 
 /**
@@ -261,6 +302,8 @@ function buildChat({ sessionID, title, directory, model, ago, steps, busy, ids }
 
   const messages = []
   const answers = []
+  // The router's row for a step still streaming: the harness adds it when a step emits the message's completion.
+  const pendingAnswers = []
   let parentID = ""
   let lastAt = NOW - ago
   let turn = 0
@@ -288,6 +331,7 @@ function buildChat({ sessionID, title, directory, model, ago, steps, busy, ids }
       if (part.type === "text" || part.type === "reasoning") {
         chars += part.text.length
         part.time = time
+        if (p.later) part[LATER] = true
       }
       if (part.type === "tool") {
         toolCalls++
@@ -332,6 +376,9 @@ function buildChat({ sessionID, title, directory, model, ago, steps, busy, ids }
       const [providerId, ...rest] = s.routed.split("/")
       const ts = completed - 40
       answers.push({ ts, alias: model, providerId, modelId: rest.join("/"), ttftMs: s.ttft, latencyMs: ts - (created + 120), attempts: 1, reason: answers.length ? "sticky" : "best", inputTokens: tokens.input, partial: false })
+    } else if (s.routed) {
+      const [providerId, ...rest] = s.routed.split("/")
+      pendingAnswers.push({ messageID: msgID, created, alias: model, providerId, modelId: rest.join("/"), ttftMs: s.ttft, attempts: 1, reason: answers.length ? "sticky" : "best", inputTokens: tokens.input, partial: false })
     }
   }
 
@@ -351,7 +398,7 @@ function buildChat({ sessionID, title, directory, model, ago, steps, busy, ids }
     version: "1.18.32",
     time: { created: first - 300, updated: Math.max(lastAt, ...messages.map((m) => m.info.time.created)) },
   }
-  return { session, messages, status: busy ? { type: "busy" } : { type: "idle" }, answers }
+  return { session, messages, status: busy ? { type: "busy" } : { type: "idle" }, answers, pendingAnswers }
 }
 
 function slugOf(title) {
@@ -602,10 +649,12 @@ export function defineScenario(s) {
   engine.messages = { ...(engine.messages ?? {}) }
   engine.status = { ...(engine.status ?? {}) }
   engine.answers = { ...(engine.answers ?? {}) }
+  engine.pendingAnswers = { ...(engine.pendingAnswers ?? {}) }
   for (const b of built) {
     if (b.messages.length) engine.messages[b.session.id] = b.messages
     if (b.status.type !== "idle") engine.status[b.session.id] = b.status
     if (b.answers.length) engine.answers[b.session.id] = b.answers
+    if (b.pendingAnswers.length) engine.pendingAnswers[b.session.id] = b.pendingAnswers
   }
   engine.providers ??= PROVIDERS
   engine.keys ??= KEYS

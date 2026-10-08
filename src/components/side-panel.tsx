@@ -80,6 +80,9 @@ export function PanelToggle({ className = "", compact = false }: { className?: s
   )
 }
 
+/** The chat column's minimum beside the side pane (docs/RESPONSIVE.md §6). Matches the pane's CSS max-width. */
+const CHAT_MIN = 440
+
 const TAB_LABEL: Record<PanelTab, string> = { changes: "Changes", files: "Files", preview: "Preview" }
 const TABS: PanelTab[] = ["changes", "files", "preview"]
 
@@ -91,7 +94,9 @@ function SidePane() {
   const ref = useRef<HTMLElement>(null)
   const [live, setLive] = useState<number | null>(null)
   const drag = useRef<{ x: number; w: number } | null>(null)
-  const width = live ?? panel.width
+  // The row the chat and the pane share. Re-measured when the window or the sidebar changes size, so a width saved on
+  // a big monitor can never squeeze the chat on a smaller one.
+  const [room, setRoom] = useState<number | null>(null)
 
   // 840–1199px: the sidebar steps down to its rail while the pane is open.
   useEffect(() => {
@@ -99,12 +104,26 @@ function SidePane() {
     return () => setRail?.(false)
   }, [setRail])
 
-  // Large: 320–1100px (and 70% of the window), as always. Expanded: whatever leaves the chat 440px.
-  const max = () => {
+  useEffect(() => {
+    const row = ref.current?.parentElement
+    if (!row) return
+    const measure = () => setRoom(row.clientWidth)
+    const ro = new ResizeObserver(measure)
+    ro.observe(row)
+    return () => ro.disconnect()
+  }, [])
+
+  // 320–1100px on large screens (and at most 70% of the window), and always whatever leaves the chat its 440px.
+  // The saved width stays as it was: back on the big monitor, the pane is as wide as it was left there.
+  const maxIn = (row: number) => {
     const large = window.matchMedia("(min-width: 75rem)").matches
-    const room = ref.current?.parentElement?.clientWidth ?? window.innerWidth
-    return Math.max(PANEL_MIN, Math.min(large ? 1100 : room - 440, window.innerWidth * 0.7))
+    return Math.max(PANEL_MIN, Math.min(large ? 1100 : Infinity, row - CHAT_MIN, window.innerWidth * 0.7))
   }
+  /** While dragging or switching width: measured now, not at the last render. */
+  const max = () => maxIn(ref.current?.parentElement?.clientWidth ?? room ?? window.innerWidth)
+  const clamp = (w: number) => Math.max(PANEL_MIN, Math.min(max(), w))
+  // Before the first measure (server render, first paint) the CSS max-width keeps the same rule.
+  const width = room === null ? (live ?? panel.width) : Math.max(PANEL_MIN, Math.min(maxIn(room), live ?? panel.width))
 
   function onPointerDown(e: PointerEvent<HTMLDivElement>) {
     e.preventDefault()
@@ -113,7 +132,7 @@ function SidePane() {
   }
   function onPointerMove(e: PointerEvent<HTMLDivElement>) {
     if (!drag.current) return
-    setLive(Math.max(PANEL_MIN, Math.min(max(), drag.current.w + drag.current.x - e.clientX)))
+    setLive(clamp(drag.current.w + drag.current.x - e.clientX))
   }
   function onPointerUp() {
     if (!drag.current) return
@@ -123,7 +142,7 @@ function SidePane() {
   }
 
   return (
-    <aside ref={ref} style={{ width }} aria-label="Workspace panel" className="relative flex max-w-[75vw] shrink-0 flex-col border-l border-line bg-surface/50 max-large:max-w-[calc(100%-440px)]">
+    <aside ref={ref} style={{ width }} aria-label="Workspace panel" className="relative flex max-w-[min(75vw,calc(100%-440px))] shrink-0 flex-col border-l border-line bg-surface/50">
       <div
         role="separator"
         aria-orientation="vertical"
