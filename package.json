@@ -33,7 +33,7 @@
   "dependencies": {
     "@auth/drizzle-adapter": "^1.11.3",
     "@libsql/client": "^0.18.0",
-    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/sdk": "^1.31.0",
     "@neondatabase/serverless": "^1.1.0",
     "@opencode-ai/sdk": "^1.18.32",
     "@vercel/sandbox": "^3.4.0",
