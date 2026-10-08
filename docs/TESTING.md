@@ -21,6 +21,7 @@ node scripts/check-motion.mjs
 pnpm test:router
 pnpm test:diffs
 pnpm test:transcript
+pnpm test:eval-checks
 node scripts/fixtures/settled-blocks-check.mjs
 pnpm ui:harness --label round-2
 pnpm ui:weight --compare
@@ -28,6 +29,8 @@ pnpm ui:weight --compare
 
 - **Motion:** `node scripts/check-motion.mjs` (also part of `pnpm lint`) fails on raw timings and on `src/lib/motion.ts` and `globals.css` disagreeing ([MOTION.md](MOTION.md) §9). It runs its own self-test first (`SELF_TEST` in the script). A new loophole gets a case there, as well as a rule.
 - **Screenshots:** open `screenshots/harness/<label>/` and look at every screen the round touched, at both widths. A green table is not enough: the harness checks errors, layout and assertions, not taste.
+- **Answer checks (Tier 0, [QUALITY.md](QUALITY.md) Q0):** `pnpm test:eval-checks` runs the deterministic checks in `src/lib/answer-checks` (totals vs parts, currency magnitude, number provenance, cited links, the transcript parser) on committed files only: no app, no network, under a second. The real K2 export (`scripts/fixtures/eval/transcripts/k2.md`) must fail with exactly its known errors, its hand-corrected copy (`k2-fixed.md`) must pass, and every UI harness fixture chat must raise no error or warning.
+- **Checking any chat:** `pnpm eval:check <export.md|export.json>` prints each answer's findings (error, warning, hint) and exits 1 on any error. It reads every export form: the share link's `/md` and `/json`, `pnpm chat:export` (with or without `--json` and `--debug`). A real bad answer that no check flags: write the check first, then add the export to the goldens in `scripts/test-eval-checks.mjs`.
 - **Router changes:** also `pnpm bench:agent` before and after (ROADMAP §2, "First token first").
 - **Nothing new in the main chunk:** `pnpm ui:weight --compare` fails when initial JavaScript grows by more than 2 KB gzipped or a new chunk joins the initial load (§4).
 

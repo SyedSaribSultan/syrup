@@ -1,6 +1,6 @@
 # Answer quality
 
-Status: **agreed 2026-10-08 (decisions in §7); Q0 in progress.** This is the plan for making syrup's answers right, not only fast. It comes from one real chat that went wrong and five research reports on why. [ROADMAP.md](ROADMAP.md) gets a "Q" track once §7 is answered.
+Status: **agreed 2026-10-08 (decisions in §7); Q0 done; Q1 next.** This is the plan for making syrup's answers right, not only fast. It comes from one real chat that went wrong and five research reports on why. [ROADMAP.md](ROADMAP.md) gets a "Q" track once §7 is answered.
 
 Related: [ARCHITECTURE.md](ARCHITECTURE.md) (router, engine), [RENDERING.md](RENDERING.md) (rounds 2–8, which share files with this plan), [TESTING.md](TESTING.md) (the gate).
 
@@ -12,7 +12,7 @@ A 7-question research chat in the cloud on 2026-10-08 (climbing K2: top peaks, a
 
 | # | What went wrong | Proof |
 |---|---|---|
-| 1 | The PKR budget is 10× too high on every row | $15k–25k at 277 PKR/USD is 41.5–69.3 lakh (0.42–0.69 crore); the answer said "4.1–6.9 crore". No tool computed it |
+| 1 | The PKR budget is 10× too high on every row | $15k–25k at 277 PKR/USD is 41.5–69.3 lakh (0.42–0.69 crore); the answer said "4.1–6.9 crore". No tool computed it. (Its own parts add up to $21.5k–41k, so the right total was 59.6 lakh – 1.14 crore.) |
 | 2 | Totals don't equal their parts | Turn 14: parts $40k–74k, stated $30k–65k. Turn 20: parts $21.5k–41k, stated $15k–25k |
 | 3 | A price range was relabelled | "$8,500–15,000" came from one operator's group-size table and another's "from" price; the answer called it "local operator rates" and then "Full-Board", while every source put full board at $28k–30k |
 | 4 | A claim with no source | "Permits are NOT discounted for Pakistanis": no page said so either way |
@@ -66,6 +66,21 @@ Reports, with a source for each claim: `scratchpad/quality-research/{numbers,gro
   - `opencode import` accepts a seed built from an export.
   - The v1 SDK `Config` type accepts `limit.input`.
 
+### Q0 results (2026-10-08)
+
+- **The check library** (`src/lib/answer-checks/`, pure TypeScript, no imports outside its folder) and **`pnpm eval:check`**. On the real K2 export it reports 7 errors: list total on turn 14, table total and five 10× currency pairs on turn 20. The hand-corrected copy has none. The mislabel and the unsupported claim are hints only; a judge (Q1) decides those.
+- **`pnpm test:eval-checks`** (Tier 0, 60 cases, < 1 s) is in the gate. No false alarm on any correct answer tried: the UI fixture chats, the correct K2 turns, number-heavy docs, and a hand-written set of tricky sentences (rates, per-month vs per-year, separate sentences, metres, years).
+- **Plugin load cost, measured** (first request of a fresh workspace):
+
+| | No plugin | Plugin, nothing prepared | Plugin, both config dirs prepared |
+|---|---|---|---|
+| Local | 0.41 s | **21.5 s** | 0.34 s |
+| Vercel Sandbox | 0.45 s | **56 s** | **0.17 s** |
+
+  **Hard rule:** before OpenCode starts, prepare each config dir that has neither `node_modules` nor `package.json`: an empty `node_modules/`, plus a `package.json` and `package-lock.json` naming `@opencode-ai/plugin` 1.18.32. In the sandbox that is `/vercel/.config/opencode` and `/vercel/.opencode`; locally the XDG config dir and `~/.opencode` if it exists, and only when it holds no plugin or tool files of the user's. Never write into a workspace. A repo with its own `.opencode` folder pays ~20 s once.
+- **Verified on 1.18.32:** plugin tools named `websearch`/`webfetch` replace the built-ins; `tool.execute.before/after`, `tool.definition` (via `jsonSchema`), `experimental.chat.messages.transform` (fresh copies each step; storage and the UI keep the full text) and `experimental.chat.system.transform` (adds a second system message, so the web rules can start only after a web tool runs) all work; `opencode import` (CLI only) seeds earlier turns; `limit.input` makes compaction fire at ~100K, but the v1 SDK type needs widening, and auto-compaction then sends OpenCode's own "continue" request (the `experimental.compaction.autocontinue` hook can stop it).
+- **Not yet swept:** your other local chats, for false alarms. Exporting them in bulk was refused by the permission check; run `pnpm eval:check` on any exported chat to add it.
+
 ### Q1 — The eval runner (1–1½ days)
 
 - **`pnpm eval`**: replays recorded web results (the export holds every tool input and output) through the plugin's replay tools, keeps the model live, seeds earlier turns with `opencode import`, and runs only the turn under test. Zero search quota; ~3 model requests for the K2 case instead of ~25.
@@ -75,6 +90,7 @@ Reports, with a source for each claim: `scratchpad/quality-research/{numbers,gro
 
 ### Q2 — Context hygiene (1 day)
 
+- **Prepare the config dirs first** (Q0 hard rule), in `opencode.ts` locally and in the sandbox's engine start.
 - The plugin's web hooks: `numResults` 5 (ceiling 6); results trimmed to the query (deduplicated, at most 5 results, ~6,000 characters, URLs always kept, **tables kept whole**); `webfetch` capped at 12,000 characters; web results from earlier user turns replaced by a stub with the query and source URLs; `limit.input: 120_000`.
 - **Done when:** the K2 replay's last turn is ≤ 15k input tokens (65k today), no turn over 20k, answers still pass, first text no slower; coding cases unchanged.
 
@@ -83,7 +99,7 @@ Reports, with a source for each claim: `scratchpad/quality-research/{numbers,gro
 - **`syrup_calc`** on the MCP server: one plain-text argument (`permit = 15k..25k USD`, `total_pkr = total in PKR`), interval arithmetic for ranges, lakh/crore written out, live exchange rate (CC0 source, cached 12 h, hosts added to the sandbox egress list), a paste-ready result.
 - **The "Numbers" prompt section** (~85 tokens; wording in the numbers report §6.1). No "double-check" line.
 - **In the chat:** after an answer finishes, a quiet note when a total doesn't match its parts or a currency pair is off by more than 1.5×, with a **Fix numbers** button that sends the exact discrepancy back. The button ships only after the check reaches ≥ 95% precision on stored chats.
-- **Done when:** the K2 replay's PKR total is 41.5–69.3 lakh in ≥ 4 of 5 runs on each routed model; the numeric set passes.
+- **Done when:** in ≥ 4 of 5 K2 replays per routed model, the last turn's total equals the sum of its parts and its PKR equals its USD at the rate it states (±3%), so `eval:check` finds no error; the numeric set passes. (A fixed PKR band would be wrong: the turn's own parts set its total.)
 
 ### Q4 — Grounding (1½ days)
 
