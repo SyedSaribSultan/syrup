@@ -33,11 +33,20 @@ export type ModelInfo = {
   tps: number
   /** Typical time to first token in ms at default effort, for a mid-size prompt. */
   ttftMs: number
+  /**
+   * Completion tokens per visible answer token at the model's default effort, reasoning included: 1 for a model that
+   * does not think (or thinks minimally by default), more for one whose hidden thinking is decoded before the answer.
+   * The router multiplies a session's expected answer length by it on Auto (policy.rank). A prior, not a measurement.
+   */
+  think: number
+  /** Thinks at Google's "minimal" level unless asked for more (Gemini 3.x Flash-Lite), so a turn can ask it to think. */
+  lowThinkDefault: boolean
   /** True when the score comes from the curated table rather than a guess. */
   known: boolean
 }
 
-type Entry = { match: RegExp; q: number; tps?: number; ttft?: number }
+/** `think`: ModelInfo.think (default 1 for a listed model). `lowThink`: ModelInfo.lowThinkDefault. */
+type Entry = { match: RegExp; q: number; tps?: number; ttft?: number; think?: number; lowThink?: boolean }
 
 /** First match wins, so more specific patterns come first. Matched against the lowercased id with ":free" stripped. */
 const TABLE: Entry[] = [
@@ -46,29 +55,31 @@ const TABLE: Entry[] = [
   { match: /claude-fable-5[.-]1/, q: 94, tps: 63, ttft: 9000 },
   { match: /claude-opus-5(?![.-]\d)/, q: 92, tps: 120, ttft: 6000 },
   { match: /gpt-6-sol/, q: 90, tps: 83, ttft: 6000 },
-  { match: /gemini-3\.8-flash(?!-lite)/, q: 88, tps: 320, ttft: 9000 },
-  { match: /gemini-3\.1-pro/, q: 86, tps: 110, ttft: 12000 },
+  { match: /gemini-3\.8-flash(?!-lite)/, q: 88, tps: 320, ttft: 9000, think: 1.8 },
+  { match: /gemini-3\.1-pro/, q: 86, tps: 110, ttft: 12000, think: 2 },
   { match: /muse-spark-1\.3/, q: 85, tps: 215, ttft: 20000 },
+  // No think multiplier yet: its 45 tok/s prior already reflects a thinking model, and 2.5× on top made a free Kimi
+  // lose routine turns to a paid key (router suite w3, z8). Revisit with measured visible-vs-completion tokens.
   { match: /kimi-k3/, q: 84, tps: 45, ttft: 3000 },
   { match: /glm-5[.-]3(?![.-]?flash)/, q: 84, tps: 80, ttft: 3000 },
   { match: /mimo-v2\.6-pro/, q: 82, tps: 44, ttft: 3500 },
-  { match: /gemini-3\.7-flash(?!-lite)/, q: 82, tps: 300, ttft: 8000 },
+  { match: /gemini-3\.7-flash(?!-lite)/, q: 82, tps: 300, ttft: 8000, think: 1.8 },
   { match: /claude-sonnet-5/, q: 80, tps: 80, ttft: 4000 },
   { match: /deepseek-v4-pro/, q: 80, tps: 60, ttft: 4000 },
   { match: /qwen3\.8-max/, q: 78, tps: 39, ttft: 4000 },
   { match: /(^|\/)deepseek-flash$|deepseek-v4\.1-flash/, q: 78, tps: 232, ttft: 1100 },
   { match: /glm-5[.-]2(?![.-]?flash)/, q: 78, tps: 80, ttft: 3000 },
-  { match: /gemini-3\.6-flash(?!-lite)/, q: 78, tps: 300, ttft: 8000 },
+  { match: /gemini-3\.6-flash(?!-lite)/, q: 78, tps: 300, ttft: 8000, think: 1.8 },
   { match: /glm-5[.-]3-flash/, q: 77, tps: 110, ttft: 1500 },
   { match: /mimo-v2\.6-flash/, q: 76, tps: 150, ttft: 2000 },
   { match: /big-pickle/, q: 76, tps: 80, ttft: 2500 },
-  { match: /gemini-3\.5-flash(?!-lite)/, q: 75, tps: 280, ttft: 8000 },
+  { match: /gemini-3\.5-flash(?!-lite)/, q: 75, tps: 280, ttft: 8000, think: 1.8 },
   { match: /space-bunny/, q: 74, tps: 120, ttft: 3000 },
-  { match: /nemotron-3-ultra/, q: 74, tps: 195, ttft: 3000 },
+  { match: /nemotron-3-ultra/, q: 74, tps: 195, ttft: 3000, think: 2.5 },
   { match: /deepseek-v4-flash/, q: 72, tps: 200, ttft: 1500 },
   { match: /kimi-k2\.7-code/, q: 72, tps: 60, ttft: 3000 },
   { match: /longcat-2\.5/, q: 72, tps: 100, ttft: 3000 },
-  { match: /gemini-3-flash/, q: 72, tps: 250, ttft: 7000 },
+  { match: /gemini-3-flash/, q: 72, tps: 250, ttft: 7000, think: 1.8 },
   { match: /kimi-k2\.6/, q: 70, tps: 50, ttft: 3000 },
   { match: /gemini-2\.5-pro/, q: 70, tps: 150, ttft: 10000 },
   { match: /gpt-6-luna/, q: 70, tps: 145, ttft: 2100 },
@@ -82,11 +93,11 @@ const TABLE: Entry[] = [
   { match: /inkling(?!-small)/, q: 62, tps: 184, ttft: 2000 },
   { match: /step-3\.7-flash/, q: 60, tps: 150, ttft: 1500 },
   { match: /qwen-?3\.8-27b/, q: 60, tps: 150, ttft: 1000 },
-  { match: /gemini-3\.5-flash-lite/, q: 60, tps: 300, ttft: 3000 },
+  { match: /gemini-3\.5-flash-lite/, q: 60, tps: 300, ttft: 3000, lowThink: true },
   { match: /gemini-2\.5-flash(?!-lite)/, q: 58, tps: 250, ttft: 5000 },
   { match: /nemotron-3\.5-lightning/, q: 58, tps: 280, ttft: 800 },
   { match: /nemotron-3-super/, q: 58, tps: 150, ttft: 1500 },
-  { match: /gemini-3\.1-flash-lite/, q: 55, tps: 300, ttft: 2500 },
+  { match: /gemini-3\.1-flash-lite/, q: 55, tps: 300, ttft: 2500, lowThink: true },
   { match: /north-mini-code/, q: 55, tps: 120, ttft: 1500 },
   { match: /glm-4\.7-flash/, q: 55, tps: 90, ttft: 2000 },
   { match: /muse-glimmer/, q: 55, tps: 150, ttft: 1500 },
@@ -115,14 +126,32 @@ export function gradeOf(q: number): Grade {
   return q >= 84 ? "frontier" : q >= 72 ? "strong" : q >= 55 ? "mid" : "small"
 }
 
+/**
+ * Free shared endpoints decode far slower than the paid figures the table holds: OpenRouter's Nemotron 3 Ultra `:free`
+ * streamed 129 tokens in 13.3 s and 374 in 21 s (~10–18 tok/s, router_events 2026-10-08) against 148–176 tok/s on
+ * paid hosts, and they queue before the first token too. Applied to OpenRouter ids ending in ":free" until the router
+ * measures the endpoint itself.
+ */
+export const FREE_ENDPOINT_TPS = 25
+export const FREE_ENDPOINT_TTFT_X = 1.5
+/** ModelInfo.think for a model the table does not list that can reason. */
+const UNKNOWN_REASONER_THINK = 2
+
+function freeEndpoint(providerID: string, rawId: string): boolean {
+  return providerID === "openrouter" && /:free$/i.test(rawId)
+}
+
 /** Quality and speed for a model. Unknown models get a conservative guess from recency and size. */
 export function modelInfo(providerID: string, m: ModelLike): ModelInfo {
   const id = norm(m.id)
   const hit = TABLE.find((e) => e.match.test(id))
   const speedup = HOST_SPEEDUP[providerID] ?? 1
+  // norm() strips ":free", so the endpoint is read from the raw id.
+  const free = freeEndpoint(providerID, m.id)
+  const slow = (tps: number, ttftMs: number) => (free ? { tps: Math.min(tps, FREE_ENDPOINT_TPS), ttftMs: Math.round(ttftMs * FREE_ENDPOINT_TTFT_X) } : { tps, ttftMs })
   if (hit) {
-    const tps = (hit.tps ?? 80) * speedup
-    return { quality: hit.q, grade: gradeOf(hit.q), tps, ttftMs: Math.round((hit.ttft ?? 4000) / Math.sqrt(speedup)), known: true }
+    const speed = slow((hit.tps ?? 80) * speedup, Math.round((hit.ttft ?? 4000) / Math.sqrt(speedup)))
+    return { quality: hit.q, grade: gradeOf(hit.q), ...speed, think: hit.think ?? 1, lowThinkDefault: !!hit.lowThink, known: true }
   }
   let q = 40
   const released = m.release_date ? Date.parse(m.release_date) : NaN
@@ -132,7 +161,7 @@ export function modelInfo(providerID: string, m: ModelLike): ModelInfo {
   const params = id.match(/(\d+)b\b/)
   if (params && Number(params[1]) < 20) q -= 10
   if (m.cost && m.cost.input >= 3) q += 10
-  return { quality: q, grade: gradeOf(q), tps: 80 * speedup, ttftMs: 4000, known: false }
+  return { quality: q, grade: gradeOf(q), ...slow(80 * speedup, 4000), think: reasoningCapable(m) ? UNKNOWN_REASONER_THINK : 1, lowThinkDefault: false, known: false }
 }
 
 // ---------------------------------------------------------------- classification

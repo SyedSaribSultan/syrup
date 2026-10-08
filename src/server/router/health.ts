@@ -4,7 +4,8 @@ import type { Classified, HeaderLearning } from "./upstream-errors"
 
 /**
  * In-process knowledge about each backend: how fast it answers (peak-EWMA of
- * time to first token, EWMA of decode speed), how often it fails, what it is
+ * time to first token, and of decode speed the other way up: slowness is
+ * learned at once and forgotten slowly), how often it fails, what it is
  * cooling down from, and limits learned from errors and headers. Lives as
  * long as the router process; seeded from the model registry's priors and
  * drifting back to them while a backend goes unused.
@@ -47,6 +48,15 @@ const PRIOR_ERR = 0.05
  * recover its score; decaying toward the registry priors lets it back in.
  */
 const DECAY_HALF_LIFE_MS = 10 * 60_000
+/**
+ * Decode speed drifts back to the prior far more slowly: a free endpoint's throughput is a property of the endpoint,
+ * not of a bad minute (OpenRouter's Nemotron 3 Ultra :free decoded at ~10–18 tok/s all day on 2026-10-08, while the
+ * 10-minute decay walked the estimate back to the paid 195 tok/s between turns).
+ */
+const TPS_DECAY_HALF_LIFE_MS = 60 * 60_000
+/** A decode-speed sample needs this many streamed tokens over at least this long, or it is mostly noise. */
+const TPS_MIN_TOKENS = 50
+const TPS_MIN_MS = 200
 /** A learned prompt cap is forgotten after this long, so one misread error cannot exclude a backend for good. */
 const LEARNED_PROMPT_TTL_MS = 60 * 60_000
 
@@ -82,6 +92,9 @@ export class Health {
           s.lastUsed = Math.max(s.lastUsed, e.ts)
           if (e.status === "ok" && e.ttftMs !== null) {
             this.ttftSample(s, e.ttftMs / promptFactor(e.inputTokens > 0 ? e.inputTokens : 16_000))
+            // Decode speed, from a first attempt only: its latency runs from the request's start, so latency minus
+            // first-token time is the decode time plus a little overhead (a slight underestimate of the speed).
+            if (e.attempts === 1) this.tpsSample(s, e.outputTokens, e.latencyMs - e.ttftMs)
             s.err = 0.8 * s.err
             s.samples++
           } else if (e.reason && REPLAY_FAILURES.has(e.reason)) s.err = 0.8 * s.err + 0.2
@@ -94,7 +107,7 @@ export class Health {
     if (t > s.decayedAt) {
       const w = 0.5 ** ((t - s.decayedAt) / DECAY_HALF_LIFE_MS)
       s.ttft = c.info.ttftMs + (s.ttft - c.info.ttftMs) * w
-      s.tps = c.info.tps + (s.tps - c.info.tps) * w
+      s.tps = c.info.tps + (s.tps - c.info.tps) * 0.5 ** ((t - s.decayedAt) / TPS_DECAY_HALF_LIFE_MS)
       s.err = PRIOR_ERR + (s.err - PRIOR_ERR) * w
       s.decayedAt = t
     }
@@ -130,10 +143,7 @@ export class Health {
   success(c: Candidate, promptTokens: number, ttftMs: number | null, outTokens: number, genMs: number) {
     const s = this.statsOf(c)
     if (ttftMs !== null) this.ttftSample(s, ttftMs / promptFactor(promptTokens))
-    if (outTokens >= 50 && genMs >= 200) {
-      const tps = outTokens / (genMs / 1000)
-      s.tps = s.samples === 0 ? 0.5 * s.tps + 0.5 * tps : 0.7 * s.tps + 0.3 * tps
-    }
+    this.tpsSample(s, outTokens, genMs)
     s.err = 0.8 * s.err
     s.samples++
     s.overloads = 0
@@ -168,12 +178,23 @@ export class Health {
     s.ttft = normMs > s.ttft ? 0.35 * s.ttft + 0.65 * normMs : 0.75 * s.ttft + 0.25 * normMs
   }
 
+  /**
+   * Decode speed, the same way round: a slower answer moves the estimate most of the way down at once (one 10 tok/s
+   * answer takes a 195 tok/s prior to ~75, where the old plain average stopped at ~102), a faster one only a quarter
+   * of the way up.
+   */
+  private tpsSample(s: Stats, outTokens: number, genMs: number) {
+    if (!(outTokens >= TPS_MIN_TOKENS && genMs >= TPS_MIN_MS)) return
+    const tps = outTokens / (genMs / 1000)
+    s.tps = tps < s.tps ? 0.35 * s.tps + 0.65 * tps : 0.75 * s.tps + 0.25 * tps
+  }
+
   // ---------------------------------------------------------------- memory from a previous run
 
   /**
    * Replays attempts another router process recorded (RouterStore.recent):
-   * cooldowns still in force are applied now; first-token times and failures
-   * join each backend's stats when that backend is first seen. A router that
+   * cooldowns still in force are applied now; first-token times, decode
+   * speeds and failures join each backend's stats when that backend is first seen. A router that
    * just started in a fresh sandbox then knows what was overloaded or slow a
    * minute ago instead of finding out on the user's first message.
    */

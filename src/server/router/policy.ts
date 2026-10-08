@@ -26,6 +26,12 @@ export type RequestShape = {
   /** The chat's very first turn: one user message, nothing answered yet. Nothing is cached and the screen is blank. */
   opening: boolean
   /**
+   * The latest user message asks for a number: arithmetic, a conversion, an estimate, a price comparison (isNumeric).
+   * Auto only. Lowers the scarcity penalty and lets a user turn move to a stronger free model that is nearly as fast
+   * (applySticky); core.ts may also ask a minimal-thinking model to think (RouterOptions.numericEffort, off by default).
+   */
+  numeric?: boolean
+  /**
    * Keep off scarce free backends entirely (Gemini Flash, OpenRouter's daily cap, any free tier with ≤ 60 requests a day):
    * set for eval traffic (`x-syrup-eval: 1`, docs/QUALITY.md §7 decision 4), so `pnpm eval` never eats the user's daily quota.
    */
@@ -156,15 +162,76 @@ export function difficulty(alias: Alias, messages: Msg[], session: SessionState,
   return { hard: false, why: null }
 }
 
+/** Words before "plan" that make it a product's plan: "a pricing plan", "the cheapest plan", "which plan". */
+const PLAN_NOUN_BEFORE = /(?:^|[^\w])(?:pricing|price|paid|free|pro|basic|starter|premium|plus|team|business|enterprise|family|monthly|annual|yearly|data|phone|mobile|subscription|hosting|cheaper|cheapest|which)\s+$/i
+/** A named plan: "the Pro plan", "the Team plan". Case-sensitive, so "the migration plan" is still planning work. */
+const PLAN_NAMED_BEFORE = /(?:^|[^\w])the [A-Z][\w-]*\s+$/
+/** What may follow a plan that is a noun: a letter or number naming it ("plan A", "plan 2"; case-sensitive, so "plan a migration" stays a verb), or a price word. */
+const PLAN_NOUN_AFTER = /^(?:\s+[A-Z0-9]\b(?![a-z])|(?:'s|s)?\s+(?:costs?|start|starts|includes?|tiers?|prices?|pricing)\b)/
+
+/**
+ * "plan" as a noun ("plan A or plan B", "the Pro plan's price"), judged per occurrence, so a comparison of plans is not
+ * a planning task. A message that starts with "Plan" is always the verb ("Plan the auth module").
+ */
+function planIsNoun(text: string, at: number): boolean {
+  if (/^\s*$/.test(text.slice(0, at))) return false
+  const before = text.slice(Math.max(0, at - 40), at)
+  return PLAN_NOUN_BEFORE.test(before) || PLAN_NAMED_BEFORE.test(before) || PLAN_NOUN_AFTER.test(text.slice(at + 4, at + 40))
+}
+
+const HARD_ALL_RE = new RegExp(HARD_RE.source, "gi")
+
 /** Hard because of what the latest user message asks (a keyword, or two or more work signals); null when it reads as routine. */
 function askVerdict(messages: Msg[]): { hard: true; why: string } | null {
-  const ask = [...messages].reverse().find((m) => m.role === "user")
-  if (!ask) return null
-  const text = textOf(ask.content).slice(0, 20_000)
-  const m = HARD_RE.exec(text)
-  if (m) return { hard: true, why: `keyword:${m[1].toLowerCase()}` }
+  const text = latestUserText(messages)
+  if (text === null) return null
+  for (const m of text.matchAll(HARD_ALL_RE)) {
+    const word = m[1].toLowerCase()
+    if (word === "plan" && planIsNoun(text, m.index)) continue
+    return { hard: true, why: `keyword:${word}` }
+  }
   const signals = workSignals(text)
   return signals.length >= 2 ? { hard: true, why: `work:${signals.join("+")}` } : null
+}
+
+/** The latest user message's text (its first 20,000 characters), or null when there is none. */
+function latestUserText(messages: Msg[]): string | null {
+  for (let i = messages.length - 1; i >= 0; i--) if (messages[i].role === "user") return textOf(messages[i].content).slice(0, 20_000)
+  return null
+}
+
+// ---------------------------------------------------------------- numeric turns
+
+/** Words that ask for a quantity. */
+const QUANT_RE = /\b(estimat\w*|approx\w*|calculat\w*|compute|convert\w*|conversion|total|sum|add (?:it |them )?up|how (?:much|many)|average|median|percent(?:age)?|ratio|per (?:month|year|day|hour|user|seat|unit|gb|tb|token|request)|cost|price|pricing|budget|revenue|margin|roi|break[- ]even|exchange rate|cheaper|more expensive|forecast|projection)\b/i
+/** Money, a currency or a quantity with a unit. */
+const MONEY_UNIT_RE = /[$€£¥₹]\s?\d|\d[\d,.]*\s?(?:%|k\b|m\b|bn\b|usd|eur|gbp|pkr|inr|jpy|cny|aed|cad|aud|gb|tb|kg|km|hrs?|hours?|days?|months?|years?|seats?|users?|tokens?)\b|\b(?:usd|eur|gbp|pkr|inr|jpy|cny|aed|cad|aud)\b/i
+/** A short follow-up that only names a currency: "in PKR", "and in euros?" (the K2 chat's last turn). */
+const CURRENCY_FOLLOWUP_RE = /^\W*(?:and |what about |now )?(?:in|to|into) (?:usd|eur|gbp|pkr|inr|jpy|cny|aed|cad|aud|dollars?|euros?|pounds?|rupees?|yen|dirhams?)\W*$/i
+/**
+ * Arithmetic written out: "15% of 2.4M", "3 x 25", "1200/12". A division must stand alone, so a path ("logs/2024/01")
+ * is not one, and "0x1F" is hex. A date ("10/08") still matches; that only costs a little.
+ */
+const ARITH_RE = /\d[\d,.]*\s?%\s+of\b|(?<![\w.\/])(?!0x)\d[\d,.]*\s*(?:[×*+\/]|x(?=\s*\d))\s*\d[\d,.]*(?![\w\/])/i
+
+/**
+ * A turn whose answer is a number: arithmetic, a conversion, an estimate, a price comparison. Cheap and deliberately
+ * loose: a false positive costs a few seconds at most (scarcity −10 instead of −25, or a model about as fast); a miss
+ * leaves today's routing. Catches the K2 chat's own numberless follow-ups ("approx cost", "in PKR"); misses others
+ * ("what did it cost them in total?").
+ */
+export function isNumeric(text: string): boolean {
+  if (ARITH_RE.test(text) || CURRENCY_FOLLOWUP_RE.test(text)) return true
+  if (!QUANT_RE.test(text)) return false
+  const numbers = text.match(/\d[\d,.]*/g)?.length ?? 0
+  return MONEY_UNIT_RE.test(text) || numbers >= 2 || /\b(?:estimat|approx|convert|how much)\w*/i.test(text)
+}
+
+/** Whether the latest user message asks for a number. Auto only; judged like askVerdict, so every step of the turn shares it. */
+export function numericTurn(alias: Alias, messages: Msg[]): boolean {
+  if (alias !== "auto") return false
+  const text = latestUserText(messages)
+  return text !== null && isNumeric(text)
 }
 
 // ---------------------------------------------------------------- title calls
@@ -399,6 +466,24 @@ const GRADE_RANK: Record<Grade, number> = { small: 0, mid: 1, strong: 2, frontie
 
 /** Quality a free model needs to be picked for its speed on a chat's routine opening turn. */
 const OPENING_QUALITY_FLOOR = 60
+
+/**
+ * The fallback guardrail (docs/QUALITY.md Q5). On a routine later turn, a candidate predicted slower than both
+ * SLOW_ABS_MS and SLOW_RATIO × the quickest adequate model (quality 55+, free first) loses SLOW_PENALTY: still in the
+ * list for when nothing else can answer, never picked over a quick one. On 2026-10-08 a routine turn failed over to
+ * a free 550B model that took ~57 s for a short table while a quick model was up.
+ */
+const SLOW_ABS_MS = 20_000
+const SLOW_RATIO = 3
+const SLOW_PENALTY = 30
+/** Quality that counts as adequate for the guardrail's "quickest". */
+const SLOW_ADEQUATE_QUALITY = OPENING_QUALITY_FLOOR - 5
+/** A hard turn weighs time lightly, so a model predicted beyond this loses HARD_SLOW_PENALTY: quality alone never buys a 3-minute decoder. */
+const HARD_SLOW_MS = 90_000
+const HARD_SLOW_PENALTY = 15
+/** Scarcity penalty on a routine turn, and on a numeric one (a stronger model is worth more there). */
+const SCARCITY_ROUTINE = 25
+const SCARCITY_NUMERIC = 10
 /** Grade a free model needs to be picked for its speed on a hard opening turn: the registry's strong grade (quality 72+). */
 const HARD_OPENING_GRADE: Grade = "strong"
 
@@ -443,6 +528,9 @@ function paidHeldBack(shape: RequestShape, pool: readonly { c: Candidate }[], fl
  * hard opening asks more of "adequate" and escalates its session for what follows (difficulty).
  * Fast: least predicted wall time (first token weighted double), quality floor 50.
  * Eval traffic (`offScarce`) never sees a scarce candidate at all, not even as a fallback.
+ * Predicted time on Auto counts hidden thinking (ModelInfo.think) in the expected output. A routine later turn never
+ * puts a far slower model ahead of a quick adequate one (SLOW_*), and a hard turn never picks one predicted past 90 s
+ * on quality alone (HARD_SLOW_*).
  */
 export function rank(shape: RequestShape, feasible: { c: Candidate; outTokens: number }[], session: SessionState, health: Health): Scored[] {
   let pool = shape.offScarce ? feasible.filter((f) => !f.c.scarce) : feasible
@@ -454,7 +542,9 @@ export function rank(shape: RequestShape, feasible: { c: Candidate; outTokens: n
   const expectedOut = session.outEwma
   const scored = pool.map(({ c, outTokens }) => {
     const predTtftMs = health.predictTtftMs(c, shape.promptTokens)
-    const genMs = (Math.min(expectedOut, outTokens) / health.tps(c)) * 1000
+    // Fast asks every thinking model for low effort, so only Auto expects a model's default thinking.
+    const think = shape.alias === "auto" ? c.info.think : 1
+    const genMs = (Math.min(expectedOut * think, outTokens) / health.tps(c)) * 1000
     const predMs = predTtftMs + genMs
     const err = health.errRate(c)
     const belowFloor = adequate !== null && !adequate(c)
@@ -462,7 +552,7 @@ export function rank(shape: RequestShape, feasible: { c: Candidate; outTokens: n
     if (shape.alias === "auto") {
       // Free first: a paid key only wins when no good free model can take the turn (a frontier one on hard turns).
       const paid = c.costs ? (holdPaid ? 40 : 0) + costTier(c.model) : 0
-      const scarcity = !shape.hard && c.scarce ? 25 : 0
+      const scarcity = !shape.hard && c.scarce ? (shape.numeric && !opening ? SCARCITY_NUMERIC : SCARCITY_ROUTINE) : 0
       const time = opening ? 6 * (predTtftMs / 1000) : (shape.hard ? 0.5 : 1.5) * (predMs / 1000)
       const weak = belowFloor ? 30 : 0
       score = c.info.quality - time - err * 40 - scarcity - paid - weak
@@ -473,6 +563,17 @@ export function rank(shape: RequestShape, feasible: { c: Candidate; outTokens: n
     }
     return { c, score, predTtftMs, predMs, outTokens, belowFloor }
   })
+  if (shape.alias === "auto" && !opening) {
+    if (shape.hard) {
+      for (const s of scored) if (s.predMs > HARD_SLOW_MS) s.score -= HARD_SLOW_PENALTY
+    } else {
+      const adequate = scored.filter((s) => s.c.info.quality >= SLOW_ADEQUATE_QUALITY)
+      const free = adequate.filter((s) => !s.c.costs)
+      const quickest = Math.min(...(free.length > 0 ? free : adequate).map((s) => s.predMs))
+      const limit = Math.max(SLOW_ABS_MS, SLOW_RATIO * quickest)
+      for (const s of scored) if (s.predMs > limit) s.score -= SLOW_PENALTY
+    }
+  }
   return scored.sort((a, b) => b.score - a.score || b.c.info.quality - a.c.info.quality || (a.c.id < b.c.id ? -1 : a.c.id > b.c.id ? 1 : 0))
 }
 
@@ -501,10 +602,24 @@ export function hedgePartner(shape: RequestShape, first: Scored, rest: readonly 
   return { partner, patient: shape.hard && partner.belowFloor && !first.belowFloor }
 }
 
-export type Pick = { ordered: Scored[]; reason: "sticky" | "best" | "escalated" | "fallback"; note?: string }
+export type Pick = { ordered: Scored[]; reason: "sticky" | "best" | "escalated" | "fallback" | "numeric"; note?: string }
 
 /** Score lead over the sticky backend at which the better one takes over (where a switch is allowed at all). */
 const RELEASE_MARGIN = 6
+
+/**
+ * A numeric turn on a model below NUMERIC_FLOOR moves to a free one at or above it only when that one is predicted to
+ * start at most NUMERIC_TTFT_SLACK_MS and finish at most NUMERIC_TOTAL_SLACK_MS later (docs/QUALITY.md §3): accuracy
+ * without giving up the first-token priority. The floor is the registry's coding score until a numeric eval exists.
+ */
+const NUMERIC_FLOOR = 70
+const NUMERIC_TTFT_SLACK_MS = 3_000
+const NUMERIC_TOTAL_SLACK_MS = 8_000
+
+/** Predicted to start at most NUMERIC_TTFT_SLACK_MS and finish at most NUMERIC_TOTAL_SLACK_MS after `than`. */
+function nearlyAsFast(s: Scored, than: Scored): boolean {
+  return s.predTtftMs <= than.predTtftMs + NUMERIC_TTFT_SLACK_MS && s.predMs <= than.predMs + NUMERIC_TOTAL_SLACK_MS
+}
 
 /**
  * Session stickiness on top of the ranking. The sticky backend goes first
@@ -517,6 +632,7 @@ const RELEASE_MARGIN = 6
  * or the best backend is at least as good a model, now scores clearly higher,
  * and either this is a new user turn or the session only landed on the sticky
  * one through failover. Tool-call continuations of a chosen backend stay put.
+ * A numeric user turn on a weaker model moves to a stronger free one that is nearly as fast (reason "numeric").
  */
 export function applySticky(ranked: Scored[], session: SessionState, shape: RequestShape): Pick {
   const sid = session.sticky
@@ -537,12 +653,20 @@ export function applySticky(ranked: Scored[], session: SessionState, shape: Requ
       return { ordered: [target, ...ranked.filter((s) => s !== target)], reason: "escalated" }
     }
   }
+  if (shape.numeric && shape.lastIsUser && !shape.hard && st.c.info.quality < NUMERIC_FLOOR) {
+    // At a user-turn boundary only, where a switch costs least; free only. The first such model in rank order.
+    const up = ranked.find((s) => s.c.info.quality >= NUMERIC_FLOOR && !s.c.costs && nearlyAsFast(s, st))
+    if (up) return { ordered: [up, ...ranked.filter((s) => s !== up)], reason: "numeric" }
+  }
   if (st.c.scarce && shape.lastIsUser && !shape.hard) return { ordered: ranked, reason: "best", note: "released_scarce" }
   const best = ranked[0]
   // A failover onto a paid key is temporary: return to the free backend as soon as it ranks first again.
   if (i > 0 && st.c.costs && !best.c.costs) return { ordered: ranked, reason: "best", note: "released_paid" }
   if (i > 0 && st.predMs > 3 * best.predMs && st.predMs > 30_000) return { ordered: ranked, reason: "best", note: "released_slow" }
-  if (i > 0 && (session.stickyByFallback || shape.lastIsUser) && best.score - st.score > RELEASE_MARGIN && best.c.info.quality >= st.c.info.quality) {
+  // A numeric turn pays a scarce model less (SCARCITY_NUMERIC), so its better score alone must not buy a slow start:
+  // the move to a stronger model obeys the same slack as the numeric rule above.
+  const numericSlow = shape.numeric && !session.stickyByFallback && !nearlyAsFast(best, st)
+  if (i > 0 && (session.stickyByFallback || shape.lastIsUser) && best.score - st.score > RELEASE_MARGIN && best.c.info.quality >= st.c.info.quality && !numericSlow) {
     return { ordered: ranked, reason: "best", note: session.stickyByFallback ? "released_fallback" : "released_better" }
   }
   return { ordered: [st, ...ranked.slice(0, i), ...ranked.slice(i + 1)], reason: "sticky" }

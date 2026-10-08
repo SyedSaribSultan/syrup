@@ -5,7 +5,7 @@ import { ALIASES, BASE_URL, CandidateCache, type Alias, type Candidate } from ".
 import { ServedModels } from "./served"
 import { displayName, providerName } from "../../lib/model-registry"
 import { Health, type Cool } from "./health"
-import { appendTitleText, applySticky, difficulty, dynamicBlock, estimatePromptTokens, EVAL_HEADER, fallbackTitle, hasTitleText, hedgePartner, isOpening, isTitleCall, rank, staticFit, type Exclusion, type Msg, type RequestShape, type Scored } from "./policy"
+import { appendTitleText, applySticky, difficulty, dynamicBlock, estimatePromptTokens, EVAL_HEADER, fallbackTitle, hasTitleText, hedgePartner, isOpening, isTitleCall, numericTurn, rank, staticFit, type Exclusion, type Msg, type RequestShape, type Scored } from "./policy"
 import { InterleavedReasoning, Signatures } from "./reasoning-cache"
 import { Sessions, sessionHeader, sessionKey, type SessionState } from "./sessions"
 import { chunkKind, contentText, SseScanner, StreamTap, type SseLine, type Usage } from "./sse"
@@ -117,6 +117,20 @@ export type RouterOptions = {
   /** Clock for cooldowns, TTLs and timestamps. */
   now?: () => number
   timing?: Partial<RouterTiming>
+  /**
+   * Reasoning effort asked of a model that thinks minimally by default (Gemini 3.x Flash-Lite) on a numeric Auto turn
+   * (policy.isNumeric). Off unless set: docs/QUALITY.md §3 ships it only if the numeric eval's A/B shows it lifts the
+   * pass rate within +4 s of first text. Defaults to SYRUP_NUMERIC_EFFORT ("low" | "medium"; anything else is off).
+   */
+  numericEffort?: NumericEffort | null
+}
+
+export type NumericEffort = "low" | "medium"
+
+/** SYRUP_NUMERIC_EFFORT as an effort, or null (off) when unset or not one of the allowed values. */
+export function numericEffortFromEnv(v: string | undefined = process.env.SYRUP_NUMERIC_EFFORT): NumericEffort | null {
+  const t = v?.trim().toLowerCase()
+  return t === "low" || t === "medium" ? t : null
 }
 
 export function json(res: http.ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}) {
@@ -179,6 +193,13 @@ function pickHeaders(h: Headers): Record<string, string> {
     if (v) out[k] = v
   }
   return out
+}
+
+/** The thinking effort an outbound body asks for (either field), for the logs. */
+function effortOf(out: Record<string, unknown>): string | undefined {
+  if (typeof out.reasoning_effort === "string") return out.reasoning_effort
+  const r = out.reasoning as { effort?: unknown } | undefined
+  return typeof r?.effort === "string" ? r.effort : undefined
 }
 
 function num(v: unknown): number | undefined {
@@ -261,7 +282,7 @@ type AttemptResult = { kind: "done" } | { kind: "aborted" } | { kind: "hedged" }
 /** Lets the request loop move an attempt's first-token deadline (counted from the attempt's start) before it commits. */
 type AttemptControl = { extend?: (deadlineMs: number) => void }
 
-export function createRouter({ store, log, secret, baseURLs, now = Date.now, timing: timingOverride }: RouterOptions): Router {
+export function createRouter({ store, log, secret, baseURLs, now = Date.now, timing: timingOverride, numericEffort = numericEffortFromEnv() }: RouterOptions): Router {
   const timing: RouterTiming = { ...DEFAULT_TIMING, ...timingOverride }
   const leashWhy = () => `no first token within ${+(timing.leashMs / 1000).toFixed(1)}s`
   /** A title whose model was still thinking when its leash ran out: its first token came in time, its title did not. */
@@ -336,6 +357,32 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
     return [...messages, { role: "user", content: "Continue exactly where your previous message stopped. Don't repeat what you already wrote." }]
   }
 
+  /**
+   * The thinking parameter the router adds for this backend, or null. Skipped when the caller set one, and once a model
+   * has rejected it (health.noReasoningParam): Gemma on Google's endpoint 400s on it.
+   * - Fast asks for low effort. A title gets Google's least thinking: its hidden thoughts count against the title's
+   *   small output cap (TITLE_MAX_TOKENS) and delay its first visible token inside the leash. "minimal" is accepted by
+   *   every Gemini model through the OpenAI-compatible endpoint (3.x Flash and Flash-Lite: minimal; 3.x Pro: low; 2.5: 1,024 tokens).
+   * - Auto, only with `numericEffort` set (off by default): a numeric turn asks a model that thinks minimally by default
+   *   (ModelInfo.lowThinkDefault) to think. Same model, same cache, no extra request; openings included.
+   */
+  function reasoningParam(c: Candidate, ctx: Ctx): { field: "reasoning_effort"; value: string } | { field: "reasoning"; value: { effort: string } } | null {
+    const { body } = ctx
+    if (!c.reasoning || health.noReasoningParam(c) || body.reasoning_effort !== undefined || body.reasoning !== undefined) return null
+    if (ctx.alias === "fast") {
+      if (c.providerID === "google") return { field: "reasoning_effort", value: ctx.title ? "minimal" : "low" }
+      if (c.providerID === "openai") return { field: "reasoning_effort", value: "low" }
+      if ((c.providerID === "groq" || c.providerID === "cerebras") && /gpt-oss/.test(c.modelID)) return { field: "reasoning_effort", value: "low" }
+      if (c.providerID === "openrouter") return { field: "reasoning", value: { effort: "low" } }
+      return null
+    }
+    if (numericEffort && ctx.shape.numeric && !ctx.title && c.info.lowThinkDefault) {
+      if (c.providerID === "google") return { field: "reasoning_effort", value: numericEffort }
+      if (c.providerID === "openrouter") return { field: "reasoning", value: { effort: numericEffort } }
+    }
+    return null
+  }
+
   function outboundBody(c: Candidate, s: Scored, ctx: Ctx) {
     const { body } = ctx
     const out: Record<string, unknown> = { ...body, model: c.upstreamModel }
@@ -354,16 +401,8 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
       if (reqMax === undefined && reqMaxCompletion === undefined && (s.outTokens < 8192 || c.providerID === "anthropic")) out.max_tokens = s.outTokens
     }
 
-    // Skipped once a model has rejected the parameter (health.noReasoningParam): Gemma on Google's endpoint 400s on it.
-    if (ctx.alias === "fast" && c.reasoning && !health.noReasoningParam(c) && body.reasoning_effort === undefined && body.reasoning === undefined) {
-      // A title gets Google's least thinking: its hidden thoughts count against the title's small output cap
-      // (TITLE_MAX_TOKENS) and delay its first visible token inside the leash. "minimal" is accepted by every Gemini
-      // model through the OpenAI-compatible endpoint (3.x Flash and Flash-Lite: minimal; 3.x Pro: low; 2.5: 1,024 tokens).
-      if (c.providerID === "google") out.reasoning_effort = ctx.title ? "minimal" : "low"
-      else if (c.providerID === "openai") out.reasoning_effort = "low"
-      else if ((c.providerID === "groq" || c.providerID === "cerebras") && /gpt-oss/.test(c.modelID)) out.reasoning_effort = "low"
-      else if (c.providerID === "openrouter") out.reasoning = { effort: "low" }
-    }
+    const effort = reasoningParam(c, ctx)
+    if (effort) out[effort.field] = effort.value
     if ((c.providerID === "openai" || c.providerID === "openrouter") && body.prompt_cache_key === undefined) out.prompt_cache_key = ctx.sessionKey.slice(0, 64)
 
     const restored: Record<string, number> = {}
@@ -615,7 +654,7 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
     log(
       "router",
       "attempt.start",
-      { reqID: ctx.reqID, attempt, backend: c.backend, key: c.keyID ?? (c.keyless ? "keyless" : "env"), tier: c.tier, reason, deadlineMs: Math.round(deadlineMs), predTtftMs: Math.round(s.predTtftMs), maxTokens: out.max_tokens ?? out.max_completion_tokens, restored },
+      { reqID: ctx.reqID, attempt, backend: c.backend, key: c.keyID ?? (c.keyless ? "keyless" : "env"), tier: c.tier, reason, deadlineMs: Math.round(deadlineMs), predTtftMs: Math.round(s.predTtftMs), maxTokens: out.max_tokens ?? out.max_completion_tokens, effort: effortOf(out), restored },
       { sessionId: ctx.sessionId },
     )
     health.begin(c)
@@ -982,6 +1021,7 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
       hardWhy: diff.why,
       lastIsUser: messages[messages.length - 1]?.role === "user",
       opening: isOpening(messages),
+      numeric: !title && numericTurn(alias, messages),
       offScarce: req.headers[EVAL_HEADER] === "1",
     }
 
@@ -1026,6 +1066,7 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
         hard: shape.hard,
         why: shape.hardWhy ?? undefined,
         opening: shape.opening || undefined,
+        numeric: shape.numeric || undefined,
         offScarce: shape.offScarce || undefined,
         title: title || undefined,
         session: sKey,
@@ -1131,7 +1172,7 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
       } else if (!stream) deadline = Math.max(1000, budget - elapsed)
       else if (isLast) deadline = timing.lastDeadlineMs
       else deadline = Math.min(clamp(2 * s.predTtftMs, timing.minDeadlineMs, timing.maxDeadlineMs), Math.max(budget - elapsed, timing.minDeadlineMs))
-      const sentReasoningParam = alias === "fast" && s.c.reasoning && !health.noReasoningParam(s.c)
+      const sentReasoningParam = reasoningParam(s.c, ctx) !== null
       const reason = attempt === 1 ? pick.reason : "fallback"
 
       // A chat's opening turn on Auto, routine or hard: hedge the first attempt. If its backend has said nothing after

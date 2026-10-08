@@ -49,7 +49,7 @@ const CONTINUATION_GAP_MS = 10_000
 
 export type RouterSwitch =
   | { kind: "stopped"; to: Answer; from: Answer[] }
-  | { kind: "escalated" | "unavailable"; to: Answer; from: Answer }
+  | { kind: "escalated" | "unavailable" | "numeric"; to: Answer; from: Answer }
   | { kind: "retried"; to: Answer }
 
 /** How the router changed models for one message, judged only against answers the chat showed. */
@@ -72,8 +72,8 @@ export function routerSwitch(mine: readonly Answer[], all: readonly Answer[], cr
   if (earlier.length === 0 && prev?.partial && backendKey(prev.providerId, prev.modelId) !== toKey && answerStart(to) - prev.ts < CONTINUATION_GAP_MS) {
     return { kind: "stopped", to, from: [prev] }
   }
-  if (to.reason === "escalated" || (to.reason === "fallback" && to.attempts === 1)) {
-    if (prev && backendKey(prev.providerId, prev.modelId) !== toKey) return { kind: to.reason === "escalated" ? "escalated" : "unavailable", to, from: prev }
+  if (to.reason === "escalated" || to.reason === "numeric" || (to.reason === "fallback" && to.attempts === 1)) {
+    if (prev && backendKey(prev.providerId, prev.modelId) !== toKey) return { kind: to.reason === "escalated" || to.reason === "numeric" ? to.reason : "unavailable", to, from: prev }
   }
   // A hedge is a race, not a retry: the partner answered first while the first pick was still working on it.
   if (to.attempts > 1 && to.reason !== "hedge") return { kind: "retried", to }

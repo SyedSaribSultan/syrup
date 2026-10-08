@@ -170,6 +170,19 @@ const KEY_FORBIDDEN_RE = /unauthori[sz]ed|not authori[sz]ed|permission denied|fo
 /** A model that refuses the thinking/reasoning-effort parameter outright (Google's Gemma models through the OpenAI-compatible endpoint). */
 const NO_REASONING_RE = /thinking(?: level| budget| config)? is not supported|does not support (?:thinking|reasoning)|reasoning(?:_effort)? (?:is )?not supported|unknown (?:parameter|field)[^.]*reasoning/i
 
+/** Google's violated quota ids (" (GenerateRequestsPerMinutePerProjectPerModel-FreeTier)"), deduplicated and capped; "" when there are none. */
+function quotaNames(details: GoogleDetail[]): string {
+  const ids = new Set<string>()
+  for (const d of details) {
+    if (!String(d["@type"] ?? "").includes("QuotaFailure")) continue
+    for (const v of d.violations ?? []) {
+      const id = typeof v.quotaId === "string" ? v.quotaId.replace(/[^\w.:-]/g, "").slice(0, 80) : ""
+      if (id) ids.add(id)
+    }
+  }
+  return ids.size ? ` (${short([...ids].slice(0, 3).join(", "), 200)})` : ""
+}
+
 function fmtUntil(retryAt: number, now: number): string {
   const s = Math.round((retryAt - now) / 1000)
   if (s < 120) return `${s}s`
@@ -244,14 +257,17 @@ export function classifyFailure(f: UpstreamFailure): Classified {
     const details = Array.isArray(err?.details) ? err.details : []
     const quotaIds = details.flatMap((d) => (String(d["@type"] ?? "").includes("QuotaFailure") ? (d.violations ?? []).map((v) => `${v.quotaId ?? ""} ${v.quotaMetric ?? ""}`) : []))
     const retryInfo = details.find((d) => String(d["@type"] ?? "").includes("RetryInfo"))
+    // The quota ids themselves go into the message: a requests-per-minute and an input-tokens-per-minute limit both
+    // read as "rpm", and only the id tells them apart when a failover is investigated (docs/QUALITY.md Q5).
+    const which = quotaNames(details)
     if (quotaIds.some((q) => /PerDay/i.test(q))) {
       const retryAt = nextPacificMidnight(now)
-      return { reason: "rpd", status: "rate_limited", scope: "backend", retryAt, unhealthy: false, message: `daily free quota used up (resets at midnight Pacific, in ${fmtUntil(retryAt, now)})` }
+      return { reason: "rpd", status: "rate_limited", scope: "backend", retryAt, unhealthy: false, message: `daily free quota used up${which} (resets at midnight Pacific, in ${fmtUntil(retryAt, now)})` }
     }
     if (quotaIds.some((q) => /PerMinute/i.test(q)) || retryInfo) {
       const delay = parseDuration(retryInfo?.retryDelay) ?? parseRetryAfter(headers["retry-after"], now) ?? MIN
       const retryAt = now + Math.min(Math.max(delay, 1000), 15 * MIN)
-      return { reason: "rpm", status: "rate_limited", scope: "backend", retryAt, unhealthy: false, message: `per-minute quota hit (retry in ${fmtUntil(retryAt, now)})` }
+      return { reason: "rpm", status: "rate_limited", scope: "backend", retryAt, unhealthy: false, message: `per-minute quota hit${which} (retry in ${fmtUntil(retryAt, now)})` }
     }
     // OpenRouter: the free-model daily cap is shared by every free model on the account.
     if (providerID === "openrouter" && /per-day|free-models-per-day|per day/i.test(msg)) {

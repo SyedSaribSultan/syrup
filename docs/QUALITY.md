@@ -1,6 +1,6 @@
 # Answer quality
 
-Status: **agreed 2026-10-08 (decisions in §7); Q0 and Q1 done (Q1b, the judge, open); Q2 next.** This is the plan for making syrup's answers right, not only fast. It comes from one real chat that went wrong and five research reports on why. [ROADMAP.md](ROADMAP.md) gets a "Q" track once §7 is answered.
+Status: **agreed 2026-10-08 (decisions in §7); Q0, Q1 and Q5 done (Q1b, the judge, open); Q2 and Round 2a in progress.** This is the plan for making syrup's answers right, not only fast. It comes from one real chat that went wrong and five research reports on why. [ROADMAP.md](ROADMAP.md) gets a "Q" track once §7 is answered.
 
 Related: [ARCHITECTURE.md](ARCHITECTURE.md) (router, engine), [RENDERING.md](RENDERING.md) (rounds 2–8, which share files with this plan), [TESTING.md](TESTING.md) (the gate).
 
@@ -125,6 +125,17 @@ Reports, with a source for each claim: `scratchpad/quality-research/{numbers,gro
 - A `numeric` turn class (for the "move when nearly as fast" rule and, if the eval says so, the thinking bump).
 - "plan A or plan B" stops counting as a hard turn. Google's quota id kept in error messages, so the next failover is diagnosable.
 - **Done when:** the K2 replay's last turn never lands on a slow giant; router suite scenarios for each rule; `bench:agent` first text unchanged on lookup turns.
+
+### Q5 results (2026-10-08)
+
+- **Realistic speeds.** OpenRouter ids ending in `:free` start at 25 tok/s and 1.5× the first-token time until measured (`model-registry.ts`). Each model has a `think` multiplier on its expected output on Auto (Gemini Flash 1.8, Gemini 3.1 Pro 2, Nemotron 3 Ultra 2.5, unknown reasoning models 2, the rest 1). Kimi K3 stays at 1: at 2.5 on top of its 45 tok/s prior, a free Kimi lost routine turns to a paid key.
+- **Slowness is learned fast and forgotten slowly.** One 10 tok/s answer takes a 195 tok/s estimate to ~75 (it stopped at ~102 before); a faster answer moves it a quarter of the way up. Decode speed decays toward the prior with a 60-minute half-life (first-token time keeps 10 minutes). `Health.seed` replays measured decode speed into a new sandbox.
+- **The fallback guardrail.** On a routine later turn, a backend predicted slower than max(20 s, 3× the quickest adequate model) loses 30 points: last, still used when nothing else can answer. On a hard turn, −15 above 90 s.
+- **The `numeric` turn class** (`policy.isNumeric`, Auto only): arithmetic, conversions, estimates, price comparisons, and the K2 chat's numberless follow-ups ("approx cost", "in PKR"). Scarcity costs 10 instead of 25 (not on openings). The chat moves to a stronger free model (quality 70+) only when it is predicted to start within 3 s and finish within 8 s of the current one, at a user-turn boundary (reason `numeric`; the chat says "for a calculation"); the usual "clearly better model" release obeys the same slack, so Google-only chats stay on Flash-Lite.
+- **The thinking bump is built and off.** `SYRUP_NUMERIC_EFFORT=low|medium` asks Gemini 3.x Flash-Lite for that effort on numeric turns; unset means off until the numeric eval's A/B decides (§3).
+- "plan A or plan B" and "the Pro plan's price" are no longer hard turns; "Plan the auth module" still is. Google's quota id stays in the error message.
+- **The K2 replay** (real `rank()`/`staticFit()`, ~65K-token last turn, Flash-Lite rate-limited): before, Nemotron 3 Ultra :free was the fallback, predicted 8.7 s (it took ~57 s); after, Gemini 3.5 Flash answers, predicted 20 s, and Nemotron ranks last (predicted 50 s).
+- **Measured.** Router suite 96/96, verified alone in a clean worktree. Eval smoke 5/5. Bench before a dev-server restart: lookup turns' first text 3.7–6.6 s, not slower than before; a re-bench on the restarted server is pending.
 
 ### Q6 — Small fixes
 

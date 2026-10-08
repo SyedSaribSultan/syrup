@@ -25,7 +25,10 @@ await build({
       'export * from "./src/server/router/core"',
       'export * from "./src/server/router/upstream-errors"',
       'export { BASE_URL } from "./src/server/router/backends"',
-      'export { applySticky, difficulty, estimatePromptTokens, fallbackTitle, isTitleCall, trailingToolFailures } from "./src/server/router/policy"',
+      'export { applySticky, difficulty, estimatePromptTokens, fallbackTitle, isNumeric, isTitleCall, numericTurn, rank, trailingToolFailures } from "./src/server/router/policy"',
+      'export { Health } from "./src/server/router/health"',
+      'export { modelInfo } from "./src/lib/model-registry"',
+      'export { switchNote } from "./src/lib/model-label"',
       'export { describeDrops, droppedAttempt } from "./src/lib/router-status"',
       'export { routerSwitch } from "./src/lib/router-answers"',
       'export { HttpRouterStore, parseKeyMeta, relayBaseURLs } from "./sidecar/store-http"',
@@ -347,7 +350,8 @@ function continuation(user) {
   ]
 }
 
-async function makeRouter({ keys, catalog = CATALOG, timing = TIMING, now } = {}) {
+/** `numericEffort` is off unless a scenario sets it, whatever SYRUP_NUMERIC_EFFORT says. `recent`: events a previous router process recorded (Health.seed). */
+async function makeRouter({ keys, catalog = CATALOG, timing = TIMING, now, numericEffort = null, recent } = {}) {
   const events = []
   const logs = []
   const store = {
@@ -356,12 +360,13 @@ async function makeRouter({ keys, catalog = CATALOG, timing = TIMING, now } = {}
     record: async (e) => {
       events.push(e)
     },
+    ...(recent ? { recent: async () => recent } : {}),
   }
   const log = (source, event, data, opts) => {
     logs.push({ source, event, data, opts })
     if (DEBUG) console.log(`  [${source}] ${event}`, JSON.stringify(data))
   }
-  const router = R.createRouter({ store, log, secret: SECRET, baseURLs, timing, now })
+  const router = R.createRouter({ store, log, secret: SECRET, baseURLs, timing, now, numericEffort })
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost")
     void router.handle(req, res, url).then((handled) => {
@@ -2249,16 +2254,17 @@ await scenario("z22) a hard opening with no free strong model keeps a quicker we
 
 await scenario("z23) a hard opening's partner below the first pick's floor waits until the pick is late: a strong pick on time is never pre-empted", async () => {
   const catalog = new Map([
-    ["openrouter", new Map([["deepseek/deepseek-v4-flash:free", M("deepseek/deepseek-v4-flash:free", { context: 200_000, output: 32_000 })]])],
+    // A $0 OpenRouter model without the ":free" suffix: it keeps the paid-host speed prior this race is built around (the free-endpoint prior is z43's).
+    ["openrouter", new Map([["deepseek/deepseek-v4-flash", M("deepseek/deepseek-v4-flash", { context: 200_000, output: 32_000 })]])],
     ["google", new Map([["gemini-3.5-flash-lite", M("gemini-3.5-flash-lite", { image: true, cost: { input: 0.3, output: 2.5 } })]])],
   ])
   const user = "plan the architecture for the billing module"
   // On time: predicted ~0.9 s to its first token, it answers at 0.7 s. The routine 0.4 s hedge would have raced it.
   const r = await makeRouter({ keys: [K.openrouterFree, K.google], catalog })
   try {
-    mock.set("openrouter/deepseek/deepseek-v4-flash:free", sseOk({ firstDelayMs: 700 }))
+    mock.set("openrouter/deepseek/deepseek-v4-flash", sseOk({ firstDelayMs: 700 }))
     const res = await chat(r, { user, headers: { "x-session-affinity": "ses_z23a" } })
-    eq(res.headers.get("x-syrup-model"), "deepseek/deepseek-v4-flash:free", "the strong pick answers")
+    eq(res.headers.get("x-syrup-model"), "deepseek/deepseek-v4-flash", "the strong pick answers")
     eq(res.headers.get("x-syrup-reason"), "best", "not raced")
     eq(r.logs.some((l) => l.event === "hedge.start"), false, "no hedge started")
     eq(mock.of("google/gemini-3.5-flash-lite").length, 0, "the mid model was never asked")
@@ -2269,7 +2275,7 @@ await scenario("z23) a hard opening's partner below the first pick's floor waits
   // Late: silent past 1.25× its prediction, so the quality-60 partner starts and answers.
   const r2 = await makeRouter({ keys: [K.openrouterFree, K.google], catalog })
   try {
-    mock.set("openrouter/deepseek/deepseek-v4-flash:free", roleThenStall())
+    mock.set("openrouter/deepseek/deepseek-v4-flash", roleThenStall())
     const t0 = Date.now()
     const res = await chat(r2, { user, headers: { "x-session-affinity": "ses_z23b" } })
     const took = Date.now() - t0
@@ -2431,14 +2437,15 @@ await scenario("z27) a hard opening's race never spends scarce quota or money (d
         ["big-pickle", M("big-pickle", { context: 200_000, output: 32_000 })],
       ]),
     ],
-    ["openrouter", new Map([["deepseek/deepseek-v4-flash:free", M("deepseek/deepseek-v4-flash:free", { context: 200_000, output: 32_000 })]])],
+    // $0 on OpenRouter, so scarce on a free key; no ":free" suffix, so it keeps the speed prior this ranking is built around (see z43).
+    ["openrouter", new Map([["deepseek/deepseek-v4-flash", M("deepseek/deepseek-v4-flash", { context: 200_000, output: 32_000 })]])],
   ])
   const r = await makeRouter({ keys: [K.opencode, K.openrouterFree], catalog })
   try {
     mock.set("opencode/mimo-v2.6-flash-free", roleThenStall())
     const res = await chat(r, { messages: [agentSystem(12_000), { role: "user", content: "plan the architecture for the billing module" }], headers: { "x-session-affinity": "ses_z27" } })
-    assert(r.received()[0].top[1]?.startsWith("openrouter/deepseek/deepseek-v4-flash:free"), `the scarce model ranks second (${r.received()[0].top.join(" | ")})`)
-    eq(mock.of("openrouter/deepseek/deepseek-v4-flash:free").length, 0, "its 50-a-day quota is not spent on a race")
+    assert(r.received()[0].top[1]?.startsWith("openrouter/deepseek/deepseek-v4-flash"), `the scarce model ranks second (${r.received()[0].top.join(" | ")})`)
+    eq(mock.of("openrouter/deepseek/deepseek-v4-flash").length, 0, "its 50-a-day quota is not spent on a race")
     eq(res.headers.get("x-syrup-reason"), "hedge", "the race goes to the next free, non-scarce model")
     eq(res.headers.get("x-syrup-model"), "big-pickle", "big-pickle")
   } finally {
@@ -3038,6 +3045,337 @@ await scenario("eval3) an eval title call with only scarce backends gets the rou
   } finally {
     await r.close()
   }
+})
+
+// ------------------------------------------------------------------ Q5 routing (docs/QUALITY.md): realistic speeds, the slow-fallback guardrail, numeric turns
+
+await scenario("unit: numeric turns are recognised (Auto only); code and lookups are not", async () => {
+  const yes = [
+    "Estimate the total monthly cost for 3 seats at $25 and 2 at €40",
+    "Convert 12,500 PKR to USD",
+    "what's 15% of 2.4M",
+    "which is cheaper per GB, A at $5/100GB or B at $12/250GB",
+    "how much would 40k requests a day cost",
+    "what is 1200/12",
+    "3 x 25 seats, what's the total?",
+    // The K2 chat's own numeric turns (2026-10-08): no digits at all.
+    "approx cost",
+    "in PKR",
+  ]
+  const no = [
+    "how many files are in src?",
+    "add a test for the total() function",
+    "write a Price component in React",
+    "summarise these three pages",
+    "read logs/2024/01/app.log and tell me what failed",
+    "set the mask to 0x1F",
+    "add a README file",
+    "what about for a pakistani",
+    "translate this into French",
+  ]
+  for (const t of yes) eq(R.isNumeric(t), true, `numeric: ${JSON.stringify(t)}`)
+  for (const t of no) eq(R.isNumeric(t), false, `not numeric: ${JSON.stringify(t)}`)
+  const msgs = continuation("Convert 12,500 PKR to USD")
+  eq(R.numericTurn("auto", msgs), true, "an Auto turn")
+  eq(R.numericTurn("fast", msgs), false, "never on Fast")
+  eq(R.numericTurn("auto", [...msgs, ...toolTurn("call_n1", "rate: 278")]), true, "a tool step shares its user message's verdict")
+})
+
+await scenario("unit: \"plan A or plan B\" and \"the Pro plan's price\" are not hard; \"Plan the auth module\" and \"plan how to migrate\" are", async () => {
+  const fresh = () => ({ key: "x", sticky: null, stickyAt: 0, stickyByFallback: false, outEwma: 600, escalatedUntil: 0, escalatedThroughUser: 0, lastSeen: 0 })
+  const hard = (t) => R.difficulty("auto", continuation(t), fresh(), 0)
+  eq(hard("Which is cheaper per GB, plan A or plan B?").hard, false, "plan A or plan B")
+  eq(hard("What is the Pro plan's price per seat?").hard, false, "the Pro plan's price")
+  eq(hard("Is the pricing plan billed monthly?").hard, false, "a pricing plan")
+  eq(hard("Plan the auth module").why, "keyword:plan", "Plan at the start is the verb")
+  eq(hard("plan how to migrate the database").why, "keyword:plan", "plan how to")
+  eq(hard("review the migration plan for risks").why, "keyword:plan", "a lowercase noun phrase is still planning work")
+  eq(hard("Compare plan A with plan B, then debug the checkout").why, "keyword:debug", "a later hard keyword still counts")
+})
+
+await scenario("unit: Google's quota id stays in the failure message, so a failover says which limit it hit", async () => {
+  const now = Date.UTC(2026, 9, 8, 12, 0, 0)
+  const base = { headers: {}, promptTokens: 60_000, now, providerID: "google" }
+  const perMin = R.classifyFailure({ ...base, status: 429, body: JSON.stringify(GOOGLE_PER_MINUTE) })
+  eq(perMin.reason, "rpm", "still a per-minute cooldown")
+  assert(perMin.message.includes("GenerateRequestsPerMinutePerProjectPerModel-FreeTier"), `per-minute id kept: ${perMin.message}`)
+  const tokens = structuredClone(GOOGLE_PER_MINUTE)
+  tokens[0].error.details[0].violations = [{ quotaMetric: "generativelanguage.googleapis.com/generate_content_free_tier_input_token_count", quotaId: "GenerateContentInputTokensPerModelPerMinute-FreeTier", quotaValue: "250000" }]
+  const tpm = R.classifyFailure({ ...base, status: 429, body: JSON.stringify(tokens) })
+  eq(tpm.reason, "rpm", "an input-tokens-per-minute quota cools the same way")
+  assert(tpm.message.includes("GenerateContentInputTokensPerModelPerMinute-FreeTier"), `token quota id kept: ${tpm.message}`)
+  const perDay = R.classifyFailure({ ...base, status: 429, body: JSON.stringify(GOOGLE_PER_DAY) })
+  eq(perDay.reason, "rpd", "daily")
+  assert(perDay.message.includes("GenerateRequestsPerDayPerProjectPerModel-FreeTier"), `daily id kept: ${perDay.message}`)
+  const bare = R.classifyFailure({ ...base, status: 429, body: JSON.stringify([{ error: { code: 429, details: [{ "@type": "type.googleapis.com/google.rpc.RetryInfo", retryDelay: "5s" }] } }]) })
+  assert(!bare.message.includes("()"), `no empty brackets without an id: ${bare.message}`)
+})
+
+await scenario("z39) a numeric turn on a Flash-Lite chat stays on Flash-Lite; with the effort option on it asks for medium thinking, and only then", async () => {
+  eq(R.numericEffortFromEnv(undefined), null, "unset: off")
+  eq(R.numericEffortFromEnv("medium"), "medium", "medium")
+  eq(R.numericEffortFromEnv(" LOW "), "low", "low, any case")
+  eq(R.numericEffortFromEnv("high"), null, "anything else: off")
+  const LITE = "google/gemini-3.5-flash-lite"
+  const ask = "Convert 12,500 PKR to USD at 278 PKR per USD"
+  // Off (the default): nothing changes on the wire.
+  const off = await makeRouter({ keys: [K.google] })
+  try {
+    const h = { "x-session-affinity": "ses_z39_off" }
+    await chat(off, { messages: continuation("add a README file"), headers: h })
+    const res = await chat(off, { messages: continuation(ask), headers: h })
+    eq(`${res.headers.get("x-syrup-provider")}/${res.headers.get("x-syrup-model")}`, LITE, "stays on Flash-Lite")
+    eq(res.headers.get("x-syrup-reason"), "sticky", "sticky")
+    eq(mock.hits.at(-1).body.reasoning_effort, undefined, "no thinking parameter while the option is off")
+    eq(off.received().at(-1).numeric, true, "the turn is logged as numeric")
+  } finally {
+    await off.close()
+  }
+  mock.reset()
+  const r = await makeRouter({ keys: [K.google], numericEffort: "medium" })
+  try {
+    const h = { "x-session-affinity": "ses_z39" }
+    await chat(r, { messages: continuation("add a README file"), headers: h })
+    eq(mock.hits.at(-1).key, LITE, "a routine turn on Flash-Lite")
+    eq(mock.hits.at(-1).body.reasoning_effort, undefined, "a routine turn sends no thinking parameter")
+    const num = await chat(r, { messages: continuation(ask), headers: h })
+    eq(num.headers.get("x-syrup-reason"), "sticky", "the numeric turn stays sticky: Gemini Flash starts ~6 s later")
+    eq(mock.hits.at(-1).key, LITE, "on Flash-Lite")
+    eq(mock.hits.at(-1).body.reasoning_effort, "medium", "asks for medium thinking")
+    eq(r.logs.filter((l) => l.event === "attempt.start").at(-1).data.effort, "medium", "the effort is logged")
+    await chat(r, { messages: [...continuation(ask), ...toolTurn("call_z39", "278")], headers: h })
+    eq(mock.hits.at(-1).body.reasoning_effort, "medium", "the turn's tool step keeps it")
+    await chat(r, { messages: continuation("what's in the README?"), headers: h })
+    eq(mock.hits.at(-1).body.reasoning_effort, undefined, "the next lookup turn sends none")
+    await chat(r, { alias: "fast", messages: continuation(ask), headers: { "x-session-affinity": "ses_z39_fast" } })
+    eq(mock.hits.at(-1).body.reasoning_effort, "low", "a Fast numeric turn keeps Fast's low effort")
+    eq(r.received().at(-1).numeric, undefined, "and is not numeric")
+    await chat(r, { messages: [{ role: "system", content: "You are a coding agent." }, { role: "user", content: "what's 15% of 2.4M" }], headers: { "x-session-affinity": "ses_z39_open" } })
+    eq(mock.hits.at(-1).body.reasoning_effort, "medium", "an opening numeric turn gets it too (no extra request)")
+    // A model that refuses the parameter is retried plain once, on the same backend.
+    mock.reset()
+    mock.once(LITE, status(400, { error: { message: "Thinking level is not supported for this model.", code: 400, status: "INVALID_ARGUMENT" } }))
+    const refused = await chat(r, { messages: continuation(ask), headers: h })
+    eq(refused.status, 200, "answered")
+    eq(mock.hits.length, 2, "two upstream calls")
+    eq(mock.hits[0].body.reasoning_effort, "medium", "first with the parameter")
+    eq(mock.hits[1].key, LITE, "then the same model")
+    eq(mock.hits[1].body.reasoning_effort, undefined, "plain")
+  } finally {
+    await r.close()
+  }
+})
+
+await scenario("z40) a numeric turn moves to a stronger free model only when it is about as fast; scarce-and-slow and paid never win", async () => {
+  const LITE = "google/gemini-3.5-flash-lite"
+  // A q77 model that starts in ~1 s, on OpenRouter's $0 list (scarce, so a routine turn stays on Flash-Lite).
+  const quick = new Map([
+    ["google", new Map([["gemini-3.5-flash-lite", M("gemini-3.5-flash-lite", { image: true, cost: { input: 0.3, output: 2.5 } })]])],
+    ["openrouter", new Map([["z-ai/glm-5.3-flash", M("z-ai/glm-5.3-flash", { context: 200_000, output: 32_000 })]])],
+  ])
+  const r = await makeRouter({ keys: [K.google, K.openrouterFree], catalog: quick })
+  try {
+    const h = { "x-session-affinity": "ses_z40" }
+    await chat(r, { messages: continuation("add a README file"), headers: h })
+    eq(mock.hits.at(-1).key, LITE, "a routine turn stays on Flash-Lite (the q77 is scarce)")
+    const num = await chat(r, { messages: continuation("Estimate the total monthly cost for 3 seats at $25 and 2 at €40"), headers: h })
+    eq(num.headers.get("x-syrup-model"), "z-ai/glm-5.3-flash", "the numeric turn moves to the quick q77")
+    eq(num.headers.get("x-syrup-reason"), "numeric", "reason: numeric")
+    await chat(r, { messages: [...continuation("Estimate the total monthly cost for 3 seats at $25 and 2 at €40"), ...toolTurn("call_z40", "ok")], headers: h })
+    eq(mock.hits.at(-1).key, "openrouter/z-ai/glm-5.3-flash", "its tool step stays")
+    const back = await chat(r, { messages: continuation("what's in the README?"), headers: h })
+    eq(`${back.headers.get("x-syrup-provider")}/${back.headers.get("x-syrup-model")}`, LITE, "the next routine turn gives the scarce model back")
+    eq(r.received().at(-1).note, "released_scarce", "released at the turn boundary")
+    const note = R.switchNote(
+      [{ ts: 2_000, alias: "auto", providerId: "openrouter", modelId: "z-ai/glm-5.3-flash", attempts: 1, reason: "numeric", ttftMs: 900, latencyMs: 400, outputTokens: 300, partial: false }],
+      [{ ts: 1_000, alias: "auto", providerId: "google", modelId: "gemini-3.5-flash-lite", attempts: 1, reason: "sticky", ttftMs: 900, latencyMs: 1_000, outputTokens: 300, partial: false }],
+      1_500,
+    )
+    assert(/for a calculation/.test(note ?? ""), `the chat says why it switched: ${note}`)
+  } finally {
+    await r.close()
+  }
+  mock.reset()
+  // Google only, with an agent-sized prompt: Gemini 3.5 Flash (q75, scarce) is predicted to start ~5 s after Flash-Lite,
+  // so the chat stays put on the numeric turn.
+  const big = (t) => [agentSystem(16_000), ...continuation(t).slice(1)]
+  const google = new Map([
+    [
+      "google",
+      new Map([
+        ["gemini-3.5-flash-lite", M("gemini-3.5-flash-lite", { image: true, cost: { input: 0.3, output: 2.5 } })],
+        ["gemini-3.5-flash", M("gemini-3.5-flash", { image: true, cost: { input: 0.5, output: 3 } })],
+      ]),
+    ],
+  ])
+  const g = await makeRouter({ keys: [K.google], catalog: google, numericEffort: "medium" })
+  try {
+    const h = { "x-session-affinity": "ses_z40_g" }
+    await chat(g, { messages: big("add a README file"), headers: h })
+    const num = await chat(g, { messages: big("Convert 12,500 PKR to USD at 278 PKR per USD"), headers: h })
+    eq(`${num.headers.get("x-syrup-provider")}/${num.headers.get("x-syrup-model")}`, LITE, "stays on Flash-Lite")
+    eq(num.headers.get("x-syrup-reason"), "sticky", "sticky, not released_better")
+    eq(mock.hits.at(-1).body.reasoning_effort, "medium", "with the effort bump when it is on")
+    eq(mock.of("google/gemini-3.5-flash").length, 0, "the scarce model's 20 a day are untouched")
+  } finally {
+    await g.close()
+  }
+  mock.reset()
+  // A paid key is never the stronger model a numeric turn moves to, though Sonnet would be about as fast (Gemini Flash,
+  // free and q75, holds the paid key back on routine turns).
+  const paid = new Map([
+    ["google", google.get("google")],
+    ["anthropic", new Map([["claude-sonnet-5", M("claude-sonnet-5", { cost: { input: 3, output: 15 }, output: 64_000 })]])],
+  ])
+  const p = await makeRouter({ keys: [K.google, K.anthropicPaid], catalog: paid })
+  try {
+    const h = { "x-session-affinity": "ses_z40_p" }
+    await chat(p, { messages: big("add a README file"), headers: h })
+    eq(mock.hits.at(-1).key, "google/gemini-3.5-flash-lite", "a routine turn on Flash-Lite")
+    const num = await chat(p, { messages: big("Estimate the total monthly cost for 3 seats at $25 and 2 at €40"), headers: h })
+    eq(num.headers.get("x-syrup-model"), "gemini-3.5-flash-lite", "stays on the free model")
+    eq(mock.of("anthropic/claude-sonnet-5").length, 0, "no money spent")
+  } finally {
+    await p.close()
+  }
+})
+
+await scenario("z41) a routine-turn failover never picks a backend predicted far slower (≥3× and >20 s) while a quicker adequate one is up", async () => {
+  const clock = fakeClock(Date.UTC(2026, 9, 8, 12, 0, 0))
+  const catalog = new Map([
+    ["google", new Map([["gemini-3.5-flash-lite", M("gemini-3.5-flash-lite", { image: true, cost: { input: 0.3, output: 2.5 } })]])],
+    // q74, decodes at 11 tok/s on this key (recorded below); its 195 tok/s prior says otherwise.
+    ["nvidia", new Map([["nvidia/nemotron-3-ultra-550b-a55b", M("nvidia/nemotron-3-ultra-550b-a55b", { output: 65_536 })]])],
+    // q60, quick, but on OpenRouter's $0 list (scarce). No ":free" suffix, so it keeps its quick prior.
+    ["openrouter", new Map([["qwen/qwen3.8-27b", M("qwen/qwen3.8-27b", { context: 262_144, output: 32_000 })]])],
+  ])
+  const recent = [
+    { id: "s1", ts: clock.now() - 60_000, alias: "auto", providerId: "nvidia", modelId: "nvidia/nemotron-3-ultra-550b-a55b", keyId: "k_nv", tier: "free", status: "ok", httpStatus: 200, attempts: 1, latencyMs: 3_000 + 34_000, inputTokens: 16_000, outputTokens: 374, cost: 0, error: null, sessionId: "s_old", ttftMs: 3_000, retryAt: null, reason: "best" },
+  ]
+  const r = await makeRouter({ keys: [K.google, K.nvidia, K.openrouterFree], catalog, now: clock.now, recent })
+  try {
+    mock.once("google/gemini-3.5-flash-lite", status(429, GOOGLE_PER_MINUTE))
+    const res = await chat(r, { messages: [agentSystem(16_000), ...continuation("what does the README say?").slice(1)], headers: { "x-session-affinity": "ses_z41" } })
+    eq(res.status, 200, "answered")
+    eq(res.headers.get("x-syrup-model"), "qwen/qwen3.8-27b", "the quick adequate model answers, not the slow giant")
+    eq(mock.of("nvidia/nvidia/nemotron-3-ultra-550b-a55b").length, 0, "the slow giant is never asked")
+    const top = r.received().at(-1).top
+    assert(top.at(-1).startsWith("nvidia/nvidia/nemotron-3-ultra-550b-a55b"), `ranked last, still in the list (${top.join(" | ")})`)
+    const rl = r.events.find((e) => e.status === "rate_limited")
+    assert(rl?.error?.includes("GenerateRequestsPerMinutePerProjectPerModel-FreeTier"), `the failover row names the quota (${rl?.error})`)
+  } finally {
+    await r.close()
+  }
+  mock.reset()
+  // Nothing else can answer: the slow model is still used.
+  const solo = new Map([["nvidia", catalog.get("nvidia")], ["google", catalog.get("google")]])
+  const s = await makeRouter({ keys: [K.google, K.nvidia], catalog: solo, now: clock.now, recent })
+  try {
+    mock.once("google/gemini-3.5-flash-lite", status(429, GOOGLE_PER_MINUTE))
+    const res = await chat(s, { messages: [agentSystem(16_000), ...continuation("what does the README say?").slice(1)], headers: { "x-session-affinity": "ses_z41b" } })
+    eq(res.headers.get("x-syrup-model"), "nvidia/nemotron-3-ultra-550b-a55b", "a last resort, not excluded")
+  } finally {
+    await s.close()
+  }
+})
+
+/** A streamed answer of `tokens` completion tokens whose decoding takes `genMs` on the router's fake clock. */
+function slowDecode(clock, tokens, genMs) {
+  return async (req, res) => {
+    res.writeHead(200, { "content-type": "text/event-stream" })
+    const send = (o) => res.write(`data: ${JSON.stringify(o)}\n\n`)
+    send({ id: "c", choices: [{ index: 0, delta: { role: "assistant", content: "" } }] })
+    send({ id: "c", choices: [{ index: 0, delta: { content: "| item | cost |" } }] })
+    // Let the router commit on the first text before the clock moves.
+    await sleep(100)
+    clock.advance(genMs)
+    send({ id: "c", choices: [{ index: 0, delta: { content: "\n| permit | $5,000 |" } }] })
+    send({ id: "c", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] })
+    send({ id: "c", choices: [], usage: { prompt_tokens: 1000, completion_tokens: tokens } })
+    res.write("data: [DONE]\n\n")
+    res.end()
+  }
+}
+
+await scenario("z42) slow decoding is learned at once, remembered for the hour, and replayed into a fresh router", async () => {
+  const clock = fakeClock(Date.UTC(2026, 9, 8, 12, 0, 0))
+  const NEMO = "nvidia/nemotron-3-ultra-550b-a55b"
+  const catalog = new Map([["nvidia", new Map([[NEMO, M(NEMO, { output: 65_536 })]])]])
+  const tps = async (router) => (await router.status()).health.find((x) => x.id.startsWith(`nvidia/${NEMO}#`))?.tps
+  const r = await makeRouter({ keys: [K.nvidia], catalog, now: clock.now })
+  let row
+  try {
+    mock.once(`nvidia/${NEMO}`, slowDecode(clock, 129, 13_000))
+    await chat(r, { messages: continuation("tabulate the costs"), headers: { "x-session-affinity": "ses_z42" } })
+    const learned = await tps(r)
+    // 129 tokens in 13 s (~10 tok/s) against a 195 tok/s prior: the old even average stopped at ~102.
+    assert(learned <= 80, `one slow answer moves the estimate most of the way down (${learned} tok/s)`)
+    clock.advance(20 * 60_000)
+    await chat(r, { messages: continuation("ok"), headers: { "x-session-affinity": "ses_z42b" } })
+    const later = await tps(r)
+    // The old 10-minute half-life would be back at ~172 by now.
+    assert(later <= 110, `still slow 20 minutes later (${later} tok/s)`)
+    row = r.events.find((e) => e.status === "ok" && e.outputTokens === 129)
+    assert(row, "the slow answer was recorded")
+  } finally {
+    await r.close()
+  }
+  mock.reset()
+  const fresh = await makeRouter({ keys: [K.nvidia], catalog, now: clock.now, recent: [row] })
+  try {
+    await chat(fresh, { messages: continuation("ok"), headers: { "x-session-affinity": "ses_z42c" } })
+    const seeded = await tps(fresh)
+    assert(seeded <= 110, `a fresh router seeded from the recorded row starts slow (${seeded} tok/s)`)
+  } finally {
+    await fresh.close()
+  }
+  // Getting faster is believed slowly: one fast answer moves a slow estimate only a quarter of the way up.
+  const h = new R.Health(() => 0)
+  const c = { id: "x", keyScope: "k", info: { ttftMs: 3000, tps: 20 } }
+  h.success(c, 16_000, 1000, 1000, 1000)
+  assert(Math.abs(h.tps(c) - (0.75 * 20 + 0.25 * 1000)) < 1e-6, `a fast sample moves a quarter of the way (${h.tps(c)})`)
+})
+
+await scenario("z43) OpenRouter :free endpoints start from the free-endpoint prior until measured; the paid id keeps its speed", async () => {
+  const free = R.modelInfo("openrouter", { id: "nvidia/nemotron-3-ultra-550b-a55b:free" })
+  eq(free.tps, 25, ":free decode prior")
+  eq(free.ttftMs, 4500, ":free first-token prior is 1.5×")
+  eq(free.quality, 74, "quality unchanged")
+  eq(R.modelInfo("openrouter", { id: "nvidia/nemotron-3-ultra-550b-a55b" }).tps, 195, "the paid OpenRouter id keeps 195")
+  eq(R.modelInfo("nvidia", { id: "nvidia/nemotron-3-ultra-550b-a55b" }).tps, 195, "NVIDIA's own endpoint keeps 195")
+  eq(R.modelInfo("openrouter", { id: "some-lab/unknown-model:free" }).tps, 25, "an unknown :free model too")
+  eq(R.modelInfo("google", { id: "gemini-3.5-flash-lite" }).lowThinkDefault, true, "Flash-Lite thinks minimally by default")
+  eq(R.modelInfo("google", { id: "gemini-3.5-flash" }).lowThinkDefault, false, "Flash does not")
+  const catalog = new Map([["openrouter", new Map([["nvidia/nemotron-3-ultra-550b-a55b:free", M("nvidia/nemotron-3-ultra-550b-a55b:free", { output: 65_536 })]])]])
+  const r = await makeRouter({ keys: [K.openrouterFree], catalog })
+  try {
+    // The mock's answer is 20 tokens: too short to measure, so the prior stands.
+    await chat(r, { messages: continuation("hi"), headers: { "x-session-affinity": "ses_z43" } })
+    const h = (await r.status()).health.find((x) => x.id.startsWith("openrouter/nvidia/nemotron-3-ultra-550b-a55b:free#"))
+    assert(h && h.tps <= 25, `health starts at the free-endpoint prior (${h?.tps})`)
+  } finally {
+    await r.close()
+  }
+})
+
+await scenario("z44) expected output counts thinking on Auto; a hard turn never picks a model predicted past 90 s on quality alone", async () => {
+  const health = new R.Health(() => 0)
+  const cand = (id, quality, think, tps = 100, ttftMs = 1000) => ({ id, backend: id, keyScope: id, info: { quality, grade: "strong", tps, ttftMs, think, lowThinkDefault: false }, scarce: false, costs: false, model: { id } })
+  const session = { key: "s", sticky: null, stickyAt: 0, stickyByFallback: false, outEwma: 600, escalatedUntil: 0, escalatedThroughUser: 0, lastSeen: 0 }
+  const shape = { alias: "auto", promptTokens: 16_000, requestedOut: 32_000, hasImage: false, hard: false, hardWhy: null, lastIsUser: true, opening: false }
+  const feasible = [cand("thinker", 74, 2.5), cand("plain", 74, 1)].map((c) => ({ c, outTokens: 32_000 }))
+  const by = (list, id) => list.find((s) => s.c.id === id)
+  const auto = R.rank(shape, feasible, session, health)
+  assert(by(auto, "thinker").predMs > by(auto, "plain").predMs, "the thinking model predicts a longer total")
+  eq(Math.round(by(auto, "thinker").predMs - by(auto, "plain").predMs), 9000, "600 × 1.5 extra tokens at 100 tok/s")
+  const fast = R.rank({ ...shape, alias: "fast" }, feasible, session, health)
+  eq(by(fast, "thinker").predMs, by(fast, "plain").predMs, "Fast asks for low effort, so no multiplier")
+  const hardShape = { ...shape, hard: true, hardWhy: "keyword:debug" }
+  const slow = [cand("slow", 90, 1, 5, 1000), cand("quick", 80, 1, 100, 1000)].map((c) => ({ c, outTokens: 32_000 }))
+  const ranked = R.rank(hardShape, slow, session, health)
+  // slow: 1 s + 600 / 5 tok/s = 121 s → 90 − 60.5 − 2 − 15; quick: 7 s → 80 − 3.5 − 2.
+  eq(+by(ranked, "slow").score.toFixed(1), 12.5, "the 3-minute decoder loses 15 on a hard turn")
+  eq(ranked[0].c.id, "quick", "and does not win on quality alone")
 })
 
 // ------------------------------------------------------------------ summary

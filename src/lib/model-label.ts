@@ -38,6 +38,7 @@ export function switchNote(mine: Answer[], all: Answer[], created: number): stri
   if (!s) return null
   if (s.kind === "stopped") return `Switched to ${backendLabel(s.to)} — ${listNames([...new Set(s.from.map((a) => modelLabel(a.modelId)))])} stopped mid-answer`
   if (s.kind === "escalated") return `Escalated from ${modelLabel(s.from.modelId)} to ${backendLabel(s.to)} for a harder step`
+  if (s.kind === "numeric") return `Switched from ${modelLabel(s.from.modelId)} to ${backendLabel(s.to)} for a calculation`
   if (s.kind === "unavailable") return `Switched to ${backendLabel(s.to)} — ${modelLabel(s.from.modelId)} was busy`
   return `${backendLabel(s.to)} answered after ${s.to.attempts} tries — the first pick couldn't answer`
 }
