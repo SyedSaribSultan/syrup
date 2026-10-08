@@ -162,3 +162,29 @@ User data export, WAF/CSP/status page, legal review, real-iPhone keyboard check 
 Follow-ups found on the way:
 - **A workspace's first message waits 3–9 s inside OpenCode** while it builds the folder's instance ("booting location services", the skills scan). Prewarming deeper than the session list would hide it.
 - **The admin sandbox probe leaves its temporary workspace behind** when a step fails (QUALITY.md Q6).
+
+## 7. Where we stopped (2026-10-08)
+
+Paused by the founder after Round 2a, to save the week's quota. Everything listed in §6 as done is pushed and live; nothing is half-built. Pick up here, in this order.
+
+**Next rounds (agreed, not started):**
+1. **Q3 Numbers** ([QUALITY.md](QUALITY.md) §Q3): `syrup_calc` on the MCP server, the "Numbers" prompt section, the "Fix numbers" note. Makes the K2 eval's sums check blocking (remove `info: true` in `scripts/fixtures/eval/cases/k2-pkr.mjs`).
+2. **Q4 Grounding** (§Q4): `webfetch` override, the "When you answer from the web" section, source chips. **Also:** images from other sites in a reply load only after a tap (founder's decision 2026-10-08; today `![x](https://…)` loads at once, a known exfiltration channel found in the Round 2a review). Not a page CSP.
+3. **Q6 small fixes, Q1b the judge**, then rounds **2b–8** per [RENDERING.md](RENDERING.md) and Motion **M2–M3** (§6).
+
+**Follow-ups found on the way (not in any round yet):**
+- **A workspace's first message waits 3–9 s inside OpenCode** while it builds the folder's instance ("booting location services", the skills scan). Prewarming deeper than the session list would hide it.
+- **The admin sandbox probe leaves its temporary workspace behind** when a step fails (QUALITY.md Q6).
+- **The answer checker can't yet check totals written in prose** (`src/lib/answer-checks`); currency pairs in a sentence are checked.
+- **`SYRUP_NUMERIC_EFFORT`** (QUALITY.md Q5) is off until an A/B shows it helps.
+- **Desktop deep link** `?panel=preview&file=…` opens the panel at 1440 px without selecting the file (Round 4).
+- **Round 2a deferrals:** prefetching a renderer when the pointer is over **Open**; the libraries of rounds 3, 4 and 6 are installed in their own rounds, not all at once (RENDERING decision 28 changed).
+- **Q2's 20-question passage-choice set** (Tier 2) is not built.
+- **Round 2a review minors:** the Mermaid guard also refuses ordinary labels such as `A[parse url()]` (limit it to `style`/`classDef`/`linkStyle` lines and `@{…}` shape data); its refusal note reads like a chart message; KaTeX negative-space macros pass the regex but stay clipped by `.rich-tex` (keep its `contain: paint`).
+- **GitHub Dependabot reports 20 dependency vulnerabilities** (2 critical, 5 high) on `main`: triage them.
+- **Live checks not yet done for 2a:** ask "draw the checkout flow and give the formula" locally and in the cloud; re-run `pnpm bench:agent --set all`.
+
+**Housekeeping left for the founder:**
+- The merged `motion` worktree at `../syrup-motion` and its branch can go (all of it is in `main`). Remove it with `cmd /c "rmdir /s /q ..\syrup-motion"`, then `git worktree prune` and `git branch -d motion`. On Windows, never `git worktree remove --force` a worktree whose `node_modules` is a junction: it follows the junction and deletes the main checkout's files.
+
+**How to resume:** read §6 and this section, then QUALITY.md §Q3. The gate for every push is §2 plus `pnpm ui:weight --compare --budgets`; never run two UI harnesses at once on this machine.
