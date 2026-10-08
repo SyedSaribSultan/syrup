@@ -16,6 +16,11 @@
  *     (between the @motion-begin and @motion-end comments: the tokens, the motion-* utilities and the keyframes)
  *   - inside the motion block too: a raw duration or curve in a transition / animation declaration. They read the
  *     tokens (var(--motion-…), var(--ease-…)); 0s and step-start / step-end are allowed, the loops are in ALLOW.cssTiming
+ *   - inside the motion block: a transition of anything but opacity, transform (translate, scale, rotate), visibility and
+ *     colours, from a transition-property or a transition shorthand (MOTION.md §8: `all`, layout properties, filter,
+ *     backdrop-filter, box-shadow fail), outside ALLOW.layoutTransition's { utility, props } entries (§6.2, from M3)
+ *   - a motion-* utility whose exit isn't one step faster than its entrance (slow → base, base → fast, fast stays fast;
+ *     MOTION.md §3), read from its open, closed and plain rules, ::backdrop on its own, reduced motion aside
  *   - --motion-* / --ease-* declared anywhere but the motion block's token :root (once), or the reduced-motion :root
  *     (--motion-shift: 0px only); --default-transition-* outside the block's @theme; --tw-duration / --tw-ease / --tw-delay
  *   - inline transition / animation styles in components, outside ALLOW.inlineStyle: style objects, `.style.transition… =`
@@ -45,7 +50,11 @@ const ALLOW = {
     { file: "src/components/ui/sheet.tsx", value: "none", why: "sheet drag follows the finger" },
     { file: "src/components/app-shell.tsx", value: "none", why: "drawer swipe follows the finger" },
   ],
-  /** transition-all / transition-[width…] classes: none today. MOTION.md §6.2's three (M3) go here, each with its file. */
+  /**
+   * Layout transitions: none today. MOTION.md §6.2's three (M3) go here, each with its reason: { file } for a
+   * transition-all / transition-[width…] class in that file, { utility, props } for a motion-* utility in the motion
+   * block that may transition those properties (e.g. { utility: "motion-collapse", props: ["grid-template-rows"] }).
+   */
   layoutTransition: [],
   /** Files that may call the Web Animations API: none today (M1's usePresence, if it needs it, lives in src/lib/motion.ts). */
   webAnimations: [],
@@ -373,6 +382,36 @@ function cssDeclarations(css) {
 const CURVE_WORDS = new Set(["ease", "ease-in", "ease-out", "ease-in-out", "linear"])
 const isTimingProp = (p) => /^(transition|animation)(-(duration|delay|timing-function))?$/.test(p)
 
+/** What the motion block may transition (MOTION.md §8): opacity, transform and its parts, visibility, and colours. */
+const CHEAP_PROPS = /^(opacity|transform|translate|scale|rotate|visibility|color|background-color|border(-(top|right|bottom|left|block|inline)(-(start|end))?)?-color|outline-color|text-decoration-color|caret-color|column-rule-color|accent-color|fill|stroke)$/
+
+/**
+ * The properties a transition-property value, or a transition shorthand, names. A shorthand item with no property
+ * transitions `all` (CSS Transitions §2.6); `none` names nothing.
+ */
+function transitionedProps(prop, value) {
+  const v = value.replace(/!important/g, "").replace(/var\((?:[^()]|\([^()]*\))*\)/g, " ").replace(/\b[\w-]+\([^)]*\)/g, " ")
+  const out = []
+  for (const item of v.split(",")) {
+    const words = item.trim().split(/\s+/).filter(Boolean)
+    if (prop === "transition-property") out.push(...words)
+    else {
+      const name = words.find((w) => !/^[\d.]/.test(w) && !CURVE_WORDS.has(w) && !/^(step-start|step-end|allow-discrete|normal)$/.test(w))
+      out.push(name ?? "all")
+    }
+  }
+  return out.filter((p) => p && p !== "none")
+}
+
+const DURATION_RANK = { fast: 1, base: 2, slow: 3 }
+/** The slowest duration token a transition-duration value reads (0s and none: null). */
+function durationRank(value) {
+  let rank = null
+  for (const m of value.matchAll(/var\(--motion-(fast|base|slow)\)/g)) rank = Math.max(rank ?? 0, DURATION_RANK[m[1]])
+  return rank
+}
+const RANK_NAME = ["", "fast", "base", "slow"]
+
 /** Raw durations and curves in a transition / animation value, after its var(…) reads are taken out. */
 function rawTimings(value) {
   const v = value.replace(/!important/g, "").replace(/var\((?:[^()]|\([^()]*\))*\)/g, " ")
@@ -404,6 +443,8 @@ function checkCss(file, css) {
     }
   }
   let tokensRule = null
+  /** Per motion-* utility (and its ::backdrop): the slowest duration of its plain, open and closed rules. */
+  const speeds = new Map()
   for (const d of cssDeclarations(plain)) {
     const inBlock = isTokens && d.index > begin && d.index < endMark
     const line = lineAt(css, d.index)
@@ -414,6 +455,26 @@ function checkCss(file, css) {
       const allowed = ALLOW.cssTiming.find((a) => a.selector === selector)?.values ?? []
       for (const raw of new Set(rawTimings(d.value))) if (!allowed.includes(raw)) fail(file, line, `${selector} { ${d.prop}: … ${raw} … }: a raw timing in the motion block: use var(--motion-…) / var(--ease-…) (loops: ALLOW.cssTiming)`)
     }
+    // Inside the block, only cheap properties are transitioned (MOTION.md §8).
+    const utility = outer.match(/^@utility\s+([\w-]+)/)?.[1] ?? null
+    if (inBlock && (d.prop === "transition-property" || d.prop === "transition")) {
+      for (const p of transitionedProps(d.prop, d.value)) {
+        if (CHEAP_PROPS.test(p)) continue
+        if (utility && ALLOW.layoutTransition.some((a) => a.utility === utility && (a.props ?? []).includes(p))) continue
+        fail(file, line, `${selector} { ${d.prop}: ${d.value} }: transitions ${p}. MOTION.md §8: opacity, transform and colours only, never backdrop-filter (§6.2's layout three go in ALLOW.layoutTransition as { utility, props })`)
+      }
+    }
+    // Exits one step faster than entrances (MOTION.md §3): collect each motion-* utility's durations, reduced motion aside.
+    if (inBlock && utility?.startsWith("motion-") && !d.chain.some((p) => /^@(media|starting-style)\b/.test(p))) {
+      const rules = d.chain.slice(1).join(" ")
+      const key = `${utility}${/::backdrop/.test(rules) ? "::backdrop" : ""}`
+      const s = speeds.get(key) ?? { line, plain: null, open: null, closed: null, states: false }
+      speeds.set(key, s)
+      const state = /\[data-state="closed"\]|\[data-open="false"\]/.test(rules) ? "closed" : /\[data-state="open"\]|\[data-open="true"\]/.test(rules) ? "open" : /^(&(::backdrop)?)?$/.test(rules) ? "plain" : null
+      if (state === "open" || state === "closed") s.states = true
+      const rank = d.prop === "transition-duration" ? durationRank(d.value) : null
+      if (state && rank !== null) s[state] = Math.max(s[state] ?? 0, rank)
+    }
     // The tokens are declared once, in the block's :root; reduced motion may only zero --motion-shift.
     if (/^--(motion|ease)-/.test(d.prop)) {
       const isRoot = d.chain.length === 1 && outer === ":root"
@@ -423,6 +484,14 @@ function checkCss(file, css) {
     }
     if (/^--default-(transition|animation)-/.test(d.prop) && !(inBlock && outer.startsWith("@theme"))) fail(file, line, `${d.prop}: the Tailwind defaults are set once, in the motion block's @theme`)
     if (/^--tw-(duration|ease|delay)$/.test(d.prop)) fail(file, line, `${d.prop}: Tailwind's own duration-/ease-/delay- utilities set this; writing it bypasses the tokens`)
+  }
+  for (const [key, s] of speeds) {
+    // Only a utility with an open or closed state has an entrance and an exit (motion-fade and motion-reveal don't).
+    const enter = s.open ?? s.plain
+    const exit = s.closed ?? s.plain
+    if (!s.states || enter === null || exit === null) continue
+    const want = Math.max(1, enter - 1)
+    if (exit !== want) fail(file, s.line, `${key}: its exit runs on --motion-${RANK_NAME[exit]} after an entrance on --motion-${RANK_NAME[enter]}: exits are one step faster, so --motion-${RANK_NAME[want]} (MOTION.md §3)`)
   }
   return isTokens ? plain.slice(begin, endMark) : null
 }
@@ -505,6 +574,22 @@ const SELF_TEST = [
   { name: "a second token :root in the block", css: block(":root { --motion-fast: 300ms; }"), fails: /declared once/ },
   { name: "reduced motion retimes a token", css: block("@media (prefers-reduced-motion: reduce) { :root { --motion-base: 120ms; } }"), fails: /declared once/ },
   { name: "--tw-duration in CSS", css: block("", ".x { --tw-duration: 300ms; }"), fails: /--tw-duration/ },
+  { name: "a layout property in a block utility", css: block("@utility motion-pop { transition-property: opacity, transform, height; }"), fails: /transitions height/ },
+  { name: "transition-property: all in the block", css: block("@utility motion-pop { transition-property: all; }"), fails: /transitions all/ },
+  { name: "backdrop-filter in the block", css: block("@utility motion-layer { transition-property: opacity, backdrop-filter; }"), fails: /transitions backdrop-filter/ },
+  { name: "box-shadow in the block", css: block(".x { transition-property: box-shadow; }"), fails: /transitions box-shadow/ },
+  { name: "a shorthand naming width", css: block("@utility motion-x { transition: width var(--motion-fast) var(--ease-move); }"), fails: /transitions width/ },
+  { name: "a shorthand naming no property (all)", css: block("@utility motion-x { transition: var(--motion-fast) var(--ease-move); }"), fails: /transitions all/ },
+  {
+    name: "an exit slower than its entrance",
+    css: block('@utility motion-x { transition-duration: var(--motion-base); &[data-state="closed"] { transition-duration: var(--motion-slow); } }'),
+    fails: /one step faster/,
+  },
+  {
+    name: "a backdrop exit as slow as its entrance",
+    css: block('@utility motion-x { transition-duration: var(--motion-slow); &::backdrop { transition-duration: var(--motion-slow); } &[data-state="closed"] { transition-duration: var(--motion-base); } &[data-state="closed"]::backdrop { transition-duration: var(--motion-slow); } }'),
+    fails: /motion-x::backdrop: its exit/,
+  },
   { name: "regex after =>", src: `const re = (s) => /"duration-200"/.test(s)`, passes: true },
   { name: "regex after return", src: `function f(x) { return /"ease-in"/.test(x) }`, passes: true },
   { name: "JSX text starting with /, clean", src: `const a = <p>/ <span className="transition">x</span></p>`, passes: true },
@@ -523,6 +608,10 @@ const SELF_TEST = [
         ".skel-in { animation: skel-appear var(--motion-slow) var(--ease-arrive) 160ms both; }",
         "@media (prefers-reduced-motion: reduce) { .skel-in { animation-timing-function: step-start; } }",
         ":root[data-theme-switching] * { transition: none !important; }",
+        "@utility motion-y { transition-property: translate, opacity, visibility; transition-duration: var(--motion-base); &:where([data-open=\"true\"], [data-state=\"open\"]) { transition-duration: var(--motion-slow), var(--motion-slow), 0s; } }",
+        '@utility motion-z { transition-property: opacity, scale; transition-duration: var(--motion-base); &[data-state="closed"] { transition-duration: var(--motion-fast); } &[data-backdrop="instant"][data-state="open"]::backdrop { transition-duration: 0s; } }',
+        '@utility motion-w { transition-property: opacity; transition-duration: var(--motion-fast); &[data-state="closed"] { opacity: 0; } @media (prefers-reduced-motion: reduce) { &[data-state="closed"] { transition-duration: var(--motion-fast); } } }',
+        ".tab { transition-property: color, background-color, border-color; }",
       ].join("\n"),
     ),
     passes: true,

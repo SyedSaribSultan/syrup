@@ -1,6 +1,8 @@
 "use client"
 
-import { useEffect, useRef, useState, useSyncExternalStore } from "react"
+import { useRef, useState, useSyncExternalStore } from "react"
+import { usePresence, type Presence } from "@/lib/use-presence"
+import { useModalDialog } from "./sheet"
 
 /**
  * In-app replacements for window.confirm / prompt / alert: same one-line await at the call site,
@@ -59,61 +61,78 @@ export function alertDialog(opts: Base): Promise<void> {
   return new Promise((resolve) => enqueue({ ...opts, id: nextId++, kind: "alert", resolve }))
 }
 
+/**
+ * Shows the first request in the queue, and keeps the one before it on screen while it plays its exit
+ * (docs/MOTION.md §4.2). When the next request is already waiting, the old one goes at once and the new one keeps the
+ * backdrop where it is: no fade out and back in between them (§4.3).
+ */
 export function DialogHost() {
   const current = useSyncExternalStore(
     subscribe,
     () => queue[0] ?? null,
     () => null,
   )
-  if (!current) return null
-  return <DialogView key={current.id} req={current} />
+  const [shown, setShown] = useState<{ req: Request; open: boolean; instant: boolean } | null>(null)
+  let view = shown
+  if (current && current !== view?.req) {
+    // Adjusting state to the store during render (react.dev, "Storing information from previous renders").
+    view = { req: current, open: true, instant: !!view }
+    setShown(view)
+  } else if (!current && view?.open) {
+    view = { ...view, open: false }
+    setShown(view)
+  }
+  if (!view) return null
+  const id = view.req.id
+  return <DialogView key={id} req={view.req} open={view.open} instantBackdrop={view.instant} onExited={() => setShown((s) => (s?.req.id === id && !s.open ? null : s))} />
 }
 
-function DialogView({ req }: { req: Request }) {
-  const ref = useRef<HTMLDialogElement>(null)
+function DialogView({ req, open, instantBackdrop, onExited }: { req: Request; open: boolean; instantBackdrop: boolean; onExited(): void }) {
+  const p = usePresence<HTMLDialogElement>(open, { onExited, handoff: true })
   const done = useRef(false)
   const [text, setText] = useState(req.kind === "prompt" ? (req.value ?? "") : "")
 
+  // The promise resolves on the click, not after the exit, so what comes next (delete, then navigate) isn't held up.
   const finish = (confirmed: boolean) => {
     if (done.current) return
     done.current = true
-    ref.current?.close()
     if (req.kind === "confirm") req.resolve(confirmed)
     else if (req.kind === "prompt") req.resolve(confirmed ? text.trim() : null)
     else req.resolve()
     queue = queue.filter((r) => r.id !== req.id)
     emit()
   }
-  // The listeners below are attached once; keep them pointed at the latest render.
-  const finishRef = useRef(finish)
-  useEffect(() => {
-    finishRef.current = finish
-  })
 
-  useEffect(() => {
-    const d = ref.current
-    if (!d) return
-    if (!d.open) d.showModal()
-    // Escape stops here, so popovers underneath (useDismiss listens on document) stay open.
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return
-      e.preventDefault()
-      e.stopPropagation()
-      finishRef.current(false)
-    }
-    // Other close requests, like the Android back gesture.
-    const onCancel = (e: Event) => {
-      e.preventDefault()
-      finishRef.current(false)
-    }
-    d.addEventListener("keydown", onKey)
-    d.addEventListener("cancel", onCancel)
-    return () => {
-      d.removeEventListener("keydown", onKey)
-      d.removeEventListener("cancel", onCancel)
-      if (d.open) d.close()
-    }
-  }, [])
+  // Mounted only while shown (or leaving), so its modal effect ends when the exit has (useModalDialog releases the page
+  // as the exit starts).
+  if (!p.mounted) return null
+  return <DialogBox req={req} presence={p} instantBackdrop={instantBackdrop} text={text} setText={setText} finish={finish} />
+}
+
+function DialogBox({
+  req,
+  presence: p,
+  instantBackdrop,
+  text,
+  setText,
+  finish,
+}: {
+  req: Request
+  presence: Presence<HTMLDialogElement>
+  instantBackdrop: boolean
+  text: string
+  setText(v: string): void
+  finish(confirmed: boolean): void
+}) {
+  useModalDialog(p.ref, p.closing, {
+    // Escape and other close requests (the Android back gesture). Escape stops here, so popovers underneath stay open.
+    onDismiss: () => finish(false),
+    // Closed by the browser (a repeated Escape or back, which the page can't cancel): it is gone already, skip the exit.
+    onForcedClose: () => {
+      p.skipExit()
+      finish(false)
+    },
+  })
 
   const isPrompt = req.kind === "prompt"
   const canConfirm = !isPrompt || text.trim().length > 0
@@ -121,12 +140,13 @@ function DialogView({ req }: { req: Request }) {
 
   return (
     <dialog
-      ref={ref}
+      {...p.props}
       data-layer
+      data-backdrop={instantBackdrop ? "instant" : undefined}
       aria-labelledby={`dlg-${req.id}-title`}
       // A press on the backdrop (the dialog element itself, outside the card) cancels.
       onClick={(e) => e.target === e.currentTarget && finish(false)}
-      className="m-auto w-[min(400px,calc(100vw-32px))] max-w-none rounded-2xl border border-line bg-surface p-0 text-ink shadow-card backdrop:bg-black/40 max-medium:mt-[15dvh]"
+      className="m-auto w-[min(400px,calc(100vw-32px))] max-w-none rounded-2xl border border-line bg-surface p-0 text-ink shadow-card motion-dialog backdrop:bg-black/40 max-medium:mt-[15dvh]"
     >
       <form
         method="dialog"

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type KeyboardEvent, type ReactNode } from "react"
 import { PREFILL_EVENT } from "@/lib/panel"
 import { useDismiss } from "@/lib/use-dismiss"
+import { useOverlay } from "@/lib/use-presence"
 import { useCoarsePointer } from "@/lib/use-window-class"
 import { ModelPicker } from "./model-picker"
 import { Popover } from "./ui/sheet"
@@ -223,7 +224,7 @@ function AttachMenu({ onFiles }: { onFiles(list: FileList | null): void }) {
       <input ref={camera} type="file" hidden accept="image/*" capture="environment" onChange={take} />
       <input ref={photos} type="file" hidden multiple accept="image/*" onChange={take} />
       <input ref={files} type="file" hidden multiple accept={FILE_TYPES} onChange={take} />
-      <Popover open={open} onClose={close} label="Add photos and files" className="absolute bottom-full left-0 z-30 mb-2 w-[300px] rounded-2xl border border-line bg-surface p-2 shadow-card">
+      <Popover open={open} onClose={close} label="Add photos and files" side="up" className="absolute bottom-full left-0 z-30 mb-2 w-[300px] rounded-2xl border border-line bg-surface p-2 shadow-card">
         <div className="flex gap-2 px-2 pb-3 max-expanded:px-4 expanded:p-0">
           {coarse && (
             <Tile label="Camera" onClick={() => pick(camera.current)}>
@@ -245,9 +246,18 @@ function AttachMenu({ onFiles }: { onFiles(list: FileList | null): void }) {
   )
 }
 
+/** Each tile hands over to the native file picker or camera, so the menu closes without its exit (docs/MOTION.md §4.3). */
 function Tile({ label, onClick, children }: { label: string; onClick(): void; children: ReactNode }) {
+  const overlay = useOverlay()
   return (
-    <button type="button" onClick={onClick} className="flex flex-1 flex-col items-center gap-1.5 rounded-2xl bg-surface-2 px-2 py-3.5 text-[12px] text-ink-2 transition hover:text-ink max-expanded:py-5 max-expanded:text-[14px]">
+    <button
+      type="button"
+      onClick={() => {
+        overlay?.skipExit()
+        onClick()
+      }}
+      className="flex flex-1 flex-col items-center gap-1.5 rounded-2xl bg-surface-2 px-2 py-3.5 text-[12px] text-ink-2 transition hover:text-ink max-expanded:py-5 max-expanded:text-[14px]"
+    >
       <svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
         {children}
       </svg>

@@ -1,6 +1,6 @@
 # Motion: one smooth, consistent system
 
-Status: **decided 2026-10-07 (§10). M0–M1 in progress; M2–M3 after the capability rounds; M4–M5 later.** Drafted 2026-09-28; audit refreshed against the code on 2026-10-08.
+Status: **decided 2026-10-07 (§10). M0 and M1 built 2026-10-08; M2–M3 after the capability rounds; M4–M5 later.** Drafted 2026-09-28; audit refreshed against the code on 2026-10-08.
 
 Today almost everything in syrup appears, disappears, expands and moves instantly. This plan gives all of it one shared set of timings and curves, built into a few shared pieces and reused everywhere.
 
@@ -49,7 +49,7 @@ Checked against the code on 2026-09-28 by three independent sweeps: conditional 
 | Model picker panel (desktop) | `model-picker.tsx:118-124, 208-212` | **own code**, not Popover. Opens up or down at runtime. Only the composer variant does this; the "bar" variant shows only below 840 px, where it is always a Sheet |
 | Right-click / long-press / row ⋯ menu on files, tree rows and diff rows | `file-link.tsx:234-301` (PointerMenu) | **own code**, fixed at the pointer. Flips up when there is no room below; near the right edge it is clamped left, not flipped |
 | Logs viewer (full screen) | `logs-modal.tsx:21, 228-233` | **own code**, `backdrop-blur-sm`. Only its phone Filters panel is a Sheet |
-| Cloud file viewer | `file-link.tsx:304-342` | **own code. Dead code, verified 2026-10-08.** `view()` runs only when `cloud && !panel` (`file-link.tsx:150-151, 169`). In the cloud every FileLink sits inside PanelProvider (`workspace-view.tsx:99-100`), so `panel` is never null. **Delete it; don't animate it** |
+| Cloud file viewer | was `file-link.tsx:304-342` | **Deleted in M1.** Dead code, verified 2026-10-08: `view()` ran only when `cloud && !panel`, and in the cloud every FileLink sits inside PanelProvider (`workspace-view.tsx:99-100`; the legal pages have no engine, so their Markdown makes no file links). A cloud mention now opens in the panel; its menu offers "Open in panel" and "Download" |
 | Drawer scrim | `app-shell.tsx:31` | mounts with `open &&` |
 | File-action toasts ("Copied path", "x doesn't exist yet") | `file-link.tsx:193-220` | **own code**, remounts per toast (`key={toast.at}`, `:182`), hides on scroll |
 
@@ -195,7 +195,13 @@ Defined once. Components use names, never numbers.
 - **Exits are one step faster than entrances:** slow → base, base → fast.
 - **Tailwind defaults:** set `--default-transition-duration` and `--default-transition-timing-function` in `@theme`. That moves all 111 existing `transition` classes onto the system in one edit. It also changes chevron rotations and hover reveals, which is intended.
   - Checked: both variables exist in Tailwind 4.3.3 (`node_modules/tailwindcss/theme.css:492-493`).
-- **Named utilities via `@utility`:** `motion-pop`, `motion-sheet`, `motion-layer`, `motion-fade`, `motion-reveal`, `motion-collapse`, `motion-notice`. A component says what it is, not how long it takes.
+- **Named utilities via `@utility`:** `motion-pop`, `motion-dialog`, `motion-sheet`, `motion-layer`, `motion-fade`, `motion-reveal`, `motion-collapse`, `motion-notice`. A component says what it is, not how long it takes.
+  - **As built (M1):**
+    - `motion-pop`: popovers, menus, the model picker panel, PointerMenu, the Logs viewer.
+    - `motion-dialog`: Dialog, card and `::backdrop`. Added in M1, because a dialog scales where a popover travels.
+    - `motion-sheet`: Sheet and its `::backdrop`.
+    - `motion-notice`: toasts. M2's strips and banners use `motion-collapse`.
+    - Their entrances are `@starting-style` rules after the utilities, in the motion block.
   - **Never pair one with a bare `transition` on the same element.** The built CSS puts `.transition` after every `motion-*` utility at the same specificity, so the bare transition wins and the utility's timing is dropped silently. `check-motion.mjs` fails the pair. A `motion-*` behind a variant the `transition` lacks (`transition max-expanded:motion-layer`) is fine.
   - **`motion-reveal` (M0):** hover-revealed row actions. Hidden is transparent **and** `visibility: hidden`, so hidden actions stay out of the tab order and the accessibility tree, as when they were `display: none`. Visibility turns on at once when shown and off only after the fade. Shown is `visibility: inherit`, never `visible`: a visible child of a hidden parent shows, so inside the closed phone drawer the actions would be focusable.
 
@@ -206,18 +212,41 @@ Defined once. Components use names, never numbers.
 - **Returns** `mounted` plus `data-state="open" | "closed"`. CSS animates between the two.
 - **Unmounts** on `transitionend`, with three guards:
   - only when `e.target === e.currentTarget` and the property is the one being animated. Child hover transitions bubble up and would unmount early.
-  - also on `transitioncancel`
-  - **a timeout is required, not just a fallback.** A 0 ms duration (reduced motion) fires no events.
+  - **only for a transition that started after the exit did** (a `transitionrun` seen since the close). Not on `transitioncancel` (M1 review, 2026-10-08):
+    - Closing during the entrance cancels the entrance, and that `transitioncancel` would end the exit on its first frame: the overlay blinked out on a double-click or a quick open-then-Escape.
+    - A property the close doesn't change (a popover's travel, a dialog's scale) finishes its entrance under the exit, and its `transitionend` isn't the exit's either.
+    - A close mid-entrance reverses the entrance, and the browser shortens a reversed transition by how far it had got (CSS Transitions, "reversing shortening factor"). So the exit is shorter then, and that is correct: it plays from where the entrance got to.
+  - **a timeout is required, not just a fallback.** A 0 ms duration (reduced motion) fires no events, and a genuinely cancelled exit fires no `transitionend`.
 - **While closing:** `inert` plus `pointer-events: none`. `useDismiss` has already detached, so without this a tap during the fade could fire a menu item again (`use-dismiss.ts:8, 11`).
 - **Entrances** use `@starting-style` (Chrome 117+, Safari 17.5+, Firefox 129+). `::backdrop` needs its **own** `@starting-style` rule; nesting it doesn't apply.
 - **HTML export safety:** the export inlines every stylesheet (`share-export.ts:31-59`) and has no JavaScript. So no element may be hidden by default until JS sets `data-state`, and entrance rules stay off `.chat-log` and read-only `<details>`.
+- **As built (M1):** `src/lib/use-presence.ts`.
+  - `usePresence(open, { onExited, handoff })` returns `mounted`, `closing`, `ref`, `props` and `skipExit()`. Spread `props` onto the animated element: `ref`, `data-state`, and `inert` while closing.
+  - **The animated property is read, not passed.** When the exit starts, it reads the element's computed transition and waits for the one that ends last. So reduced motion (a sheet fades instead of sliding) needs no second code path. The timeout is that time plus 50 ms.
+  - **Hand-offs (§4.3) are built in.** An overlay with `handoff: true` that opens ends the exit of every overlay still leaving. One that starts leaving in the same commit as another opens skips its exit before paint.
+  - **A side known only after measuring** (PointerMenu, a toast that flips, `Popover side="auto"`): measuring forces the element's first style, so `@starting-style` has already been used without the side. `restartEntrance(el)` re-inserts the node in place. That drops the style, so the entrance starts again from the side. Checked in Chromium and WebKit.
+  - Closed `motion-*` states set `pointer-events: none`; `usePresence` sets `inert`.
+  - **Where focus goes back to** (`noteOpener`, `focusReturn`): each `handoff` overlay notes what had focus when it opened. When a dialog's opener was an item of a menu that has gone since (a hand-off, §4.3), focus goes to that menu's opener instead.
 
 ### 4.2 Native `<dialog>` (Dialog, Sheet)
 
 - **Play the exit first, then call `close()`.** This avoids the Chromium-only `overlay` property, so Safari and Firefox animate out too.
 - **Also listen for `close`.** Chrome's close-watcher can force-close on a repeated Escape or Android back without user activation (`cancel` isn't cancelable then). When `close` fires, treat the dialog as gone and skip the exit.
 - **Resolve a dialog's promise on the click, not after the exit.** Otherwise delete → navigate gets slower.
-- **Restore focus by hand after the exit.** The page stays inert until `close()`.
+- **Restore focus by hand.** Native `close()` can't do it: on a hand-off its previously focused element is a menu item that has gone.
+- **Release the page as the exit starts, not after it** (M1 review, 2026-10-08). §8 says a tap during an exit reaches the page. A dialog kept modal through its exit kept the page inert for 120–180 ms, so that tap was lost.
+- **As built (M1):** `useModalDialog` in `ui/sheet.tsx`, shared by Sheet and Dialog.
+  - `showModal()` lives in a layout effect of a component that is mounted only while the dialog is shown or leaving.
+  - **As the exit starts** it calls `close()` then `showPopover()` (with `popover="manual"`).
+    - The dialog stays in the top layer, so it keeps painting over everything, with its `::backdrop`, while it leaves.
+    - The page is live again at once, and focus goes back to the opener then.
+    - `data-layer-swap` keeps it displayed through the swap, so its transitions carry on instead of starting over. Its new `::backdrop` starts from the old one's opacity (`--backdrop-from`).
+    - Without the Popover API (Chrome 114, Safari 17, Firefox 125) it stays modal until the exit ends.
+  - **When the exit ends,** the unmount calls `hidePopover()` (or `close()`) before React removes the element.
+  - **Opened again while leaving** (⋯ tapped again during the slide-out): it goes back to modal from where the exit had got to, and the opener is noted again.
+  - **The opener** is what had focus when it opened. React's development re-run of the effect comes after `showModal()` moved focus inside, so focus already inside the dialog doesn't replace it. Without that guard, focus went to the dialog's own Cancel and then to `<body>`. Nor does nothing having focus on a re-open during the exit: Safari doesn't focus a button on a tap, it blurs what had focus.
+  - A `close` event while the dialog is still open is stale (React's development re-run of effects closes and reopens it), so it is ignored. So is the one from releasing it for the exit. A real one skips the exit.
+  - DialogHost keeps the finished request on screen for its exit. When the next request is already queued, the old one goes at once and the new one gets `data-backdrop="instant"`, so its backdrop doesn't fade in again.
 
 ### 4.3 Hand-offs between overlays
 
@@ -236,6 +265,11 @@ Defined once. Components use names, never numbers.
   - on phones that is Sheet + Dialog stacked, two 40 % backdrops on purpose
   - **Rule:** the sheet or popover underneath stays put (no exit). Only the dialog's own backdrop fades in over it.
 - **Queued dialogs back to back** (DialogHost key change, `dialog.tsx:62-70`; e.g. `admin/page.tsx:39-41`, confirm → alert): **skip the backdrop fade-out and fade-in between them.**
+- **As built (M1):**
+  - **An item that opens another overlay needs nothing.** Dialog, Sheet, Popover, PointerMenu and the Logs viewer are `handoff` overlays, so the one opening ends the menu's exit (§4.1).
+  - **An item that navigates, or hands over to something that isn't ours,** calls `skipExit()` on its overlay (`useOverlay()`) before closing it. `MenuList` does this for every `href` row and for rows marked `handoff: true`.
+  - **Marked:** the tree menu's "Upload files here…" and the composer + tiles (the native picker); "Open in panel" (the phone's panel layer isn't one of ours until M3); the preview ⋯ "Open in new tab"; Terms and Privacy; the model picker's two links; a workspace switcher row and the folder browser's add.
+  - **Focus after a hand-off** goes back to the menu's own opener (⋯), not to `<body>` (M1 review). The dialog opens while the menu is still mounted, so the item it records as its opener is gone by the time it closes. `focusReturn` (§4.1) walks from the gone item to the menu's opener.
 - **Over the open drawer (phones):** the settings menu and workspace switcher open as a Sheet over the drawer.
   - A link chosen there closes the Sheet (`onDone`), and the pathname change closes the drawer (`nav.tsx:83-86`) in the same frame as the route change. The menu skips its exit (rule above); the drawer plays its own close (§5).
   - "Logs" from that menu leaves the drawer open under the Logs viewer.
@@ -261,6 +295,12 @@ Defined once. Components use names, never numbers.
   - PointerMenu (`file-link.tsx:240-247`): flips up when there is no room below (`:245`). Near the right edge it is clamped left (`:244`), not flipped.
 - **Popover gets a `side` prop** (`up | down | right | auto`), set when it opens. It sets the travel direction and `transform-origin`. The model picker panel and PointerMenu use the same prop.
 - **PointerMenu's side is only known after measuring** in `useLayoutEffect`. So it must be written in that same layout effect (e.g. a data attribute) before paint, not passed as a prop at open time.
+- **As built (M1):** `side` sets `data-side`. `motion-pop` turns it into `transform-origin` and a `--motion-shift` travel. The travel is `transform`, so it adds to a caller's own `translate` classes.
+  - **Callers:** `up` for composer + and the account row's settings menu; `right` for the rail's settings menu; `down` for the chat ⋯, Share, RowMenu, the workspace switcher, the file tree ⋯ and the preview ⋯.
+  - **The model picker is now a Popover.** A new `style` prop carries its fixed height and inline `top`; `side` comes from `place.up`.
+  - **`auto`** measures, on open, where the caller's classes put it against its offset parent.
+  - **PointerMenu** writes `data-side` in its layout effect, then calls `restartEntrance` (§4.1).
+    - **On each open, not each mount** (M1 review): it plays the entrance and focuses its first item. A right-click on another tree row closes the menu and opens it again at the new spot while it is still leaving, so it never unmounts in between. Before the fix, arrow keys then went nowhere.
 
 ### 4.6 `Notice`: one primitive for toasts, status strips and banners
 
@@ -270,6 +310,11 @@ Defined once. Components use names, never numbers.
 - **Strips and banners:** `<Collapse>` plus a fade, so the layout moves smoothly instead of jumping.
 - **Covers:** file-link toasts, file-tree and preview status strips, workspace banners, the new-chat notices (warm-up status and mini-game, "Couldn't start the chat" / "This folder no longer exists", "Your workspace didn't start", "No API keys yet"), the provider-card auth-failed notice when it arrives late, the late `.sarib` tools card, the composer attachments row and the phone permission tray (with the presence fixes in §2.5).
 - **Not covered:** the provider retry banner (chat content, §2.9) and the model picker footer notice (a crossfade, §2.6).
+- **As built (M1):** `ui/notice.tsx`: `<Notice open onExited side place>` and `useNotices()`, a list where only the newest is open.
+  - Showing a toast closes the one before, which stays mounted for its fade: that is the crossfade.
+  - `place(el)` positions the file-link toast before paint and returns its side. Under the mention it drops; above it (no room below) it rises; at the bottom of the screen it rises.
+  - The auto-hide timer and hide-on-scroll moved into `useFileMenu`. They now close the toast with its exit instead of removing it.
+  - **The anchor is measured when the toast shows,** from the mention that was used (M1 review). It was state set in the same click, so the toast got the previous render's anchor. The first click showed it bottom centre, and after a scroll it showed where the mention used to be.
 
 ### 4.7 Gestures
 
@@ -346,7 +391,7 @@ Defined once. Components use names, never numbers.
   - **Visibility turns on at once when a layer opens** (a 0s duration for `visibility` in the open state; closing keeps it visible until the exit ends). A hidden → visible transition is still `hidden` in its first frame. That frame broke two things in M0 (review, 2026-10-08):
     - the drawer's `focus()` on open failed, leaving focus on `<body>`
     - Chromium had nothing painted to hand to the compositor, so the slide ran on the main thread
-  - **A closed or closing layer takes no pointer events** (§4.1), so a quick tap during the exit reaches the page.
+  - **A closed or closing layer takes no pointer events** (§4.1), so a quick tap during the exit reaches the page. A leaving Dialog or Sheet is no longer modal either (§4.2).
   - The sidebar width changes instantly (its `transition-property` changes), and the two trees just crossfade.
   - `loading.tsx` moves from `animate-pulse` to `.skel` / `.skel-in`, which respect reduced motion. **`.skel-in` keeps its 160 ms wait** under reduced motion (a threshold, not motion) and shows without fading.
   - The per-component `motion-reduce:transition-none` classes go away.
@@ -377,6 +422,9 @@ Defined once. Components use names, never numbers.
     - **JS that times things itself:** `.style.transition… =` assignments, `setProperty` of a motion property or a token, and the Web Animations API (`ALLOW.webAnimations`, empty).
     - **Raw durations and curves inside the motion block.** Declarations read `var(--motion-…)` / `var(--ease-…)`; `0s` and `step-start` / `step-end` are allowed. The loops' literals are allow-listed by selector and value in `ALLOW.cssTiming`.
     - **Token declarations outside the block's one `:root`.** The reduced-motion `:root` may only set `--motion-shift: 0px`.
+  - **Tightened after the M1 review (2026-10-08).** Inside the motion block it now also fails on:
+    - **A `transition-property` (or `transition` shorthand) naming anything but** opacity, transform, translate, scale, rotate, visibility or a colour. So `all`, layout properties, `filter`, `backdrop-filter` and `box-shadow` fail (§8). §6.2's three go in `ALLOW.layoutTransition` as `{ utility, props }` in M3.
+    - **A `motion-*` utility whose exit isn't one step faster than its entrance** (slow → base, base → fast; fast stays fast; §3). The harness's `exitMs` checks the same at runtime.
   - **A self-test** plants each of those forms, plus look-alikes that must pass, on every run. If the checker stops catching one, it fails before it checks `src`.
 - **Migrate the three raw timings:** `sheet.tsx:61`, `app-shell.tsx:62`, `usage/page.tsx:80`.
 - **New overlays must use Dialog, Sheet or Popover. New expanders use `<Collapse>`, new notices use `Notice`.** That's where the motion lives.
@@ -407,11 +455,27 @@ Each phase ends usable and deployable.
   - toggle knobs → `translate-x`
   - display-toggled row actions → `motion-reveal` (opacity, with visibility so the tab order is unchanged)
   - theme-switch one-frame suppression
-- **M1 — Overlays.**
+- **M1 — Overlays.** Built 2026-10-08 ("As built" in §3 and §4.1–§4.6).
   - `usePresence`, then Dialog, Sheet and Popover (with `side`), the hand-off rule (§4.3), drawer scrim
   - move onto the system: model picker panel, PointerMenu, Logs viewer
   - `Notice` for toasts
   - delete the cloud file viewer (verified unreachable, §2.2)
+  - **Checked by** `scripts/fixtures/ui/motion-overlays.mjs`, with the harness's `{ presence }` step and assertion. Each overlay opens, then shows `data-state="closed"` (inert, no pointer events) for a moment, then is gone within 300 ms.
+    - `motion-popovers`, `motion-panel-popovers`: the header and sidebar popovers, the model picker and the two panel ⋯ menus, with their sides.
+    - `motion-pointer-menu`: down, and flipped up. Copy path plays its exit and its toast drops in; Open in panel hands off.
+    - `motion-confirm` (both widths), `motion-handoff`, `motion-sheet-handoff`: menu → confirm, prompt and Logs, from a desktop popover and a phone sheet. The menu never shows a closed frame.
+    - `motion-sheet`: the phone sheet rises with its backdrop and exits on base. `close()` comes after the exit, and focus goes back to ⋯.
+    - `motion-drawer-scrim`, `motion-drawer-scrim-close`: the scrim fades with the drawer, on the compositor.
+    - `motion-overlays-reduced`: `page.emulateMedia({ reducedMotion: "reduce" })`. The sheet and the confirm fade without travel or scale, and their exit is the fast duration (120 ms, read from the CSS). Measured, they go 125–160 ms after closing in Chromium. Wall-clock bounds are checked in Chromium only: Playwright's WebKit on Windows paints in software and ends the same exit 150–550 ms after closing.
+    - `motion-open-*`: each overlay settled open, for the screenshots.
+  - **Fixed after the M1 review (2026-10-08),** each with a scenario that fails without the fix:
+    - `motion-close-mid-entrance`: closing during the entrance plays the exit instead of vanishing (§4.1).
+    - `motion-dialog-focus-return`: focus goes back to ⋯ after a menu → dialog hand-off, at both widths (§4.2, §4.3).
+    - `motion-tap-during-exit`, `motion-click-during-dialog-exit`, `motion-sheet-reopen-during-exit`: a leaving Sheet or Dialog lets taps through, and comes back modal when reopened (§4.2).
+    - `motion-pointer-menu-again`: a second right-click focuses the moved menu (§4.5).
+    - `motion-toast-anchor`: the toast shows next to the mention on the first click and after a scroll (§4.6).
+    - `check-motion.mjs`: `transition-property` and the exit step inside the motion block (§9).
+  - **Not covered by a scenario:** two queued dialogs back to back (only the admin page queues two), and a drag-dismissed sheet continuing from the finger (M5 checks gestures on devices).
 - **M2 — Collapse and notices.**
   - `<Collapse>` for all of §2.4 except the exemptions
   - `Notice` for §2.5

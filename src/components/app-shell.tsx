@@ -28,7 +28,8 @@ export function AppShell({ sidebar, pageBar, children }: { sidebar: ReactNode; p
     // chat's widest unbreakable line (a code line, a tool command, the routed-model line), and the whole app,
     // header and composer included, grows wider than a phone screen.
     <div className="flex h-full min-h-0 min-w-0 flex-1">
-      {open && <div aria-hidden onClick={nav?.closeDrawer} className="fixed inset-0 z-40 bg-black/40 expanded:hidden" />}
+      {/* The scrim fades with the drawer (motion-layer: in slow + arrive, out base + leave) and takes no taps while closed. */}
+      <div aria-hidden data-open={open} onClick={nav?.closeDrawer} className="invisible fixed inset-0 z-40 bg-black/40 opacity-0 max-expanded:motion-layer data-[open=true]:visible data-[open=true]:opacity-100 expanded:hidden" />
       <div
         ref={drawer}
         tabIndex={-1}

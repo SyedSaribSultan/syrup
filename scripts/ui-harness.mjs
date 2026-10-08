@@ -634,6 +634,7 @@ const describeFocus = () => {
 }
 
 async function checkMotionAssertionMore(page, a) {
+  if (OVERLAY_ASSERT_KINDS.some((k) => k in a)) return checkOverlayAssertion(page, a)
   if ("focused" in a) {
     const loc = page.locator(a.focused).first()
     if (!(await loc.count())) return { ok: false, label: `focused ${a.focused}`, detail: "nothing matches" }
@@ -707,6 +708,338 @@ async function checkMotionAssertion(page, a) {
   return { ok: false, label: JSON.stringify(a), detail: "unknown assertion" }
 }
 
+// ---------------------------------------------------------------- overlays (docs/MOTION.md §4, Motion M1)
+
+/**
+ * Overlay steps and assertions (added for Motion M1; the motion ones above stay as they are):
+ *   { presence: { name?, open, target, close, timeout? } }   runs the `open` step(s), finds `target` (the element that
+ *     animates: it carries data-state), records how it came in, then runs the `close` step(s) and records how it left:
+ *     whether it stayed mounted with data-state="closed" (inert, no pointer events) and for how long. `open` may be []
+ *     when an earlier step opened it (a hand-off). Times are taken in the page (MutationObserver), not from Playwright.
+ *   assert { presence: name, within?: 300, min?: 40, exitMs?, entered?: ["opacity"], notEntered?, side?, backdrop?, skipped? }
+ *     - default: it opened with data-state="open" at full opacity, its entrance ran the `entered` transitions (default
+ *       opacity), and after closing it stayed mounted with data-state="closed" (inert, pointer-events none) for at least
+ *       `min` ms and was gone within `within` ms (Chromium; WebKit's software painting makes its timing noise, so there
+ *       it only has to be gone within a second, or `within` when that is longer). `exitMs`: its exit transition lasts exactly that long (the longest of
+ *       its transitions, read when data-state turned "closed"). `side`: its data-side once open (null: none).
+ *       `notEntered`: transitions its entrance must not run (e.g. scale under reduced motion). `backdrop: true`: a native
+ *       <dialog> whose ::backdrop ends at full opacity and, in Chromium, faded in (WebKit doesn't name the pseudo-element).
+ *       Any native <dialog> shown modal is also checked for how it leaves (§4.2): it stops being modal as its exit starts
+ *       (so the page takes taps again), stays in the top layer as a popover until it is gone, and is closed while still
+ *       in the page.
+ *       Every exit is also checked for running to its end: the element must not be removed while one of its transitions
+ *       is still running (sampled each frame).
+ *     - `skipped: true`: a hand-off (§4.3): it went without ever showing data-state="closed".
+ *     - `midEntrance: true`: for a step with `closeAfter`: the close came while its entrance was still running (else the
+ *       check didn't test what it is for), and its opacity once open isn't checked. `min` defaults to 0 there: the
+ *       browser shortens a reversed transition by how far the entrance had got, so a barely-started sheet is back down
+ *       in about 10 ms. "Ran to its end" counts only the exit's own transitions, not the entrance's leftovers.
+ *   { presence: { …, closeAfter: ms } }   closes `ms` after it appeared, in the middle of its entrance: its open and close
+ *     steps run without the usual wait after each step (click, tap, press and focus; other kinds run as usual)
+ *   { media: { reducedMotion: "reduce" } }   page.emulateMedia from here on (e.g. reduced motion mid-scenario)
+ *   { contextMenu: sel } right-clicks the first match; { contextMenu: [sel, { x, y }] } fires the contextmenu event on it
+ *     at those viewport coordinates instead (e.g. near the bottom, where a menu at the pointer flips up)
+ *   { tapAt: [x, y] }   a touch tap at viewport coordinates (e.g. the drawer's scrim, beside the drawer)
+ *
+ * Added after the M1 review (2026-10-08):
+ *   { tapThrough: sel } · { clickThrough: sel }   a tap or click at the centre of the first match without Playwright's
+ *     wait for it to take events: whatever is on top there gets it (a closing overlay must let it through, §8)
+ *   { checkpoint: { name, assert } }   checks `assert` (any assertion) now, mid-scenario, and keeps the result;
+ *     assert { checkpoint: name } reports it (e.g. "the sheet was still leaving when the tap landed")
+ *   { respond: { path, status, method?, body? } }   from here on the app's request to `path` (e.g. /api/workspace/reveal)
+ *     gets this answer instead of the fixture's (e.g. 404: the host says the file is missing)
+ *   { scrollBy: [sel, dy] }   scrolls the first match's nearest scroller by dy px (negative: up)
+ *   { watchEntrances: true }   records transitions from here on, for a { presence } step with `open: []` whose overlay
+ *     came in before it (otherwise the first { presence } step starts the record)
+ *   assert { distance: [selA, selB], max }   the gap between the first matches' boxes (0 when they touch or overlap) is
+ *     at most `max` px (e.g. a toast next to the mention that showed it)
+ *   scenario `expectConsole: [{ match: RegExp, why }]`   console errors the scenario causes on purpose (the 404 of a
+ *     { respond } step): listed under Notes like KNOWN_CONSOLE, not counted
+ */
+const OVERLAY_STEP_KINDS = ["presence", "media", "contextMenu", "tapAt", "tapThrough", "clickThrough", "checkpoint", "respond", "scrollBy", "watchEntrances"]
+const OVERLAY_ASSERT_KINDS = ["presence", "checkpoint", "distance"]
+MOTION_STEP_KINDS.push(...OVERLAY_STEP_KINDS)
+MOTION_ASSERT_KINDS.push(...OVERLAY_ASSERT_KINDS)
+
+/** WebKit: how long after closing an overlay must be gone (its wall-clock timing isn't meaningful, see checkPresence). */
+const WEBKIT_GONE_MS = 1_000
+
+/** Per page: what each { presence } step saw, by name. */
+const presenceRecords = new WeakMap()
+
+/** Every transition that starts on the page, kept with its element, so a step can ask what an element's entrance ran. */
+async function watchEntrances(page) {
+  await page.evaluate(() => {
+    const w = /** @type {any} */ (window)
+    if (w.__harnessRuns) return
+    w.__harnessRuns = []
+    document.addEventListener("transitionrun", (e) => w.__harnessRuns.push({ el: e.target, prop: e.propertyName, pseudo: e.pseudoElement || "" }), true)
+  })
+}
+
+async function runOverlayStep(page, step, handle) {
+  if ("media" in step) await page.emulateMedia(step.media)
+  else if ("watchEntrances" in step) await watchEntrances(page)
+  else if ("tapAt" in step) await page.touchscreen.tap(step.tapAt[0], step.tapAt[1])
+  else if ("contextMenu" in step) {
+    const [sel, at] = Array.isArray(step.contextMenu) ? step.contextMenu : [step.contextMenu, null]
+    const loc = page.locator(sel).first()
+    if (!at) await loc.click({ button: "right" })
+    else await loc.evaluate((el, p) => el.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: p.x, clientY: p.y, button: 2 })), at)
+  } else if ("presence" in step) await presenceStep(page, step.presence, handle)
+  else if ("tapThrough" in step) await page.locator(step.tapThrough).first().tap({ force: true })
+  else if ("clickThrough" in step) await page.locator(step.clickThrough).first().click({ force: true })
+  else if ("checkpoint" in step) {
+    const kept = checkpoints.get(page) ?? {}
+    checkpoints.set(page, kept)
+    kept[step.checkpoint.name] = await checkAssertion(page, step.checkpoint.assert)
+  } else if ("respond" in step) {
+    const { path: p, status, method, body } = step.respond
+    // A page route is asked before the context's (the fake engine's), so this answer wins for this page.
+    await page.route(
+      (url) => new URL(url).pathname === p,
+      (route) => (method && route.request().method() !== method ? route.fallback() : route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body ?? {}) })),
+    )
+  } else if ("scrollBy" in step) {
+    await page
+      .locator(step.scrollBy[0])
+      .first()
+      .evaluate((el, dy) => {
+        let s = el
+        while (s && !(s.scrollHeight > s.clientHeight && /auto|scroll/.test(getComputedStyle(s).overflowY))) s = s.parentElement
+        ;(s ?? document.scrollingElement).scrollTop += dy
+      }, step.scrollBy[1])
+  }
+}
+
+/** Per page: the results { checkpoint } steps kept, by name. */
+const checkpoints = new WeakMap()
+
+async function checkOverlayAssertion(page, a) {
+  if ("presence" in a) return checkPresence(page, a)
+  if ("checkpoint" in a) {
+    const r = checkpoints.get(page)?.[a.checkpoint]
+    if (!r) return { ok: false, label: `checkpoint ${a.checkpoint}`, detail: `no { checkpoint } step named "${a.checkpoint}" ran before it` }
+    return { ...r, label: `checkpoint ${a.checkpoint}: ${r.label}` }
+  }
+  const [sa, sb] = a.distance
+  const label = `distance ${sa} ↔ ${sb} ≤ ${a.max}`
+  try {
+    const box = async (sel) => (await page.locator(sel).first().count()) && page.locator(sel).first().evaluate((el) => el.getBoundingClientRect().toJSON())
+    const [ra, rb] = [await box(sa), await box(sb)]
+    if (!ra || !rb) return { ok: false, label, detail: `${ra ? sb : sa}: nothing matches` }
+    const dx = Math.max(0, ra.left - rb.right, rb.left - ra.right)
+    const dy = Math.max(0, ra.top - rb.bottom, rb.top - ra.bottom)
+    const d = Math.round(Math.hypot(dx, dy))
+    return { ok: d <= a.max, label, detail: d <= a.max ? `${d} px` : `${d} px apart (${sa} at y ${Math.round(ra.top)}, ${sb} at y ${Math.round(rb.top)})` }
+  } catch (err) {
+    return { ok: false, label, detail: err instanceof Error ? err.message.split("\n")[0] : String(err) }
+  }
+}
+
+/**
+ * runStep without its wait after the step: for a step whose timing matters (a close in the middle of an entrance).
+ * Other kinds go through runStep as usual.
+ */
+async function stepNow(page, step, handle) {
+  if ("click" in step) await page.locator(step.click).first().click()
+  else if ("tap" in step) await page.locator(step.tap).first().tap()
+  else if ("focus" in step) await page.locator(step.focus).first().focus()
+  else if ("press" in step) {
+    if (Array.isArray(step.press)) await page.locator(step.press[0]).first().press(step.press[1])
+    else await page.keyboard.press(step.press)
+  } else await runStep(page, step, handle)
+}
+
+async function presenceStep(page, spec, handle) {
+  const name = spec.name ?? spec.target
+  const rec = { name, target: spec.target, browser: page.context().browser()?.browserType().name(), problems: [], openState: null, side: null, entered: [], backdropEntered: [], backdropOpacity: null, openOpacity: null, sawClosed: false, inert: null, pointerEvents: null, exitMs: null, mountedFor: null, gone: false }
+  const records = presenceRecords.get(page) ?? {}
+  presenceRecords.set(page, records)
+  records[name] = rec
+  await watchEntrances(page)
+  // closeAfter: a close in the middle of the entrance, so no wait after each step.
+  const quick = spec.closeAfter !== undefined
+  const act = (s) => (quick ? stepNow(page, s, handle) : runStep(page, s, handle))
+  for (const s of [spec.open ?? []].flat()) await act(s)
+  const loc = page.locator(spec.target).first()
+  try {
+    await loc.waitFor({ state: "attached", timeout: 5_000 })
+  } catch {
+    rec.problems.push(`${spec.target} never appeared`)
+    return
+  }
+  // Let the entrance finish (slow is 240 ms), then read how it came in and how it looks open.
+  await page.waitForTimeout(quick ? spec.closeAfter : (spec.settle ?? 400))
+  const el = await loc.elementHandle()
+  Object.assign(
+    rec,
+    await el.evaluate((node) => {
+      const mine = (/** @type {any} */ (window).__harnessRuns ?? []).filter((r) => r.el === node)
+      const runs = mine.filter((r) => !r.pseudo).map((r) => r.prop)
+      const backdrop = mine.filter((r) => r.pseudo === "::backdrop").map((r) => r.prop)
+      const backdropOpacity = node.tagName === "DIALOG" ? getComputedStyle(node, "::backdrop").opacity : null
+      // What of its entrance is still running now, just before the close (closeAfter).
+      const runningAtClose = node.getAnimations().filter((a) => a.playState === "running").map((a) => a.transitionProperty ?? a.animationName ?? "?")
+      return { openState: node.getAttribute("data-state"), side: node.getAttribute("data-side"), entered: [...new Set(runs)], backdropEntered: [...new Set(backdrop)], backdropOpacity, openOpacity: getComputedStyle(node).opacity, runningAtClose }
+    }),
+  )
+  // Watch the exit in the page: when data-state turns "closed" while it is still in the document, and when it leaves.
+  await el.evaluate((node) => {
+    const longest = (cs) => {
+      const sec = (v) => (v.trim().endsWith("ms") ? parseFloat(v) : parseFloat(v) * 1000) || 0
+      const d = cs.transitionDuration.split(",").map(sec)
+      const l = cs.transitionDelay.split(",").map(sec)
+      return Math.round(Math.max(0, ...cs.transitionProperty.split(",").map((_, i) => d[i % d.length] + l[i % l.length])))
+    }
+    const w = { closedAt: null, goneAt: null, sawClosed: false, inert: null, pointerEvents: null, exitMs: null, modalClosedAt: null, wasModal: node.tagName === "DIALOG" && node.open, modalWhileClosing: false, leftTopLayerAfter: null, lastFrame: null, exitEnds: null }
+    // The entrance's transitions, still running at a close mid-entrance (closeAfter). They aren't the exit: closing
+    // retargets (cancels and restarts) each property the closed state changes, and one it doesn't change (a popover's
+    // travel, a dialog's scale) just finishes its entrance under an exit that is fading to opacity 0.
+    const entrance = new Set(node.getAnimations())
+    const exitAnims = () => node.getAnimations().filter((a) => !entrance.has(a))
+    /** The exit's running transitions now, and how long each still has to go. */
+    const exitLeft = () => {
+      let left = 0
+      const running = exitAnims().filter((a) => a.playState === "running")
+      for (const a of running) {
+        const t = a.effect?.getComputedTiming()
+        if (t) left = Math.max(left, Number(t.endTime) - Number(t.localTime ?? 0))
+      }
+      return { left, running: running.map((a) => a.transitionProperty ?? a.animationName ?? "?") }
+    }
+    Object.assign(window, { __harnessExit: w })
+    const is = (sel) => {
+      try {
+        return node.matches(sel)
+      } catch {
+        return false
+      }
+    }
+    // A modal <dialog> leaving (MOTION.md §4.2): no longer modal (the page is live), still in the top layer.
+    const layers = (now) => {
+      if (!w.wasModal) return
+      if (is(":modal")) w.modalWhileClosing = true
+      if (w.leftTopLayerAfter === null && !is(":modal") && !is(":popover-open")) w.leftTopLayerAfter = Math.round(now - w.closedAt)
+    }
+    // Each frame while it leaves: the layers above, and how long its running transitions still had to go.
+    const frame = () => {
+      if (!node.isConnected) return
+      if (!w.sawClosed) for (const a of node.getAnimations()) entrance.add(a)
+      if (w.sawClosed) {
+        const now = performance.now()
+        layers(now)
+        w.lastFrame = { at: now, ...exitLeft() }
+      }
+      requestAnimationFrame(frame)
+    }
+    requestAnimationFrame(frame)
+    const check = (records) => {
+      const now = performance.now()
+      if (!w.sawClosed && node.isConnected && node.getAttribute("data-state") === "closed") {
+        const cs = getComputedStyle(node)
+        Object.assign(w, { sawClosed: true, closedAt: now, inert: node.inert, pointerEvents: cs.pointerEvents, exitMs: longest(cs) })
+        // Also as the exit starts, not only each frame: an exit cut short on its first frame (by the entrance's
+        // transitioncancel) is removed before any frame samples it.
+        w.exitEnds = { at: now, ...exitLeft() }
+        // In the commit that closed it, before any frame.
+        layers(now)
+      }
+      // A native <dialog>: close() drops its `open` attribute. It should come after the exit and before the element leaves
+      // the page. Both can land in one batch of records, so they are read in order.
+      let removed = false
+      for (const r of records) {
+        if (r.type === "childList" && [...r.removedNodes].some((n) => n === node || n.contains(node))) removed = true
+        else if (w.wasModal && w.modalClosedAt === null && r.type === "attributes" && r.target === node && r.attributeName === "open" && !node.hasAttribute("open") && !removed) w.modalClosedAt = now
+      }
+      if (w.goneAt === null && !node.isConnected) {
+        w.goneAt = now
+        mo.disconnect()
+      }
+    }
+    const mo = new MutationObserver(check)
+    mo.observe(document, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-state", "open"] })
+  })
+  for (const s of [spec.close ?? []].flat()) await act(s)
+  await page.waitForFunction(() => /** @type {any} */ (window).__harnessExit.goneAt !== null, null, { timeout: spec.timeout ?? 1_500 }).catch(() => {})
+  const w = await page.evaluate(() => /** @type {any} */ (window).__harnessExit)
+  Object.assign(rec, {
+    sawClosed: w.sawClosed,
+    inert: w.inert,
+    pointerEvents: w.pointerEvents,
+    exitMs: w.exitMs,
+    gone: w.goneAt !== null,
+    mountedFor: w.sawClosed && w.goneAt !== null ? Math.round(w.goneAt - w.closedAt) : null,
+    wasModal: w.wasModal,
+    modalClosedAfter: w.sawClosed && w.modalClosedAt !== null ? Math.round(w.modalClosedAt - w.closedAt) : null,
+    modalWhileClosing: w.modalWhileClosing,
+    leftTopLayerAfter: w.leftTopLayerAfter,
+    // How long its transitions still had to run when it was removed: the last frame's remainder, less the time since.
+    leftAtRemoval:
+      w.goneAt === null
+        ? null
+        : [w.exitEnds, w.lastFrame]
+            .filter(Boolean)
+            .map((f) => ({ ms: Math.round(f.left - (w.goneAt - f.at)), running: f.running }))
+            .reduce((a, b) => (b.ms > a.ms ? b : a), { ms: 0, running: [] }),
+  })
+}
+
+function checkPresence(page, a) {
+  const label = `presence ${a.presence}${a.skipped ? " (hand-off: no exit)" : ""}`
+  const rec = presenceRecords.get(page)?.[a.presence]
+  if (!rec) return { ok: false, label, detail: `no { presence } step named "${a.presence}" ran before it` }
+  const problems = [...rec.problems]
+  if (!problems.length) {
+    if (rec.openState !== "open") problems.push(`open with data-state="${rec.openState}"`)
+    if (a.side !== undefined && rec.side !== a.side) problems.push(`data-side="${rec.side}", want "${a.side}"`)
+    if (a.skipped) {
+      if (rec.sawClosed) problems.push(`played an exit (data-state="closed" for ${rec.mountedFor ?? "?"} ms); a hand-off goes at once`)
+      if (!rec.gone) problems.push("still mounted after closing")
+    } else {
+      if (a.midEntrance) {
+        if (!rec.runningAtClose?.length) problems.push("its entrance had ended before the close, so this didn't test a close mid-entrance (lower closeAfter)")
+      } else if (Number(rec.openOpacity) !== 1) problems.push(`opacity ${rec.openOpacity} once open`)
+      for (const p of a.entered ?? ["opacity"]) if (!rec.entered.includes(p)) problems.push(`no ${p} entrance (ran: ${rec.entered.join(", ") || "nothing"})`)
+      for (const p of a.notEntered ?? []) if (rec.entered.includes(p)) problems.push(`its entrance ran ${p}, which it must not here`)
+      if (a.backdrop) {
+        if (Number(rec.backdropOpacity) !== 1) problems.push(`::backdrop opacity ${rec.backdropOpacity} once open`)
+        if (rec.browser === "chromium" && !rec.backdropEntered.includes("opacity")) problems.push(`::backdrop didn't fade in (ran: ${rec.backdropEntered.join(", ") || "nothing"})`)
+      }
+      if (!rec.sawClosed) problems.push(rec.gone ? 'gone without ever showing data-state="closed": no exit' : 'never showed data-state="closed"')
+      else {
+        if (!rec.inert) problems.push("not inert while closing")
+        if (rec.pointerEvents !== "none") problems.push(`pointer-events ${rec.pointerEvents} while closing`)
+        if (a.exitMs !== undefined && rec.exitMs !== a.exitMs) problems.push(`its exit lasts ${rec.exitMs} ms, want ${a.exitMs}`)
+        // MOTION.md §4.2: as the exit starts, the <dialog> stops being modal (close(), so the page takes taps again) but
+        // stays in the top layer as a popover until it is gone.
+        if (rec.wasModal) {
+          if (rec.modalClosedAfter === null) problems.push("its <dialog> was never closed with close() while in the page")
+          if (rec.modalWhileClosing) problems.push("its <dialog> stayed modal while leaving: the page stays inert, so a tap or key during the exit is lost")
+          if (rec.leftTopLayerAfter !== null) problems.push(`left the top layer ${rec.leftTopLayerAfter} ms into its exit (it should leave as a popover)`)
+        }
+        // The exit ran to its end: not removed while a transition still had a way to go (a frame's slack allowed).
+        if (rec.leftAtRemoval && rec.leftAtRemoval.ms > 30) problems.push(`removed while its exit had ${rec.leftAtRemoval.ms} ms to go (${rec.leftAtRemoval.running.join(", ") || "?"})`)
+        // Wall-clock bounds in Chromium only. Playwright's WebKit on Windows paints in software, and the same 120 ms exit
+        // ends there anywhere from 150 to 550 ms after closing: frame timing, not the app. Everything else is checked.
+        const timed = rec.browser !== "webkit"
+        // A scenario that stretches an exit past WebKit's second keeps its own bound there too.
+        const within = timed ? (a.within ?? 300) : Math.max(WEBKIT_GONE_MS, a.within ?? 0)
+        // A close mid-entrance reverses the entrance, and the browser shortens a reversed transition by how far it had got
+        // (CSS Transitions, "reversing shortening factor"): a sheet that had risen 6 % slides back in about 10 ms. So no
+        // minimum there; the check that the exit ran to its end (above) is what catches an exit cut short.
+        const min = a.min ?? (a.midEntrance ? 0 : 40)
+        if (rec.mountedFor === null) problems.push(`still mounted ${rec.gone ? "" : "1.5 s "}after closing`)
+        else if (rec.mountedFor > within) problems.push(`gone ${rec.mountedFor} ms after closing (want ≤ ${within})`)
+        else if (rec.mountedFor < min) problems.push(`gone ${rec.mountedFor} ms after closing: too soon for an exit (want ≥ ${min})`)
+      }
+    }
+  }
+  const mid = a.midEntrance && rec.runningAtClose?.length ? `closed mid-entrance (${rec.runningAtClose.join(", ")} running); ` : ""
+  const seen = rec.sawClosed ? `${mid}exit ${rec.exitMs} ms, gone after ${rec.mountedFor} ms${rec.browser === "webkit" ? `; WebKit: only gone within ${WEBKIT_GONE_MS} ms is checked` : ""}` : rec.gone ? "gone at once" : ""
+  return { ok: !problems.length, label, detail: problems.length ? `${problems.join("; ")}${seen ? ` (${seen})` : ""}` : seen }
+}
+
 // ---------------------------------------------------------------- panel and steps
 
 const TAB_LABEL = { changes: "Changes", files: "Files", preview: "Preview" }
@@ -766,6 +1099,7 @@ async function runStep(page, step, handle) {
   else if ("focus" in step) await page.locator(step.focus).first().focus()
   else if ("inject" in step) await page.evaluate((html) => document.body.insertAdjacentHTML("beforeend", html), step.inject)
   else if ("watchAnimations" in step) await watchAnimations(page)
+  else if (OVERLAY_STEP_KINDS.some((k) => k in step)) await runOverlayStep(page, step, handle)
   await page.waitForTimeout(120)
 }
 
@@ -927,7 +1261,8 @@ export async function runScenario(browser, scenario, width, { base, events, outD
     const ignored = new Map()
     page.on("console", (msg) => {
       const where = msg.location()?.url ? ` (${msg.location().url.replace(base, "")}:${msg.location().lineNumber})` : ""
-      const known = msg.type() === "error" && KNOWN_CONSOLE.find((k) => k.match.test(msg.text()))
+      // A scenario's own expected lines (e.g. the 404 a { respond } step makes the app get) count like KNOWN_CONSOLE.
+      const known = msg.type() === "error" && [...KNOWN_CONSOLE, ...(scenario.expectConsole ?? [])].find((k) => k.match.test(msg.text()))
       if (known) ignored.set(known.why, (ignored.get(known.why) ?? 0) + 1)
       else if (msg.type() === "error") result.consoleErrors.push(`${msg.text().slice(0, 400)}${where}`)
       else if (msg.type() === "warning") result.warnings.push(msg.text().slice(0, 300))

@@ -173,7 +173,7 @@ export function FilePreview({ target, rel }: { target: Target; rel: string }) {
   )
   const actions: MenuItem[] = [
     { label: "Reload", icon: icon(<path d="M11.5 7a4.5 4.5 0 1 1-1.3-3.2M11.5 2.5v2.8H8.7" />), onSelect: () => setRev((r) => r + 1) },
-    ...(narrow && kind === "html" && page?.rel === rel ? [{ label: "Open in new tab", icon: icon(<path d="M8 2.5h3.5V6M11.3 2.7 6.5 7.5M10 8.5v2.3c0 .4-.3.7-.7.7H3.2c-.4 0-.7-.3-.7-.7V4.7c0-.4.3-.7.7-.7h2.3" />), onSelect: () => openInTab(page.src, name) }] : []),
+    ...(narrow && kind === "html" && page?.rel === rel ? [{ label: "Open in new tab", icon: icon(<path d="M8 2.5h3.5V6M11.3 2.7 6.5 7.5M10 8.5v2.3c0 .4-.3.7-.7.7H3.2c-.4 0-.7-.3-.7-.7V4.7c0-.4.3-.7.7-.7h2.3" />), onSelect: () => openInTab(page.src, name), handoff: true }] : []),
     { label: "Download", icon: icon(<path d="M7 2.5V10M3.8 7 7 10.2 10.2 7M2.5 11.5h9" />), onSelect: () => void save() },
     {
       label: "Copy path",
@@ -234,7 +234,7 @@ export function FilePreview({ target, rel }: { target: Target; rel: string }) {
               <circle cx="11" cy="7" r="1" />
             </svg>
           </button>
-          <Popover open={more} onClose={closeMore} title={name} className="absolute top-full right-0 z-20 mt-1 w-[220px] rounded-xl border border-line bg-surface shadow-card">
+          <Popover open={more} onClose={closeMore} title={name} side="down" className="absolute top-full right-0 z-20 mt-1 w-[220px] rounded-xl border border-line bg-surface shadow-card">
             <MenuList items={actions} onDone={closeMore} />
           </Popover>
         </div>

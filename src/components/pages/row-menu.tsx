@@ -30,7 +30,7 @@ export function RowMenu({ items, label = "More actions", title, className = "" }
           <circle cx="11" cy="7" r="1.25" />
         </svg>
       </button>
-      <Popover open={open} onClose={close} title={title} label={label} className="absolute top-full right-0 z-30 mt-1 w-52 rounded-xl border border-line bg-surface shadow-card">
+      <Popover open={open} onClose={close} title={title} label={label} side="down" className="absolute top-full right-0 z-30 mt-1 w-52 rounded-xl border border-line bg-surface shadow-card">
         <MenuList items={items} onDone={close} />
       </Popover>
     </div>

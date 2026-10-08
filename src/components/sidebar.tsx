@@ -8,10 +8,11 @@ import { SIDEBAR_SHORTCUT, useNav } from "@/lib/nav"
 import { fmtRelative } from "@/lib/format"
 import { setTheme, useTheme, type Theme } from "@/lib/theme"
 import { useDismiss } from "@/lib/use-dismiss"
+import { useOverlay } from "@/lib/use-presence"
 import { useAllChats, useWorkspaces } from "@/lib/workspaces"
 import { useLogs } from "./logs-modal"
 import { confirmDialog, promptDialog } from "./ui/dialog"
-import { MenuList, Popover, type MenuItem } from "./ui/sheet"
+import { MenuList, Popover, type MenuItem, type Side } from "./ui/sheet"
 import { WorkspaceDot, WorkspaceSwitcher, WorkspaceTile } from "./workspace-switcher"
 
 /**
@@ -178,7 +179,7 @@ function Rail({ className = "" }: { className?: string }) {
         </button>
       )}
       <span className="flex-1" />
-      <SettingsTrigger place="bottom-0 left-full ml-2">
+      <SettingsTrigger place="bottom-0 left-full ml-2" side="right">
         {(open, toggle) => (
           <button type="button" onClick={toggle} aria-expanded={open} aria-label="Settings" title="Settings" className={item}>
             <Avatar size={26} />
@@ -196,7 +197,7 @@ function Rail({ className = "" }: { className?: string }) {
 function AccountRow() {
   const { mode, user } = useWorkspaces()
   return (
-    <SettingsTrigger place="bottom-full left-2 mb-1.5">
+    <SettingsTrigger place="bottom-full left-2 mb-1.5" side="up">
       {(open, toggle) => (
         <div className="border-t border-line p-2">
           <button type="button" onClick={toggle} aria-expanded={open} className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition hover:bg-surface/70 pointer-coarse:py-2.5">
@@ -228,8 +229,8 @@ function Avatar({ size }: { size: number }) {
   )
 }
 
-/** Owns the settings menu's open state and outside-press handling; `place` positions the desktop popover. */
-function SettingsTrigger({ place, children }: { place: string; children: (open: boolean, toggle: () => void) => ReactNode }) {
+/** Owns the settings menu's open state and outside-press handling; `place` positions the desktop popover, `side` says where that is. */
+function SettingsTrigger({ place, side, children }: { place: string; side: Side; children: (open: boolean, toggle: () => void) => ReactNode }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const close = useCallback(() => setOpen(false), [])
@@ -237,12 +238,12 @@ function SettingsTrigger({ place, children }: { place: string; children: (open: 
   return (
     <div ref={ref} className="relative">
       {children(open, () => setOpen((v) => !v))}
-      <SettingsMenu open={open} onClose={close} className={`absolute z-30 w-[260px] overflow-hidden rounded-xl border border-line bg-surface shadow-card ${place}`} />
+      <SettingsMenu open={open} onClose={close} side={side} className={`absolute z-30 w-[260px] overflow-hidden rounded-xl border border-line bg-surface shadow-card ${place}`} />
     </div>
   )
 }
 
-function SettingsMenu({ open, onClose, className }: { open: boolean; onClose(): void; className: string }) {
+function SettingsMenu({ open, onClose, side, className }: { open: boolean; onClose(): void; side: Side; className: string }) {
   const { mode, user } = useWorkspaces()
   const { open: openLogs } = useLogs()
   const icon = (name: keyof typeof ICONS) => (
@@ -260,20 +261,30 @@ function SettingsMenu({ open, onClose, className }: { open: boolean; onClose(): 
     { label: "Logs", onSelect: openLogs, icon: icon("doc") },
   ]
   return (
-    <Popover open={open} onClose={onClose} title="Settings" className={className}>
+    <Popover open={open} onClose={onClose} title="Settings" side={side} className={className}>
       <MenuList items={items} onDone={onClose} />
       <ThemeRow />
-      {mode === "cloud" && (
-        <div className="flex gap-4 border-t border-line px-4 py-2.5 text-[11px] text-muted max-expanded:pb-4">
-          <Link href="/legal/terms" onClick={onClose} className="hover:text-ink">
-            Terms
-          </Link>
-          <Link href="/legal/privacy" onClick={onClose} className="hover:text-ink">
-            Privacy
-          </Link>
-        </div>
-      )}
+      {mode === "cloud" && <LegalLinks onDone={onClose} />}
     </Popover>
+  )
+}
+
+/** Terms and Privacy under the settings menu. They navigate, so the menu closes without its exit (docs/MOTION.md §4.3). */
+function LegalLinks({ onDone }: { onDone(): void }) {
+  const overlay = useOverlay()
+  const go = () => {
+    overlay?.skipExit()
+    onDone()
+  }
+  return (
+    <div className="flex gap-4 border-t border-line px-4 py-2.5 text-[11px] text-muted max-expanded:pb-4">
+      <Link href="/legal/terms" onClick={go} className="hover:text-ink">
+        Terms
+      </Link>
+      <Link href="/legal/privacy" onClick={go} className="hover:text-ink">
+        Privacy
+      </Link>
+    </div>
   )
 }
 

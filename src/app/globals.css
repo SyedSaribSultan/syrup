@@ -379,18 +379,205 @@ body {
   }
 }
 
-/* A bottom sheet's travel (components/ui/sheet.tsx): slow, arrive. Today: the snap-back after a short drag. */
+/*
+ * Overlays (MOTION.md §4.1, §5) are kept mounted by usePresence (src/lib/use-presence.ts), which sets data-state="open" |
+ * "closed" on them. Open is the element's normal look, so nothing is hidden before JS runs. Entrances start from the
+ * @starting-style rules at the end of this group (each ::backdrop has its own: a dialog's doesn't reach it). Closed fades
+ * out, takes no pointer events (usePresence adds `inert`), and is unmounted when its transition ends.
+ * A native <dialog> (Sheet, Dialog) leaves as a popover, no longer modal (useModalDialog, MOTION.md §4.2). While it
+ * switches between the two (`data-layer-swap`, for one synchronous call) it must not stop displaying, or its transition
+ * would start over; its new ::backdrop starts from the old one's opacity (`--backdrop-from`, set by the same call).
+ */
+
+/*
+ * A bottom sheet (components/ui/sheet.tsx, a native <dialog>): rises from below its own height, slow, arrive; its
+ * backdrop fades with it. Out: slides down, base, leave. A drag's offset is an inline translate with no transition, so
+ * the snap-back after a short drag, and the exit after a long one, continue from the finger.
+ * Reduced motion: nothing travels. It fades in place, fast; translate is not transitioned, so a drag's offset snaps away.
+ */
 @utility motion-sheet {
   transition-property: translate;
   transition-duration: var(--motion-slow);
   transition-timing-function: var(--ease-arrive);
+  &::backdrop {
+    transition-property: opacity;
+    transition-duration: var(--motion-slow);
+    transition-timing-function: var(--ease-arrive);
+  }
+  &[data-state="closed"] {
+    translate: 0 100%;
+    pointer-events: none;
+    transition-duration: var(--motion-base);
+    transition-timing-function: var(--ease-leave);
+  }
+  &[data-state="closed"]::backdrop {
+    opacity: 0;
+    transition-duration: var(--motion-base);
+    transition-timing-function: var(--ease-leave);
+  }
+  &[data-layer-swap] {
+    display: block;
+  }
   @media (prefers-reduced-motion: reduce) {
-    transition-duration: var(--motion-fast);
+    & {
+      transition-property: opacity;
+      transition-duration: var(--motion-fast);
+    }
+    &::backdrop {
+      transition-duration: var(--motion-fast);
+    }
+    &[data-state="closed"] {
+      translate: none;
+      opacity: 0;
+      transition-duration: var(--motion-fast);
+    }
+    &[data-state="closed"]::backdrop {
+      transition-duration: var(--motion-fast);
+    }
   }
 }
 
 /*
- * A full-height layer that slides in from an edge and is off-screen when closed: the phone drawer (app-shell.tsx).
+ * A centred dialog (components/ui/dialog.tsx, a native <dialog>): the backdrop fades to its 40 %; the card fades and
+ * scales 0.98 → 1, base, arrive. Out: fades, fast, leave. `data-backdrop="instant"`: a queued dialog that replaces the
+ * one before it keeps the backdrop where it is (MOTION.md §4.3). Reduced motion: no scale, fades only, fast.
+ */
+@utility motion-dialog {
+  transition-property: opacity, scale;
+  transition-duration: var(--motion-base);
+  transition-timing-function: var(--ease-arrive);
+  &::backdrop {
+    transition-property: opacity;
+    transition-duration: var(--motion-base);
+    transition-timing-function: var(--ease-arrive);
+  }
+  &[data-state="closed"] {
+    opacity: 0;
+    pointer-events: none;
+    transition-duration: var(--motion-fast);
+    transition-timing-function: var(--ease-leave);
+  }
+  &[data-state="closed"]::backdrop {
+    opacity: 0;
+    transition-duration: var(--motion-fast);
+    transition-timing-function: var(--ease-leave);
+  }
+  &[data-backdrop="instant"][data-state="open"]::backdrop {
+    transition-duration: 0s;
+  }
+  &[data-layer-swap] {
+    display: block;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    & {
+      transition-property: opacity;
+      transition-duration: var(--motion-fast);
+    }
+    &::backdrop {
+      transition-duration: var(--motion-fast);
+    }
+  }
+}
+
+/*
+ * Popovers, menus, the model picker panel, PointerMenu and the Logs viewer: fade, plus --motion-shift of travel from
+ * `data-side` (up: rises from its trigger below; down: drops from its trigger above; right: slides out of the rail; none:
+ * fade only), base, arrive. transform-origin follows the side. Out: fades in place, fast, leave.
+ * The travel is `transform`, not `translate`, so it adds to a caller's own translate classes instead of replacing them.
+ * Reduced motion: --motion-shift is 0, so it only fades, fast.
+ */
+@utility motion-pop {
+  transition-property: opacity, transform;
+  transition-duration: var(--motion-base);
+  transition-timing-function: var(--ease-arrive);
+  &[data-side="up"] {
+    transform-origin: bottom;
+  }
+  &[data-side="down"] {
+    transform-origin: top;
+  }
+  &[data-side="right"] {
+    transform-origin: left;
+  }
+  &[data-state="closed"] {
+    opacity: 0;
+    pointer-events: none;
+    transition-duration: var(--motion-fast);
+    transition-timing-function: var(--ease-leave);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    & {
+      transition-duration: var(--motion-fast);
+    }
+  }
+}
+
+/*
+ * A toast (components/ui/notice.tsx): fades and travels --motion-shift from `data-side`, fast, arrive (a toast under its
+ * anchor drops, one above it or at the bottom of the screen rises). Out: fades, fast, leave. A new toast crossfades the
+ * old one. Reduced motion: fades only.
+ */
+@utility motion-notice {
+  transition-property: opacity, transform;
+  transition-duration: var(--motion-fast);
+  transition-timing-function: var(--ease-arrive);
+  &[data-state="closed"] {
+    opacity: 0;
+    pointer-events: none;
+    transition-timing-function: var(--ease-leave);
+  }
+}
+
+/* Entrances: where an overlay starts from on its first frame. */
+@starting-style {
+  .motion-sheet[data-state="open"] {
+    translate: 0 100%;
+  }
+  .motion-dialog[data-state="open"] {
+    opacity: 0;
+    scale: 0.98;
+  }
+  :is(.motion-pop, .motion-notice)[data-state="open"] {
+    opacity: 0;
+  }
+}
+/* The travel. Reduced motion has none (--motion-shift is 0 there too), so it doesn't even start a 0 px transform. */
+@media (prefers-reduced-motion: no-preference) {
+  @starting-style {
+    :is(.motion-pop, .motion-notice)[data-state="open"][data-side="up"] {
+      transform: translateY(var(--motion-shift));
+    }
+    :is(.motion-pop, .motion-notice)[data-state="open"][data-side="down"] {
+      transform: translateY(calc(var(--motion-shift) * -1));
+    }
+    :is(.motion-pop, .motion-notice)[data-state="open"][data-side="right"] {
+      transform: translateX(calc(var(--motion-shift) * -1));
+    }
+  }
+}
+@starting-style {
+  .motion-sheet[data-state="open"]::backdrop,
+  .motion-dialog[data-state="open"]::backdrop {
+    opacity: var(--backdrop-from, 0);
+  }
+  /* Only a dialog that has just become a popover for its exit has a new backdrop while closed: it carries on fading. */
+  .motion-sheet[data-state="closed"]::backdrop,
+  .motion-dialog[data-state="closed"]::backdrop {
+    opacity: var(--backdrop-from, 1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  @starting-style {
+    .motion-sheet[data-state="open"] {
+      translate: none;
+      opacity: 0;
+    }
+  }
+}
+
+/*
+ * A full-height layer that slides in from an edge and is off-screen when closed: the phone drawer (app-shell.tsx). Its
+ * scrim uses it too, so it fades on the drawer's timing (it is transparent when closed, so it only fades).
  * Open is `data-open="true"` or `data-state="open"`; closed is `data-open="false"` or `data-state="closed"`.
  * In: slow, arrive. Out: one step faster, base, leave.
  * - Opening turns visibility on at once (0s). A hidden → visible transition is still `hidden` in its first frame,
