@@ -5,7 +5,9 @@ export const dynamic = "force-dynamic"
 
 /**
  * Files panel, local mode (src/server/workspace-files.ts). Loopback-only and
- * same-origin for POST through src/proxy.ts; refused in the hosted version.
+ * same-origin through src/proxy.ts; refused in the hosted version. No op reaches
+ * a credential folder (src/server/credential-dirs.ts): stat, raw and upload
+ * answer 403 there, and a zip leaves those folders out.
  *   GET  ?op=stat|raw|zip&workspace=<abs>&path=<rel>[&hidden=1]
  *   POST ?op=upload&workspace=<abs>&path=<rel>&offset=<n>&total=<n>  (body: raw bytes of one chunk)
  */

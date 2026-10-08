@@ -3,13 +3,15 @@ import path from "node:path"
 import { Readable } from "node:stream"
 import { CAPS, cleanName, cleanRel, isHidden, numbered, parentRel } from "@/lib/fs-rules"
 import { zipStream, type ZipEntry } from "@/lib/zip"
+import { credentialFilter, CREDENTIALS_REFUSED, isCredentialPath } from "./credential-dirs"
 import { resolveInWorkspace, RevealError } from "./reveal"
 
 /**
  * Files panel, local mode: stat, raw bytes, zip and upload for a workspace
  * folder on this machine. Every path is workspace-relative, resolved with
- * resolveInWorkspace (realpath inside the workspace, never a drive root).
- * Symlinks are never followed when zipping.
+ * resolveInWorkspace (realpath inside the workspace, never a drive root,
+ * never a credential folder or file). Symlinks are never followed when zipping,
+ * and a zip skips credential folders and hard links to credential files.
  */
 
 export { RevealError as FilesError }
@@ -49,15 +51,21 @@ export function fileHeaders(size?: number): Headers {
 
 type Found = { abs: string; name: string; size: number; mtime: Date }
 
-async function walk(root: string, prefix: string, showHidden: boolean, out: Found[], total: { bytes: number }) {
+type Creds = ReturnType<typeof credentialFilter>
+
+async function walk(root: string, prefix: string, showHidden: boolean, out: Found[], total: { bytes: number }, creds: Creds) {
   const list = await fs.promises.readdir(root, { withFileTypes: true })
   for (const d of list) {
     if (isHidden(d.name, showHidden) || d.isSymbolicLink()) continue
     const abs = path.join(root, d.name)
     const name = prefix ? `${prefix}/${d.name}` : d.name
-    if (d.isDirectory()) await walk(abs, name, showHidden, out, total)
-    else if (d.isFile()) {
+    // A zip of the home folder would otherwise carry the engine's auth.json and syrup's vault key. Links are
+    // skipped and the root is a real path, so a file reaches one only through its folder, or as a hard link.
+    if (d.isDirectory()) {
+      if (!creds.dir(abs)) await walk(abs, name, showHidden, out, total, creds)
+    } else if (d.isFile()) {
       const st = await fs.promises.lstat(abs)
+      if (st.nlink > 1 && creds.file(abs)) continue
       out.push({ abs, name, size: st.size, mtime: st.mtime })
       total.bytes += st.size
       if (out.length > CAPS.zipFiles) throw new RevealError(`more than ${CAPS.zipFiles.toLocaleString()} files, too many for one zip`, 413)
@@ -72,7 +80,7 @@ export async function zipFolder(workspace: string, raw: string | null, showHidde
   const abs = resolveInWorkspace(workspace, r)
   const st = fs.statSync(abs)
   const found: Found[] = []
-  if (st.isDirectory()) await walk(abs, "", showHidden, found, { bytes: 0 })
+  if (st.isDirectory()) await walk(abs, "", showHidden, found, { bytes: 0 }, credentialFilter())
   else found.push({ abs, name: path.basename(abs), size: st.size, mtime: st.mtime })
   async function* entries(): AsyncGenerator<ZipEntry> {
     for (const f of found) {
@@ -104,6 +112,8 @@ function ensureDir(workspace: string, dir: string): string {
     if (!cleanName(seg)) throw new RevealError("bad folder name", 400)
     sofar = sofar ? `${sofar}/${seg}` : seg
     const next = path.join(cur, seg)
+    // Checked before mkdir too: an upload must not even create a folder where the engine reads its config.
+    if (isCredentialPath(next)) throw new RevealError(CREDENTIALS_REFUSED, 403)
     if (!exists(next)) fs.mkdirSync(next)
     cur = resolveInWorkspace(workspace, sofar)
     if (!fs.statSync(cur).isDirectory()) throw new RevealError(`${seg} is a file`, 409)

@@ -1,8 +1,7 @@
 import fs from "node:fs"
-import os from "node:os"
-import nodePath from "node:path"
+import { CREDENTIALS_REFUSED, isLocalDrivePath, NOT_LOCAL_DRIVE, reachesCredentials } from "@/server/credential-dirs"
 import { engine, engineAuthHeader } from "@/server/engine/opencode"
-import { env } from "@/server/env"
+import { proxyRequestHeaders, proxyResponseHeaders } from "@/server/local-guard"
 import { ensureSarib } from "@/server/sarib"
 import { revokeLocalSessionShares } from "@/server/shares"
 
@@ -16,8 +15,6 @@ import { revokeLocalSessionShares } from "@/server/shares"
 
 export const dynamic = "force-dynamic"
 
-const HOP_BY_HOP = new Set(["host", "connection", "content-length", "transfer-encoding", "keep-alive"])
-
 function isDirectory(p: string): boolean {
   try {
     return fs.statSync(p).isDirectory()
@@ -27,6 +24,15 @@ function isDirectory(p: string): boolean {
 }
 
 const engineError = (status: number, name: string, message: string) => Response.json({ name, data: { message } }, { status })
+
+/** OpenCode 1.18's own second decode of a query `directory` (its instance middleware): decodeURIComponent, or the value as is when that throws. */
+function engineDecode(v: string): string {
+  try {
+    return decodeURIComponent(v)
+  } catch {
+    return v
+  }
+}
 
 /**
  * One path segment as the UI sends them: route names and engine ids. Next hands the route its segments decoded, so
@@ -53,43 +59,6 @@ const ROUTES: [method: string, route: RegExp][] = [
   ["POST", /^question\/[^/]+\/(reply|reject)$/],
 ]
 
-/** A folder as the filesystem resolves it (links followed when it exists), for comparing. */
-function realish(p: string): string {
-  const abs = nodePath.resolve(p)
-  try {
-    return fs.realpathSync.native(abs)
-  } catch {
-    return abs
-  }
-}
-
-/** `p` is `parent` or inside it (path.relative compares without case on Windows). */
-function inside(p: string, parent: string): boolean {
-  const rel = nodePath.relative(parent, p)
-  return rel === "" || (!rel.startsWith("..") && !nodePath.isAbsolute(rel))
-}
-
-let secretDirs: string[] | null = null
-/**
- * Folders that hold credentials: OpenCode's data folder (auth.json: provider keys in plain text), its config and
- * state folders (XDG locations, which OpenCode uses on every OS), and syrup's own config folder (vault.key, which
- * unseals every key in syrup's database).
- */
-function credentialDirs(): string[] {
-  if (secretDirs) return secretDirs
-  const home = os.homedir()
-  const xdg = (name: string, ...fallback: string[]) => process.env[name] || nodePath.join(home, ...fallback)
-  secretDirs = [nodePath.join(xdg("XDG_DATA_HOME", ".local", "share"), "opencode"), nodePath.join(xdg("XDG_CONFIG_HOME", ".config"), "opencode"), nodePath.join(xdg("XDG_STATE_HOME", ".local", "state"), "opencode"), env.configDir].map(realish)
-  return secretDirs
-}
-
-/** `dir` (and `rel` inside it) is in, or is, a folder that holds credentials. */
-function reachesCredentials(dir: string, rel?: string | null): boolean {
-  const base = realish(dir)
-  const targets = [base, ...(rel ? [realish(nodePath.resolve(base, rel))] : [])]
-  return targets.some((t) => credentialDirs().some((c) => inside(t, c)))
-}
-
 async function proxy(req: Request, ctx: { params: Promise<{ path: string[] }> }) {
   const { path } = await ctx.params
   if (!path.length || path.some((s) => !SEGMENT.test(s) || s === "." || s === "..")) return engineError(400, "BadRequest", "That is not an engine route.")
@@ -108,11 +77,20 @@ async function proxy(req: Request, ctx: { params: Promise<{ path: string[] }> })
     return engineError(400, "BadRequest", "The workspace folder is not readable.")
   }
   // Every value of a repeated parameter, whichever one the engine reads.
-  const dirs = [...incoming.searchParams.getAll("directory"), ...(headerDir ? [headerDir] : [])]
-  const refused = () => engineError(403, "ForbiddenError", "That folder holds syrup's or the engine's credentials, so the browser can't open it.")
+  const queryDirs = incoming.searchParams.getAll("directory")
+  // OpenCode decodes a query `directory` once more after the URL parser has (engineDecode), so "x%41" opens "xA" and
+  // "a\%2e%2e\b" climbs out of a. A value the engine would read differently from the one checked here is refused.
+  if (queryDirs.some((d) => engineDecode(d) !== d)) return engineError(400, "BadRequest", "syrup can't pass a folder whose name contains % and two hex digits to the engine. Rename it and pick it again.")
+  const dirs = [...queryDirs, ...(headerDir ? [headerDir] : [])]
+  // Windows: drive-letter paths only. \\127.0.0.1\c$\… is this same disk under a name the checks below can't match.
+  if (dirs.some((d) => !isLocalDrivePath(d))) return engineError(400, "BadRequest", NOT_LOCAL_DRIVE)
+  // Credential folders (src/server/credential-dirs.ts): the engine's auth.json, syrup's vault key.
+  const refused = () => engineError(403, "ForbiddenError", CREDENTIALS_REFUSED)
   if (dirs.some((d) => reachesCredentials(d))) return refused()
-  // The file list names a folder inside the workspace, which can be a parent of those (a workspace in your home folder).
-  if (route === "file" && dirs.some((d) => incoming.searchParams.getAll("path").some((p) => reachesCredentials(d, p)))) return refused()
+  // The file list names a folder inside the workspace, which can be a parent of those (a workspace in your home
+  // folder). Checked as sent and as decoded once more, whichever the engine uses.
+  const paths = incoming.searchParams.getAll("path").flatMap((p) => [p, engineDecode(p)])
+  if (route === "file" && dirs.some((d) => paths.some((p) => reachesCredentials(d, p)))) return refused()
   // A workspace folder that was moved or deleted: the engine would accept the session and then fail the first
   // prompt with a bare "Unexpected server error", so answer here in the engine's own error shape.
   if (dir && !isDirectory(dir)) {
@@ -131,12 +109,8 @@ async function proxy(req: Request, ctx: { params: Promise<{ path: string[] }> })
     }
   }
 
-  const headers = new Headers()
-  req.headers.forEach((v, k) => {
-    if (!HOP_BY_HOP.has(k.toLowerCase()) && k.toLowerCase() !== "authorization") headers.set(k, v)
-  })
-  // The engine is password-protected; only this proxy knows the password.
-  headers.set("authorization", engineAuthHeader())
+  // No origin, referer or cookie reaches the engine; the engine's password replaces any client authorization.
+  const headers = proxyRequestHeaders(req.headers, engineAuthHeader())
 
   const init: RequestInit & { duplex?: "half" } = {
     method: req.method,
@@ -153,9 +127,8 @@ async function proxy(req: Request, ctx: { params: Promise<{ path: string[] }> })
   // The session id keeps its own spelling (ids are case-sensitive); only the route name is compared without case.
   const deleted = req.method === "DELETE" && upstream.ok && /^session\/[^/]+$/.test(route) ? path[1] : undefined
   if (deleted) await revokeLocalSessionShares(deleted).catch(() => {})
-  const out = new Headers(upstream.headers)
-  out.delete("content-encoding")
-  out.delete("content-length")
+  // Without content-encoding, content-length or any access-control-* grant (both branches below use `out`).
+  const out = proxyResponseHeaders(upstream.headers)
   // The few JSON answers that carry secrets are rewritten; everything else (the event stream above all) streams through.
   const redact = REDACT[route]
   if (redact && upstream.ok && /\bjson\b/i.test(upstream.headers.get("content-type") ?? "")) {

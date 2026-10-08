@@ -1,14 +1,16 @@
 import NextAuth from "next-auth"
 import { NextResponse, type NextRequest } from "next/server"
 import { authConfig } from "./auth.config"
+import { localGuardDecision } from "./server/local-guard"
 
 /**
  * Request guard, runs before every route.
  *
- * Local mode: the server only listens on 127.0.0.1, so the remaining threat is
+ * Local mode: the server only listens on 127.0.0.1, so the remaining threats are
  * DNS rebinding (a web page making your browser call "localhost" under another
- * Host). API requests must carry a loopback Host, and mutating requests a
- * loopback Origin.
+ * Host) and pages on other loopback ports (an agent's dev server). Every request
+ * must carry a loopback Host; API requests must also come from syrup's own
+ * origin when the browser says where they come from (src/server/local-guard.ts).
  *
  * Cloud mode: everything except sign-in, legal pages, the auth endpoints, the
  * health check, the analytics proxy and shared chats (/c/…) requires a
@@ -17,34 +19,16 @@ import { authConfig } from "./auth.config"
 
 const MODE = process.env.SYRUP_MODE === "cloud" || process.env.SYRUP_MODE === "local" ? process.env.SYRUP_MODE : process.env.VERCEL ? "cloud" : "local"
 
-const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]", "::1"])
-
-function hostnameOf(hostHeader: string | null): string {
-  if (!hostHeader) return ""
-  // Strip the port; IPv6 literals keep their brackets.
-  const m = hostHeader.match(/^(\[[^\]]+\]|[^:]+)/)
-  return (m?.[1] ?? "").toLowerCase()
-}
-
-function localGuard(req: NextRequest): NextResponse {
-  if (!req.nextUrl.pathname.startsWith("/api/")) return NextResponse.next()
-  if (!LOOPBACK.has(hostnameOf(req.headers.get("host")))) {
-    return NextResponse.json({ error: "syrup local mode only answers on localhost" }, { status: 403 })
-  }
-  if (req.method !== "GET" && req.method !== "HEAD") {
-    const origin = req.headers.get("origin")
-    if (origin) {
-      let ok = false
-      try {
-        ok = LOOPBACK.has(new URL(origin).hostname.toLowerCase()) || LOOPBACK.has(`[${new URL(origin).hostname.toLowerCase()}]`)
-      } catch {}
-      if (!ok) return NextResponse.json({ error: "cross-origin request refused" }, { status: 403 })
-    }
-    if (req.headers.get("sec-fetch-site") === "cross-site") {
-      return NextResponse.json({ error: "cross-site request refused" }, { status: 403 })
-    }
-  }
-  return NextResponse.next()
+/** Local mode, every matched path: loopback Host; on /api also same-origin only (src/server/local-guard.ts). */
+function localGuard(req: NextRequest): NextResponse | null {
+  const d = localGuardDecision({
+    method: req.method,
+    pathname: req.nextUrl.pathname,
+    host: req.headers.get("host"),
+    origin: req.headers.get("origin"),
+    secFetchSite: req.headers.get("sec-fetch-site"),
+  })
+  return d.ok ? null : NextResponse.json({ error: d.error }, { status: d.status })
 }
 
 /** Local-only by design: the local engine proxy, local folder routes and local chat URLs. The cloud has its own equivalents. */
@@ -116,13 +100,13 @@ const cloudGuard = auth((req) => {
 })
 
 export default function proxy(req: NextRequest, event: Parameters<typeof cloudGuard>[1]) {
-  const variant = shareVariant(req)
-  if (variant) return variant
-  if (MODE === "local") return localGuard(req)
-  return cloudGuard(req, event)
+  // Local: the guard runs first, so a rebinding page can't reach a share's .md/.json rewrite either.
+  if (MODE === "local") return localGuard(req) ?? shareVariant(req) ?? NextResponse.next()
+  return shareVariant(req) ?? cloudGuard(req, event)
 }
 
 export const config = {
   // Everything except Next internals and static assets (the web manifest too: install prompts fetch it signed out).
-  matcher: ["/((?!_next/static|_next/image|favicon\\.ico|.*\\.(?:png|jpg|jpeg|gif|svg|webp|ico|woff2?|txt|xml|webmanifest)$).*)"],
+  // Every /api path is matched on its own: an id ending in ".txt" or ".png" must not skip the guard.
+  matcher: ["/api/:path*", "/((?!_next/static|_next/image|favicon\\.ico|.*\\.(?:png|jpg|jpeg|gif|svg|webp|ico|woff2?|txt|xml|webmanifest)$).*)"],
 }
