@@ -1,6 +1,6 @@
 # Answer quality
 
-Status: **proposed 2026-10-08, waiting on the founder's answers in §7.** This is the plan for making syrup's answers right, not only fast. It comes from one real chat that went wrong and five research reports on why. [ROADMAP.md](ROADMAP.md) gets a "Q" track once §7 is answered.
+Status: **agreed 2026-10-08 (decisions in §7); Q0 in progress.** This is the plan for making syrup's answers right, not only fast. It comes from one real chat that went wrong and five research reports on why. [ROADMAP.md](ROADMAP.md) gets a "Q" track once §7 is answered.
 
 Related: [ARCHITECTURE.md](ARCHITECTURE.md) (router, engine), [RENDERING.md](RENDERING.md) (rounds 2–8, which share files with this plan), [TESTING.md](TESTING.md) (the gate).
 
@@ -136,10 +136,10 @@ Reports, with a source for each claim: `scratchpad/quality-research/{numbers,gro
 
 ---
 
-## 7. Needs the founder
+## 7. Decisions (founder, 2026-10-08)
 
-1. **Token budget for the K2 replay's last turn:** 15k (recommended) or 30k?
-2. **May the real K2 chat be committed as a test fixture?** It holds the chat's text and search results, no secrets.
-3. **Should a Tier 1 regression block the push** until someone reads it? (Recommended: yes.)
-4. **Keep eval traffic off scarce backends** (Gemini Flash, OpenRouter's daily cap)? (Recommended: yes.)
-5. **"Open the page before quoting a price":** on (more accurate prices, +2–5 s on price questions), or off (faster, snippet numbers marked "from a search snippet")? (Recommended: on; the eval checks the cost.)
+1. **Token budget for the K2 replay's last turn: 15k.**
+2. **The real K2 chat is committed as a test fixture** (its text and search results; no secrets).
+3. **A Tier 1 regression blocks the push** until someone reads it.
+4. **Eval traffic stays off scarce backends** (Gemini Flash, OpenRouter's daily cap).
+5. **"Open the page before quoting a price": on.** The eval measures its cost; if it adds more than 5 s to price questions, it is revisited.

@@ -148,12 +148,14 @@ User data export, WAF/CSP/status page, legal review, real-iPhone keyboard check 
 | 0 UI harness and initial-JS gate (added) | **done** 2026-10-08 (`e64efc4`) |
 | 1 Router follow-ups | **done** 2026-10-08 (`b76741d`): 83 router scenarios; live bench: routine first token 1.0–2.3 s, titles under 1.5 s or a fallback at 4 s |
 | 1b Live streaming, state after reload, secrets out of the browser, pane width (added; found by the harness) | **done** 2026-10-08 (`0ebd5e1`) |
-| G Local origin guard + credential folders on `/api/workspace/files` (from RENDERING.md) | next |
-| 2–8 Capabilities | queued; contract in [RENDERING.md](RENDERING.md) |
-| 9 Motion M0 | **done** on branch `motion` (`1fecd1c`), merge pending |
-| 10 Motion M1 | in progress on branch `motion` |
+| G Local origin guard + credential folders on `/api/workspace/files` (from RENDERING.md) | **done** 2026-10-08 (`bb04c0a`) |
+| K Cloud keys out of the sandbox (added; founder's decision) | **done** 2026-10-08 (`402fba7`); verified live: no key in any sandbox process |
+| 9 Motion M0 | **done** (`1fecd1c`, merged in `166d4d7`) |
+| 10 Motion M1 | **done** (`dd61233`, merged in `166d4d7`) |
+| Q Answer quality (added; [QUALITY.md](QUALITY.md)) | **agreed** 2026-10-08; order Q0 → Q1 → (Q2, Q5 alongside 2a) → Q3, Q4 → Q6 |
+| 2–8 Capabilities | queued; contract in [RENDERING.md](RENDERING.md); 2a starts alongside Q2 |
 | 11–12 Motion M2–M3 | queued (after the capability rounds that touch the same files) |
 
-Open, needs a decision: **cloud sidecar keys.** The sandbox's sidecar holds the user's raw provider keys and a 2-hour ingest token in its environment; anything running as the same user (the agent's shell) can read them from `/proc/<pid>/environ`. Options: pass them on stdin instead of env and bind the keys endpoint to the sandbox (cheap, partial); run the sidecar as another OS user (weak while the default user can sudo); or keep keys out of the sandbox and route model calls from the app (the real fix, a larger change).
-
-Follow-up found by the live bench: **a workspace's first message waits 3–9 s inside OpenCode** while it builds the folder's instance ("booting location services", the skills scan). Prewarming deeper than the session list would hide it.
+Follow-ups found on the way:
+- **A workspace's first message waits 3–9 s inside OpenCode** while it builds the folder's instance ("booting location services", the skills scan). Prewarming deeper than the session list would hide it.
+- **The admin sandbox probe leaves its temporary workspace behind** when a step fails (QUALITY.md Q6).
