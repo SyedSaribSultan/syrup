@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // The esbuild bundle of the sandbox sidecar (sidecar/build.mjs), generated and git-ignored like .next.
+    ".sidecar/**",
   ]),
 ]);
 
