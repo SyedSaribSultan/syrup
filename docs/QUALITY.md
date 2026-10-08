@@ -1,6 +1,6 @@
 # Answer quality
 
-Status: **agreed 2026-10-08 (decisions in §7); Q0, Q1 and Q5 done (Q1b, the judge, open); Q2 and Round 2a in progress.** This is the plan for making syrup's answers right, not only fast. It comes from one real chat that went wrong and five research reports on why. [ROADMAP.md](ROADMAP.md) gets a "Q" track once §7 is answered.
+Status: **agreed 2026-10-08 (decisions in §7); Q0, Q1, Q2 and Q5 done (Q1b, the judge, open); Round 2a in progress; Q3 and Q4 next.** This is the plan for making syrup's answers right, not only fast. It comes from one real chat that went wrong and five research reports on why. [ROADMAP.md](ROADMAP.md) gets a "Q" track once §7 is answered.
 
 Related: [ARCHITECTURE.md](ARCHITECTURE.md) (router, engine), [RENDERING.md](RENDERING.md) (rounds 2–8, which share files with this plan), [TESTING.md](TESTING.md) (the gate).
 
@@ -103,6 +103,16 @@ Reports, with a source for each claim: `scratchpad/quality-research/{numbers,gro
 - **Prepare the config dirs first** (Q0 hard rule), in `opencode.ts` locally and in the sandbox's engine start.
 - The plugin's web hooks: `numResults` 5 (ceiling 6); results trimmed to the query (deduplicated, at most 5 results, ~6,000 characters, URLs always kept, **tables kept whole**); `webfetch` capped at 12,000 characters; web results from earlier user turns replaced by a stub with the query and source URLs; `limit.input: 120_000`.
 - **Done when:** the K2 replay's last turn is ≤ 15k input tokens (65k today), no turn over 20k, answers still pass, first text no slower; coding cases unchanged.
+
+### Q2 results (2026-10-08)
+
+- **The K2 replay's last turn: 55.2k → 11.4–11.5k input tokens** (5 of 5 trials; 13.8k once, when the model searched again live). The budget check is now blocking; its gap note is gone. First text on that turn 9.4 s → ~3 s. `bench:agent --set quick`: median first text 6.2 s → 4.9 s.
+- **In syrup's plugin** (`contextHygiene`, on unless `SYRUP_CONTEXT_HYGIENE=0`, independent of the eval replay): websearch `numResults` 5 (ceiling 6); search results trimmed to the query (at most 5 results, ~6,000 characters, hard cap 8,000, every shown URL kept, duplicates and near-duplicates dropped, BM25 plus a numbers bonus, a plain 8,000-character cut if Exa's format changes, `{rawChars, keptChars, trim}` in the metadata); webfetch capped at 12,000 characters with a note; web results of earlier user turns sent as a stub with the query and up to 5 sources (storage and the UI keep the text); in the current turn the newest 3 web results are always kept and the rest only within 16K tokens; websearch's definition cut to `{query, numResults}`. Coding tools untouched.
+- **Tables kept whole:** a table that fits is kept entire (it may run past the 6,000 target up to the 8,000 cap); a bigger one keeps its header, its separator and its best rows, with a "table cut: N of M rows shown" note. Rows that continue a table straight after Exa's `...` break join that table. Rows the search result gave without any header are kept as one block, whole or not at all, under the line "(table rows without their header row: the column meanings were not in the search result)". They are never given a header that might not be theirs (e.g. Wikipedia's top-10 peaks rows in the K2 chat).
+- **`limit.input: 120_000`** on every alias: auto-compaction fires at ~100K instead of 224K.
+- **OpenCode's "continue" request after compaction is stopped only when the compaction followed a finished answer** (measured on a mock engine: it bought one extra reply to a question nobody asked). Mid-task it is kept: without it the turn ends right after the summary and the task is dropped. Never stopped on a provider overflow or with a newer question unanswered.
+- **Smoke set:** 5 of 5 pass in both after-change runs. Last-turn tokens per case before → after: add-slugify 7.8k → 7.4–7.8k, budget-table 8.9k → 7.3–8.7k, counterfactual-fee 9.6k → 7.1–9.9k, fix-failing-test 8.2k → 7.9–8.3k, k2-pkr 55.2k → 11.4k. Coding requests are ~300 tokens smaller (shorter websearch definition). Their first text is dominated by step count and the model picked; two hygiene-off/on rounds on one model gave per-request first-token medians of 1,149/1,084 ms off and 1,343/1,054 ms on (the sign flips with run order: noise).
+- **Not done here:** the 20-question set that would measure passage choice (Tier 2).
 
 ### Q3 — Numbers (1–1½ days)
 

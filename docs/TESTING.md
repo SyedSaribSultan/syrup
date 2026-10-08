@@ -32,7 +32,7 @@ pnpm ui:weight --compare
 - **Screenshots:** open `screenshots/harness/<label>/` and look at every screen the round touched, at both widths. A green table is not enough: the harness checks errors, layout and assertions, not taste.
 - **Answer checks (Tier 0, [QUALITY.md](QUALITY.md) Q0):** `pnpm test:eval-checks` runs the deterministic checks in `src/lib/answer-checks` (totals vs parts, currency magnitude, number provenance, cited links, the transcript parser) on committed files only: no app, no network, under a second. The real K2 export (`scripts/fixtures/eval/transcripts/k2.md`) must fail with exactly its known errors, its hand-corrected copy (`k2-fixed.md`) must pass, and every UI harness fixture chat must raise no error or warning.
 - **Checking any chat:** `pnpm eval:check <export.md|export.json>` prints each answer's findings (error, warning, hint) and exits 1 on any error. It reads every export form: the share link's `/md` and `/json`, `pnpm chat:export` (with or without `--json` and `--debug`). A real bad answer that no check flags: write the check first, then add the export to the goldens in `scripts/test-eval-checks.mjs`.
-- **syrup's OpenCode plugin and the config dirs:** `pnpm test:plugin` (no engine, under 2 s) checks the config-dir rule on temporary folders and the sandbox's build of it, that the plugin registers nothing while `SYRUP_EVAL_REPLAY` is unset, the replay tools (hit, fuzzy, fallback, miss, argument checks), and that they carry OpenCode 1.18.32's own tool definitions (`scripts/fixtures/eval/opencode-web-tools.json`; re-capture it after an engine upgrade).
+- **syrup's OpenCode plugin and the config dirs:** `pnpm test:plugin` (no engine, under 2 s) checks the config-dir rule on temporary folders and the sandbox's build of it; that the plugin registers nothing with both features off; the replay tools (hit, fuzzy, fallback, miss, argument checks) and that they carry OpenCode 1.18.32's own tool definitions (`scripts/fixtures/eval/opencode-web-tools.json`; re-capture it after an engine upgrade); and the Q2 context hooks: the search trimmer on the six real K2 searches and on adversarial inputs (a price table split across highlights, rows without a header, a table bigger than the budget, malformed blocks, a huge single passage), the table rule, the webfetch cap, masking of earlier turns, the in-turn budget, the compaction "continue" rule, and that coding tools are never touched.
 - **Router changes:** also `pnpm bench:agent` before and after (ROADMAP §2, "First token first").
 - **Prompt, tools, context handling, router policy or engine config changes:** also `pnpm eval --set smoke` before and after (§1.2). A regression there blocks the push until someone reads it.
 - **Nothing new in the main chunk:** `pnpm ui:weight --compare` fails when initial JavaScript grows by more than 2 KB gzipped or a new chunk joins the initial load (§4).
@@ -82,7 +82,7 @@ pnpm eval:record <export> --case <id>       # a cassette from an exported chat's
 pnpm eval:check <export>                    # the answer checks on any exported chat (§1)
 ```
 
-Other flags: `--no-rerun`, `--timeout <s>` per turn (default 300), `--keep` (leave the eval's syrup running), `--judge` (prints that the judge is Q1b).
+Other flags: `--no-rerun`, `--timeout <s>` per turn (default 300), `--keep` (leave the eval's syrup running), `--judge` (prints that the judge is Q1b). `SYRUP_CONTEXT_HYGIENE=0 pnpm eval …` runs the eval without the plugin's Q2 context hooks, for an A/B in one sitting.
 
 **What a run does**
 
@@ -98,7 +98,7 @@ Other flags: `--no-rerun`, `--timeout <s>` per turn (default 300), `--keep` (lea
 
 | Case | Kind | Passes when |
 |---|---|---|
-| `k2-pkr` | numbers, research | The incident chat: turns 1–6 imported from `transcripts/k2.md`, "in PKR" live with its own search results. `eval:check` finds no error in the answer: PKR equals USD at the stated rate, totals equal their parts. **Known gap:** the last turn's input must be at most 15k tokens; it is ~55k until Q2 |
+| `k2-pkr` | numbers, research | The incident chat: turns 1–6 imported from `transcripts/k2.md`, "in PKR" live with its own search results. `eval:check` finds no error in the answer: PKR equals USD at the stated rate, totals equal their parts (recorded, blocking from Q3), and the last turn's input is at most 15k tokens (11.4k since Q2) |
 | `budget-table` | numbers | From hand-written price pages, a Hunza trip table with a Total row that adds up to the total the pages imply (PKR 275,000) |
 | `counterfactual-fee` | citation | The only page says Spantik's 2026 fee is USD 1,370, a number no model remembers: the answer gives it and links that page |
 | `fix-failing-test` | coding | `util.py` has two bugs: fixed without touching `test_util.py`, and hidden tests (copied in afterwards) pass |

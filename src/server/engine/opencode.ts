@@ -32,6 +32,13 @@ export function engineAuthHeader(): string {
  */
 type CompactionConfig = { compaction?: { auto?: boolean; prune?: boolean } }
 
+/**
+ * A provider model as OpenCode 1.18 reads it: the v1 SDK type lacks limit.input. Set, it moves
+ * auto-compaction from context − output (224K for the aliases) to input − 20K (session/overflow.ts).
+ */
+type ProviderModel = NonNullable<NonNullable<Config["provider"]>[string]["models"]>[string]
+type AliasModel = ProviderModel & { limit: { context: number; input?: number; output: number } }
+
 type AgentPrompts = { agent?: Record<string, { prompt?: string }> }
 
 /** Config syrup hands to OpenCode: the SDK type plus the keys it lacks. */
@@ -46,7 +53,7 @@ export type EngineConfigOptions = {
 
 /** The "syrup" provider (router), memory MCP, syrup's plugin and token-saving settings, shared by local mode and the sandbox sidecar config. */
 export function syrupEngineConfig(routerURL: string, secret: string, opts: EngineConfigOptions = {}): Pick<Config, "model" | "small_model" | "mcp" | "provider" | "plugin"> & CompactionConfig & AgentPrompts {
-  const models: NonNullable<NonNullable<Config["provider"]>[string]["models"]> = {}
+  const models: Record<string, AliasModel> = {}
   for (const [id, a] of Object.entries(ALIASES)) {
     models[id] = {
       name: a.name,
@@ -57,8 +64,10 @@ export function syrupEngineConfig(routerURL: string, secret: string, opts: Engin
       cost: { input: 0, output: 0 },
       // 256K keeps prompts within reach of the strong free models, which mostly
       // have 200K–1M windows, and makes OpenCode compact before prompts get slow.
-      // 32K output matches what OpenCode asks for per request anyway.
-      limit: { context: 256_000, output: 32_000 },
+      // 32K output matches what OpenCode asks for per request anyway. 120K input makes auto-compaction
+      // fire at ~100K (120K − 20K reserved) instead of 224K: a backstop for long chats, measured in the
+      // Q0 spike (docs/QUALITY.md Q2); the plugin's trimming and masking keep ordinary chats far below it.
+      limit: { context: 256_000, input: 120_000, output: 32_000 },
       ...(opts.eval ? { headers: { [EVAL_HEADER]: "1" } } : {}),
     }
   }

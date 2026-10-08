@@ -140,6 +140,8 @@ const engineEnv = (() => {
     SYRUP_WORKSPACE: wsRoot,
     SYRUP_EVAL: "1",
     SYRUP_EVAL_REPLAY: cassetteFile,
+    // SYRUP_CONTEXT_HYGIENE=0 runs the eval without the plugin's Q2 context hooks: an A/B of them in one sitting.
+    ...(process.env.SYRUP_CONTEXT_HYGIENE ? { SYRUP_CONTEXT_HYGIENE: process.env.SYRUP_CONTEXT_HYGIENE } : {}),
     SYRUP_EVAL_HOST_PORT: String(hostPort),
     OPENCODE_PORT: String(enginePort),
     OPENCODE_HOSTNAME: "127.0.0.1",

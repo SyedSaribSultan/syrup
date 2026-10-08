@@ -23,9 +23,7 @@ export default defineCase({
     c.noErrors(["provenance"], { column: "prov", severities: ["error", "warn"], info: true }),
     c.noErrors(["cited-url"], { column: "urls", severities: ["error", "warn"] }),
     c.judged({ claim: "permits are or aren't discounted for Pakistanis", info: true }),
-    c.lastTurnInputTokens({
-      max: 15_000,
-      gap: "Q2 (context hygiene): the seeded chat carries ~55k tokens (mostly raw search output) into the last turn. The 15k budget (§7 decision 1) is met only once the plugin trims and masks old web results; delete this note in that change.",
-    }),
+    // §7 decision 1. Met by Q2 (the plugin masks earlier turns' web results): 55k → 11.4k on 2026-10-08.
+    c.lastTurnInputTokens({ max: 15_000 }),
   ],
 })
