@@ -3,3 +3,8 @@ allowBuilds:
   esbuild: true
   sharp: false
   unrs-resolver: false
+# Security floors for transitive deps (pnpm audit, 2026-10-09). Drop each once its parent ships the fix.
+overrides:
+  sharp@<0.35.5: ^0.35.5
+  source-map-js@<1.2.2: ^1.2.2
+  katex@<0.18.2: 0.19.0
