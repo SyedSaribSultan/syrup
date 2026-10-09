@@ -163,12 +163,13 @@ Follow-ups found on the way:
 - **A workspace's first message waits 3–9 s inside OpenCode** while it builds the folder's instance ("booting location services", the skills scan). Prewarming deeper than the session list would hide it.
 - **The admin sandbox probe leaves its temporary workspace behind** when a step fails (QUALITY.md Q6).
 
-## 7. Where we stopped (2026-10-08)
+## 7. Where we stopped (2026-10-08; updated 2026-10-09)
 
 Paused by the founder after Round 2a, to save the week's quota. Everything listed in §6 as done is pushed and live; nothing is half-built. Pick up here, in this order.
 
 **Next rounds (agreed, not started):**
 1. **Q3 Numbers** ([QUALITY.md](QUALITY.md) §Q3): `syrup_calc` on the MCP server, the "Numbers" prompt section, the "Fix numbers" note. Makes the K2 eval's sums check blocking (remove `info: true` in `scripts/fixtures/eval/cases/k2-pkr.mjs`).
+   - **Mostly built, paused 2026-10-09 on branch `wip/q3-numbers`** (pushed; not reviewed, gate not run). Built: `src/server/calc/` (core, fx, tool), the Numbers prompt section, `number-note`, five `num-*` eval cases, `pnpm test:numbers` with a labelled corpus and two blind holdouts. Checker precision on the blind sets 89–100%, recall 78–87%: the **Fix numbers** button stays off (needs ≥ 95%). To resume: rebase the branch on `main`, then fix its own reviewer's findings: the Fix button can send twice on a double click (guard with `sent`/`disabled`); `session-view.tsx` `runningFrom` has no guard for `findLastIndex` returning -1. Then the full gate, an independent review, the K2 and `num-*` evals, and integrate.
 2. **Q4 Grounding** (§Q4): `webfetch` override, the "When you answer from the web" section, source chips. **Also:** images from other sites in a reply load only after a tap (founder's decision 2026-10-08; today `![x](https://…)` loads at once, a known exfiltration channel found in the Round 2a review). Not a page CSP.
 3. **Q6 small fixes, Q1b the judge**, then rounds **2b–8** per [RENDERING.md](RENDERING.md) and Motion **M2–M3** (§6).
 
@@ -181,10 +182,10 @@ Paused by the founder after Round 2a, to save the week's quota. Everything liste
 - **Round 2a deferrals:** prefetching a renderer when the pointer is over **Open**; the libraries of rounds 3, 4 and 6 are installed in their own rounds, not all at once (RENDERING decision 28 changed).
 - **Q2's 20-question passage-choice set** (Tier 2) is not built.
 - **Round 2a review minors:** the Mermaid guard also refuses ordinary labels such as `A[parse url()]` (limit it to `style`/`classDef`/`linkStyle` lines and `@{…}` shape data); its refusal note reads like a chart message; KaTeX negative-space macros pass the regex but stay clipped by `.rich-tex` (keep its `contain: paint`).
-- **GitHub Dependabot reports 20 dependency vulnerabilities** (2 critical, 5 high) on `main`: triage them.
+- **Dependency advisories:** fixed 2026-10-09 (Next 16.3.8 for the `next/og` RCE CVE-2026-94545, sharp, MCP SDK, source-map-js, KaTeX). Two left: `braces` (no fixed release yet; lint-only) and `esbuild` under `drizzle-kit` (dev tool only). Re-run `pnpm audit` when resuming.
 - **Live checks not yet done for 2a:** ask "draw the checkout flow and give the formula" locally and in the cloud; re-run `pnpm bench:agent --set all`.
 
 **Housekeeping left for the founder:**
 - The merged `motion` worktree at `../syrup-motion` and its branch can go (all of it is in `main`). Remove it with `cmd /c "rmdir /s /q ..\syrup-motion"`, then `git worktree prune` and `git branch -d motion`. On Windows, never `git worktree remove --force` a worktree whose `node_modules` is a junction: it follows the junction and deletes the main checkout's files.
 
-**How to resume:** read §6 and this section, then QUALITY.md §Q3. The gate for every push is §2 plus `pnpm ui:weight --compare --budgets`; never run two UI harnesses at once on this machine.
+**How to resume:** read §6 and this section, then QUALITY.md §Q3 and the `wip/q3-numbers` branch. The gate for every push is §2 plus `pnpm ui:weight --compare --budgets`; never run two UI harnesses at once on this machine.
