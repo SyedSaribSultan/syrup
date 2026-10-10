@@ -7,7 +7,8 @@
  * - An amount needs a currency marker, or a scale word that only money uses (lakh, crore, arab).
  *   "k" and "thousand/million/billion" count without a currency only as `kind: "scaled"`, and a
  *   bare "m" without a currency is metres, never millions. Years and counts are not amounts.
- * - "L" alone is NOT lakh (too ambiguous); such a cell reads as unparsed text.
+ * - "L" is lakh only on an amount marked as rupees ("PKR 4.5L", "₹14.4 L"); anywhere else it may be litres, and
+ *   the amount is not read at all.
  * - A range's first half inherits the second half's scale and currency ("$40–74k" is 40k–74k),
  *   unless that would put the low end above the high end ("$500–2k" is 500–2,000).
  */
@@ -56,6 +57,8 @@ const SCALE: Record<string, number> = {
   cr: 1e7,
   arab: 1e9,
   arabs: 1e9,
+  // Only on an amount marked as rupees (parseAmounts): "PKR 4.5L", "₹14.4 L".
+  l: 1e5,
 }
 /** Scale words that are only ever money: an amount with one needs no currency. */
 const MONEY_SCALE = new Set(["lakh", "lakhs", "lac", "lacs", "crore", "crores", "cr", "arab", "arabs"])
@@ -63,9 +66,9 @@ const MONEY_SCALE = new Set(["lakh", "lakhs", "lac", "lacs", "crore", "crores", 
 const NEEDS_CURRENCY = new Set(["m", "b"])
 
 const NUM = String.raw`\d{1,3}(?:,\d{2,3})+(?:\.\d+)?|\d+(?:\.\d+)?|\.\d+`
-const SCALE_RE = String.raw`(?:thousand|million|billion|lakhs?|lacs?|crores?|arabs?|mn|bn|cr|k|m|b)(?![a-z])`
-const CUR_PRE = String.raw`(?:USD\s?\$|US\$|USD|PKR|INR|EUR|GBP|Rs\.?|₨|₹|€|£|\$)`
-const CUR_POST = String.raw`(?:USD|PKR|INR|EUR|GBP|rupees?|dollars?|euros?)(?![a-z])`
+const SCALE_RE = String.raw`(?:thousand|million|billion|lakhs?|lacs?|crores?|arabs?|mn|bn|cr|k|m|b|l)(?![a-z])`
+const CUR_PRE = String.raw`(?:USD\s?\$|US\$|USD|PKR|INR|EUR|GBP|AED|SAR|Rs\.?|₨|₹|€|£|\$)`
+const CUR_POST = String.raw`(?:USD|PKR|INR|EUR|GBP|AED|SAR|rupees?|dollars?|euros?)(?![a-z])`
 const AMT = String.raw`(${CUR_PRE})?\s?(${NUM})(?:\s?(${SCALE_RE}))?(?:\s?(${CUR_POST}))?`
 const SEP = String.raw`(\s*(?:–|—|‒|-|\bto\b|\buntil\b|\bthrough\b)\s*|\s+and\s+)`
 const RANGE_RE = new RegExp(String.raw`(?<![\w.,])${AMT}(?:${SEP}${AMT})?`, "gid")
@@ -104,6 +107,21 @@ function precisionOf(numText: string, value: number, scale: number): number {
 
 type Half = { cur: string | null; num: string; scaleWord: string | null }
 
+/**
+ * A minus sign written right against the amount ("-$18", "Discount: −PKR 500"), not after a word or number
+ * ("$500-$200" is two amounts; "- $500" at a line's start is a bullet).
+ */
+function negativeAt(text: string, start: number): boolean {
+  const m = text[start - 1]
+  if (m !== "-" && m !== "−") return false
+  const prev = text[start - 2]
+  return prev === undefined ? start - 1 === 0 : !/[\w.,)\]%-]/.test(prev)
+}
+
+function negate(a: Amount): Amount {
+  return { ...a, lo: -a.hi, hi: -a.lo }
+}
+
 /** Every amount or range in `text`, in order. */
 export function parseAmounts(text: string, opts: ParseOptions = {}): Amount[] {
   const rupee = opts.rupee ?? "PKR"
@@ -114,6 +132,11 @@ export function parseAmounts(text: string, opts: ParseOptions = {}): Amount[] {
     const start = m.index ?? 0
     const first: Half = { cur: curOf(p1, rupee) ?? curOf(q1, rupee), num: n1, scaleWord: s1?.toLowerCase() ?? null }
     const second: Half | null = n2 ? { cur: curOf(p2, rupee) ?? curOf(q2, rupee), num: n2, scaleWord: s2?.toLowerCase() ?? null } : null
+    // "L" is lakh only on an amount marked as rupees ("PKR 25.9L", "₹14.4 L"); elsewhere it may be litres, and the
+    // amount is not read at all (never as 25.9 rupees).
+    const rupeeMarked = [first.cur, second?.cur].some((c) => c === "PKR" || c === "INR")
+    const dropFirst = first.scaleWord === "l" && !rupeeMarked
+    const dropSecond = second?.scaleWord === "l" && !rupeeMarked
     const between = /\bbetween\s*$/i.test(text.slice(Math.max(0, start - 12), start))
     const isAnd = !!sep && /and/i.test(sep)
     const approx = APPROX_BEFORE.test(text.slice(Math.max(0, start - 16), start))
@@ -128,12 +151,13 @@ export function parseAmounts(text: string, opts: ParseOptions = {}): Amount[] {
       const scale = sw ? SCALE[sw] : 1
       const v = scaled(h.num, scale)
       const end = at + len
-      return { lo: v, hi: v, cur, kind: cur ? "money" : "scaled", range: false, approx, plus: text[end] === "+", precision: precisionOf(h.num, v, scale), text: text.slice(at, end), start: at, end }
+      const one: Amount = { lo: v, hi: v, cur, kind: cur ? "money" : "scaled", range: false, approx, plus: text[end] === "+", precision: precisionOf(h.num, v, scale), text: text.slice(at, end), start: at, end }
+      return negativeAt(text, at) ? negate(one) : one
     }
 
     // "$20 – ₹1,660" is two amounts in two currencies, not a range.
     const twoCurrencies = !!first.cur && !!second?.cur && first.cur !== second.cur
-    if (second && (!isAnd || between) && !twoCurrencies) {
+    if (second && (!isAnd || between) && !twoCurrencies && !dropFirst && !dropSecond) {
       // Inherit the second half's scale and currency, unless the first half has its own or it would invert the range.
       const firstScale = first.scaleWord ? SCALE[first.scaleWord] : null
       const secondScale = second.scaleWord ? SCALE[second.scaleWord] : 1
@@ -148,7 +172,7 @@ export function parseAmounts(text: string, opts: ParseOptions = {}): Amount[] {
         if (hi >= lo && !(swAny && NEEDS_CURRENCY.has(swAny) && !cur && !opts.currency)) {
           const resolved = cur ?? (swAny && MONEY_SCALE.has(swAny) ? rupee : (opts.currency ?? null))
           const end = start + all.length
-          out.push({
+          const r: Amount = {
             lo,
             hi,
             cur: resolved,
@@ -160,7 +184,8 @@ export function parseAmounts(text: string, opts: ParseOptions = {}): Amount[] {
             text: all,
             start,
             end,
-          })
+          }
+          out.push(negativeAt(text, start) ? negate(r) : r)
           continue
         }
       }
@@ -168,10 +193,10 @@ export function parseAmounts(text: string, opts: ParseOptions = {}): Amount[] {
     // Not a range: the halves are amounts on their own (each needs its own markers).
     const sepAt = m.indices?.[5]
     const firstEnd = second && sepAt ? sepAt[0] : start + all.length
-    const a = make(first, start, firstEnd - start)
+    const a = dropFirst ? null : make(first, start, firstEnd - start)
     if (a) out.push(a)
     if (second && sepAt) {
-      const b = make(second, sepAt[1], start + all.length - sepAt[1])
+      const b = dropSecond ? null : make(second, sepAt[1], start + all.length - sepAt[1])
       if (b) out.push(b)
     }
   }

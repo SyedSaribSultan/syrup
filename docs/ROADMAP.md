@@ -154,7 +154,7 @@ User data export, WAF/CSP/status page, legal review, real-iPhone keyboard check 
 | K Cloud keys out of the sandbox (added; founder's decision) | **done** 2026-10-08 (`402fba7`); verified live: no key in any sandbox process |
 | 9 Motion M0 | **done** (`1fecd1c`, merged in `166d4d7`) |
 | 10 Motion M1 | **done** (`dd61233`, merged in `166d4d7`) |
-| Q Answer quality (added; [QUALITY.md](QUALITY.md)) | **agreed** 2026-10-08; order Q0 → Q1 → (Q2, Q5 alongside 2a) → Q3, Q4 → Q6 |
+| Q Answer quality (added; [QUALITY.md](QUALITY.md)) | Q0, Q1, Q2, Q5 **done** 2026-10-08; Q3 **done** 2026-10-11 (`syrup_calc`, the Numbers rule, the numbers note; K2 sums 5/5 per routed model); next Q4 → Q6, Q1b |
 | 2a Rich fences: Mermaid, SVG, math, the export ([RENDERING.md](RENDERING.md) §3.2a) | **done** 2026-10-08: Mermaid diagrams, sanitized SVG and KaTeX math in the chat, `/c/` views and the HTML export; tap or click opens the panel at full size; open fences are skeletons; autofix for common Mermaid breaks. Initial JS: chat 353.6 → 350.0 KB, "/" 345.4 → 295.6 KB (Preview tab and Files tree now load on demand). Reviewed independently: agent SVG, Mermaid and math reach no other site and cannot crash the app. Follow-ups: model repair is 2b |
 | 2b–8 Capabilities | queued; contract in [RENDERING.md](RENDERING.md) |
 | 11–12 Motion M2–M3 | queued (after the capability rounds that touch the same files) |
@@ -168,8 +168,7 @@ Follow-ups found on the way:
 Paused by the founder after Round 2a, to save the week's quota. Everything listed in §6 as done is pushed and live; nothing is half-built. Pick up here, in this order.
 
 **Next rounds (agreed, not started):**
-1. **Q3 Numbers** ([QUALITY.md](QUALITY.md) §Q3): `syrup_calc` on the MCP server, the "Numbers" prompt section, the "Fix numbers" note. Makes the K2 eval's sums check blocking (remove `info: true` in `scripts/fixtures/eval/cases/k2-pkr.mjs`).
-   - **Mostly built, paused 2026-10-09 on branch `wip/q3-numbers`** (pushed; not reviewed, gate not run). Built: `src/server/calc/` (core, fx, tool), the Numbers prompt section, `number-note`, five `num-*` eval cases, `pnpm test:numbers` with a labelled corpus and two blind holdouts. Checker precision on the blind sets 89–100%, recall 78–87%: the **Fix numbers** button stays off (needs ≥ 95%). To resume: rebase the branch on `main`, then fix its own reviewer's findings: the Fix button can send twice on a double click (guard with `sent`/`disabled`); `session-view.tsx` `runningFrom` has no guard for `findLastIndex` returning -1. Then the full gate, an independent review, the K2 and `num-*` evals, and integrate.
+1. **Q3 Numbers: done 2026-10-11** (QUALITY.md "Q3 results"). Left from it: the **Fix numbers** button stays behind a flag until a third blind set measures ≥ 95% precision; first text on a numbers turn is 5–9 s (was ≈ 3 s) because the model calls `syrup_calc` before it writes — a follow-up may hide or shorten that wait.
 2. **Q4 Grounding** (§Q4): `webfetch` override, the "When you answer from the web" section, source chips. **Also:** images from other sites in a reply load only after a tap (founder's decision 2026-10-08; today `![x](https://…)` loads at once, a known exfiltration channel found in the Round 2a review). Not a page CSP.
 3. **Q6 small fixes, Q1b the judge**, then rounds **2b–8** per [RENDERING.md](RENDERING.md) and Motion **M2–M3** (§6).
 
@@ -188,4 +187,4 @@ Paused by the founder after Round 2a, to save the week's quota. Everything liste
 **Housekeeping left for the founder:**
 - The merged `motion` worktree at `../syrup-motion` and its branch can go (all of it is in `main`). Remove it with `cmd /c "rmdir /s /q ..\syrup-motion"`, then `git worktree prune` and `git branch -d motion`. On Windows, never `git worktree remove --force` a worktree whose `node_modules` is a junction: it follows the junction and deletes the main checkout's files.
 
-**How to resume:** read §6 and this section, then QUALITY.md §Q3 and the `wip/q3-numbers` branch. The gate for every push is §2 plus `pnpm ui:weight --compare --budgets`; never run two UI harnesses at once on this machine.
+**How to resume:** read §6 and this section, then QUALITY.md §Q4. The gate for every push is §2 plus `pnpm ui:weight --compare --budgets`; never run two UI harnesses at once on this machine.

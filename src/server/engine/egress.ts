@@ -1,4 +1,5 @@
 import type { NetworkPolicy } from "@vercel/sandbox"
+import { FX_HOSTS } from "../calc/fx"
 import { BASE_URL } from "../router/backends"
 import { env } from "../env"
 
@@ -39,6 +40,8 @@ const BASE_HOSTS = [
   "proxy.golang.org",
   "sum.golang.org",
   "storage.googleapis.com",
+  // syrup_calc's exchange rates (src/server/calc/fx.ts): the MCP server runs in the sidecar, inside the sandbox.
+  ...FX_HOSTS,
 ]
 
 const HOST = /^(\*\.)?([a-z0-9-]+\.)+[a-z]{2,}$/i

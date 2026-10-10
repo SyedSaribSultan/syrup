@@ -1,7 +1,7 @@
 {
   "note": "Per-case results `pnpm eval` compares against (docs/TESTING.md §1.2). Update only on purpose: pnpm eval --update-baseline, and say why in the commit.",
-  "updatedAt": "2026-10-08",
-  "commit": "af03178+dirty",
+  "updatedAt": "2026-10-10",
+  "commit": "fc5daa1+dirty",
   "cases": {
     "add-slugify": {
       "result": "PASS",
@@ -32,6 +32,36 @@
       "passes": 1,
       "trials": 1,
       "tokensLast": 55186
+    },
+    "num-convert": {
+      "result": "PASS",
+      "passes": 1,
+      "trials": 1,
+      "tokensLast": 7348
+    },
+    "num-lakh-crore": {
+      "result": "PASS",
+      "passes": 1,
+      "trials": 1,
+      "tokensLast": 7542
+    },
+    "num-live-rate": {
+      "result": "PASS",
+      "passes": 1,
+      "trials": 1,
+      "tokensLast": 7585
+    },
+    "num-percent": {
+      "result": "PASS",
+      "passes": 1,
+      "trials": 1,
+      "tokensLast": 7420
+    },
+    "num-ranges": {
+      "result": "PASS",
+      "passes": 1,
+      "trials": 1,
+      "tokensLast": 7435
     }
   }
 }

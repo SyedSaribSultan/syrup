@@ -3,12 +3,13 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js"
 import { z } from "zod"
 import { bearerOk } from "../router/core"
+import { CALC_DESCRIPTION, calcInput, calcTool } from "../calc/tool"
 import type { Log } from "../shared/log"
 
 /**
- * The agent's long-term memory tools as an MCP server, over a MemoryStore.
- * Runs in the local server (SQLite store) and inside the sandbox sidecar
- * (HTTP store → /api/ingest). The tool surface is identical in both.
+ * syrup's MCP server: the agent's long-term memory tools over a MemoryStore, and the calculator
+ * (`calc`, docs/QUALITY.md Q3). Runs in the local server (SQLite store) and inside the sandbox
+ * sidecar (HTTP store → /api/ingest). The tool surface is identical in both.
  */
 
 export type MemoryKind = "fact" | "preference" | "project" | "reference" | "note"
@@ -32,7 +33,7 @@ export interface MemoryStore {
   delete(id: string): Promise<void>
 }
 
-type Result = { content: { type: "text"; text: string }[] }
+type Result = { content: { type: "text"; text: string }[]; isError?: boolean }
 
 function text(s: string): Result {
   return { content: [{ type: "text", text: s }] }
@@ -131,6 +132,9 @@ export function buildMemoryServer(store: MemoryStore, log: Log): McpServer {
       return text(`Forgot ${id}.`)
     }),
   )
+
+  // Exact arithmetic, ranges, lakh/crore and currency conversion (src/server/calc). The model sees it as syrup_calc.
+  server.registerTool("calc", { title: "Calculate", description: CALC_DESCRIPTION, inputSchema: calcInput }, logged("calc", calcTool))
 
   return server
 }

@@ -15,7 +15,7 @@ import { ROOT } from "./load-checks.mjs"
 
 export const CACHE = path.join(ROOT, "node_modules", ".cache", "syrup-eval")
 export const BASELINE = path.join(ROOT, "scripts", "fixtures", "eval-baseline.json")
-const COLUMNS = ["numbers", "sums", "prov", "urls", "claims", "tests"]
+const COLUMNS = ["numbers", "sums", "prov", "urls", "claims", "tests", "tools"]
 
 const pad = (s, n) => String(s).padEnd(n)
 const k = (n) => (n == null ? "–" : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n))

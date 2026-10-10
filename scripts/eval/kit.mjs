@@ -12,7 +12,7 @@
  *
  * A check is `{ name, column, info, gap, run(trial) => { pass: true | false | null, detail } }`; null means "not applicable".
  * Options every check takes:
- *   column   where the table shows it (numbers, sums, prov, urls, claims, tests, tokens, done)
+ *   column   where the table shows it (numbers, sums, prov, urls, claims, tests, tools, tokens, done)
  *   info     shown, never fails the case
  *   gap      a known gap: it must FAIL today. Its failure doesn't fail the case; once it passes the
  *            run fails with "gap closed" until the note is deleted (like the UI harness, TESTING.md §3.3)
@@ -87,6 +87,36 @@ export const checks = {
         return { pass: !missing.length && anyOk, detail: missing.length ? `missing ${missing.join(", ")}` : anyOk ? "found" : `none of ${any.join(", ")}` }
       },
       opts,
+    ),
+
+  /**
+   * The answer gives this amount (Q3's numeric set): some amount in `cur` within `tol` (relative, default 0.5%) of
+   * `value`, or a range whose ends are within `tol` of `lo` and `hi`. Parsed by the answer checks' own money parser,
+   * so "PKR 1.52 crore", "1,51,84,800 PKR" and "151.85 lakh" all count.
+   */
+  amount: ({ cur, value, lo, hi, tol = 0.005, ...opts }) =>
+    mk(
+      "numbers",
+      (t) => {
+        const text = t.live.filter((m) => m.role === "assistant").map((m) => m.text).join("\n")
+        const near = (a, b) => Math.abs(a - b) <= tol * Math.abs(b)
+        const all = t.parseAmounts(text).filter((a) => a.cur === cur)
+        const hit = all.find((a) => (value !== undefined ? near(a.lo, value) && near(a.hi, value) : near(a.lo, lo) && near(a.hi, hi)))
+        const want = value !== undefined ? `${value}` : `${lo}–${hi}`
+        return { pass: !!hit, detail: hit ? `found "${hit.text.trim()}"` : `no ${cur} ${want} (±${tol * 100}%) among ${all.map((a) => a.text.trim()).slice(0, 6).join(", ") || "no amounts"}` }
+      },
+      { name: `amount ${cur}`, ...opts },
+    ),
+
+  /** Whether the live turn called this tool (as the model names it: "syrup_calc"). */
+  usedTool: (name, opts = {}) =>
+    mk(
+      "tools",
+      (t) => {
+        const n = t.live.flatMap((m) => m.tools ?? []).filter((x) => x.tool === name).length
+        return { pass: n > 0, detail: n ? `${n} call(s)` : "not called" }
+      },
+      { name: `used ${name}`, ...opts },
     ),
 
   /** A Markdown table with a Total row in the answer (so the sums check has something to check). */

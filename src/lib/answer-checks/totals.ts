@@ -17,9 +17,13 @@ const TOTAL_WORD = /\b(?:total|all[- ]in|altogether|in all|combined)\b/i
 const SUBTOTAL = /\bsub[- ]?total/i
 const OPTIONAL = /\b(?:optional|extras?|add[- ]ons?|not included|excluded|if needed|if required)\b/i
 const ZERO = /^(?:included|incl\.?|free|nil|none|n\/a|—|–|-|\$?0(?:\.0+)?)$/i
-const RATE = /(?:\bper\s+|\/\s*|\ba\s+|\beach\s+)(?:day|night|week|month|year|hour|kg|km|mile|unit|item|load|stage|trip)s?\b/i
+/** A price per something (per day, a night, per person, each): it can't be summed into a trip's total. */
+const RATE = /(?:\bper\s+|\/\s*|\ba\s+|\beach\s+)(?:day|night|week|month|year|hour|kg|km|mile|unit|item|load|stage|trip|person|head|pax|seat|ticket|member|guest|room|piece|adult|child)s?\b|\beach\b|\bapiece\b/i
 const BREAKDOWN = /\b(?:break ?down|broken down|breakdown|consists? of|made up of|comprises?|itemi[sz]ed|split(?: up)? (?:into|as)|adds? up)\b/i
 const ALTERNATIVES = /\b(?:option|tier|plan|budget|mid-?range|luxury|basic|premium|standard|economy|deluxe|vip|cheapest|best)\b/i
+
+const AVERAGE = /\b(?:blended|average|avg|mean|median|weighted|typical)\b/i
+const RATE_COLUMN = /\b(?:cpc|cpa|cpm|cpl|ctr|roas|avg|average|mean|median|rate|ratio|unit price|unit cost|price per|cost per|per (?:unit|night|day|month|hour|person|seat|item|click)|each)\b|%/i
 
 const close = (a: number, b: number, rel: number) => Math.abs(a - b) <= Math.max(rel * Math.max(Math.abs(a), Math.abs(b)), 1)
 
@@ -30,6 +34,8 @@ const HEADER_CURRENCIES: [RegExp, string | "rupee"][] = [
   [/\bRs\.?(?![a-z])|₨|\brupees?\b/i, "rupee"],
   [/\bEUR\b|€|\beuros?\b/i, "EUR"],
   [/\bGBP\b|£/i, "GBP"],
+  [/\bAED\b|\bdirhams?\b/i, "AED"],
+  [/\bSAR\b|\briyals?\b/i, "SAR"],
 ]
 
 /** The currency a table header cell names, when it names exactly one. */
@@ -76,9 +82,13 @@ export function checkTableTotals(md: string, opts: TotalsOptions = {}): Finding[
     if (totals.length !== 1 || totals[0] < 2) continue
     const ti = totals[0]
     const totalRow = table.rows[ti]
+    // "Total / blended", "Total (average)": a row of averages, not sums.
+    if (AVERAGE.test(plain(totalRow.cells[0] ?? ""))) continue
     const body = table.rows.slice(0, ti).filter((r) => !SUBTOTAL.test(plain(r.cells[0] ?? "")) && r.cells.some((c) => c.trim()))
     if (body.length < 2) continue
     for (let c = 1; c < table.header.length; c++) {
+      // A column of rates or unit prices (CPC, CPA, "Price per night", "Rate", "%") is never summed.
+      if (RATE_COLUMN.test(plain(table.header[c]))) continue
       const cur = headerCurrency(table.header[c], rupee)
       const stated = cellAmount(totalRow.cells[c] ?? "", cur, rupee)
       if (!stated) continue
@@ -119,11 +129,21 @@ function totalOn(text: string, rupee: "PKR" | "INR", needWord: boolean): Amount 
   return amounts.find((a) => a.start >= word.index) ?? amounts[amounts.length - 1]
 }
 
+/** The period an item's label names: "Monthly cost" → "month", "Annual fee" → "year"; "" for none. */
+function periodWord(label: string): string {
+  const m = /\b(monthly|month|annual(?:ly)?|yearly|year|weekly|week|daily|day)\b/i.exec(label)
+  if (!m) return ""
+  const w = m[1].toLowerCase()
+  return w.startsWith("month") ? "month" : w.startsWith("annual") || w.startsWith("year") ? "year" : w.startsWith("week") ? "week" : "day"
+}
+
 export function checkListTotals(md: string, opts: TotalsOptions = {}): Finding[] {
   const rupee = opts.rupee ?? "PKR"
   const out: Finding[] = []
   for (const block of parseLists(mdLines(md))) {
     let items: ListItem[] = block.items
+    // Two or more "Total …" items ("Total paid: …", "Total interest: …") are derived figures, not a breakdown.
+    if (items.filter((it) => TOTAL_LABEL.test(plain(it.text))).length > 1) continue
     type Candidate = { amount: Amount; line: number; excerpt: string; where: "item" | "after" | "before"; text: string }
     const candidates: Candidate[] = []
     const last = items[items.length - 1]
@@ -137,7 +157,8 @@ export function checkListTotals(md: string, opts: TotalsOptions = {}): Finding[]
       if (a) candidates.push({ amount: a, line: block.after.line, excerpt: block.after.text.trim(), where: "after", text: block.after.text })
     }
     for (const b of block.before) {
-      const a = totalOn(b.text, rupee, true)
+      // "The trip costs about $3,900, broken down as:" states the total without the word.
+      const a = totalOn(b.text, rupee, !BREAKDOWN.test(plain(b.text)))
       if (a) candidates.push({ amount: a, line: b.line, excerpt: b.text.trim(), where: "before", text: b.text })
     }
     if (!candidates.length || items.length < 2) continue
@@ -150,10 +171,27 @@ export function checkListTotals(md: string, opts: TotalsOptions = {}): Finding[]
     let ambiguous = false
     for (const item of items) {
       const t = plain(item.text)
-      const own = parseAmounts(t, { rupee }).filter((a) => a.cur === T.cur || a.cur === null)
+      // A subtotal is the sum of items above it, not a part.
+      if (SUBTOTAL.test(t.split(/[:–—]/)[0] ?? "")) continue
+      const found = parseAmounts(t, { rupee })
+      // An amount in the total's currency beats a bare scaled number ("27-inch 4K monitor — $349").
+      const inCur = found.filter((a) => a.cur === T.cur)
+      let own = inCur.length ? inCur : found.filter((a) => a.cur === null)
+      // "Catering (400 guests × ₹1,500): ₹6 lakh": the item's price is the one amount after its label.
+      const colon = Math.max(t.lastIndexOf(":"), t.lastIndexOf(" — "), t.lastIndexOf(" – "))
+      if (own.length > 1 && colon > 0) {
+        const after = own.filter((a) => a.start > colon)
+        if (after.length === 1) own = after
+      }
       if (own.length === 0) unpriced++
       else if (own.length > 1) ambiguous = true
       else priced.push({ item, amount: own[0] })
+    }
+    // "**Subtotal: $168.75**" right before "- Tax: $14.98  - Tip: $33.75", then "Total: $217.48": the list adds to it.
+    const sub = block.before[0]
+    if (sub && SUBTOTAL.test(plain(sub.text))) {
+      const a = parseAmounts(plain(sub.text), { rupee }).filter((x) => x.cur === T.cur)
+      if (a.length === 1) priced.unshift({ item: { line: sub.line, indent: 0, text: sub.text, raw: sub.text }, amount: a[0] })
     }
     if (ambiguous || priced.length < 2) continue
     // A price per day or per item can't be summed into a trip total.
@@ -167,6 +205,11 @@ export function checkListTotals(md: string, opts: TotalsOptions = {}): Finding[]
     const maxHi = Math.max(...priced.map((p) => p.amount.hi))
     if (close(minLo, T.lo, 0.05) && close(maxHi, T.hi, 0.05)) continue
     if (priced.filter((p) => ALTERNATIVES.test(plain(p.item.text).split(/[:–—-]/)[0] ?? "")).length >= 2) continue
+    // A derivation, not a breakdown: items over different periods ("Monthly cost: $1,127", "Annual cost: $13,524",
+    // then a discount and tax) are the steps of one calculation and can't be summed. (A total that equals only some
+    // of the items is NOT exempted: that is exactly the "forgot one item" error.)
+    const periods = new Set(priced.map((p) => periodWord(plain(p.item.text).split(/[:–—]/)[0] ?? "")).filter(Boolean))
+    if (periods.size > 1) continue
 
     const parts = sum(priced.map((p) => p.amount))
     const prose = total.where !== "item" && !TOTAL_LABEL.test(plain(total.text))
@@ -179,7 +222,8 @@ export function checkListTotals(md: string, opts: TotalsOptions = {}): Finding[]
     let verdict: "ok" | "mismatch" | "loose"
     if (unpriced) verdict = parts.lo > T.hi * 1.05 ? "mismatch" : "ok" // unpriced items: only "the parts already exceed the total" is certain
     else if (prose && !breakdown) verdict = exceeds ? "mismatch" : "ok"
-    else verdict = compare(T, parts, 0.05)
+    // Prose rounds, so 5%; but a total written to the unit ("£9,030") rounds nothing, so 2% as in tables.
+    else verdict = compare(T, parts, !T.approx && T.precision < 0.005 ? 0.02 : 0.05)
     if (verdict === "ok") continue
     out.push({
       check: "list-total",

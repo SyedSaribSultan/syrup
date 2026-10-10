@@ -22,6 +22,7 @@ pnpm test:router
 pnpm test:diffs
 pnpm test:transcript
 pnpm test:eval-checks
+pnpm test:numbers
 pnpm test:plugin
 pnpm test:guard
 pnpm test:rich
@@ -36,6 +37,7 @@ pnpm ui:weight --compare --budgets
 - **Motion:** `node scripts/check-motion.mjs` (also part of `pnpm lint`) fails on raw timings and on `src/lib/motion.ts` and `globals.css` disagreeing ([MOTION.md](MOTION.md) §9). It runs its own self-test first (`SELF_TEST` in the script). A new loophole gets a case there, as well as a rule.
 - **Screenshots:** open `screenshots/harness/<label>/` and look at every screen the round touched, at both widths. A green table is not enough: the harness checks errors, layout and assertions, not taste.
 - **Answer checks (Tier 0, [QUALITY.md](QUALITY.md) Q0):** `pnpm test:eval-checks` runs the deterministic checks in `src/lib/answer-checks` (totals vs parts, currency magnitude, number provenance, cited links, the transcript parser) on committed files only: no app, no network, under a second. The real K2 export (`scripts/fixtures/eval/transcripts/k2.md`) must fail with exactly its known errors, its hand-corrected copy (`k2-fixed.md`) must pass, and every UI harness fixture chat must raise no error or warning.
+- **Numbers ([QUALITY.md](QUALITY.md) Q3):** `pnpm test:numbers` (no app, no network, about a second) runs `syrup_calc`'s core (`src/server/calc/core.ts`: parsing, ranges, k/m/lakh/crore, rounding, rates, refusals, adversarial input), its rate source on a fake fetch (12-hour cache, fallback host, offline error), the tool on syrup's real MCP server in memory (and its definition's size), the prompt's "# Numbers" section, the checker's speed on hostile text, and the chat note's precision on the labelled sets in `scripts/fixtures/numbers/` (`corpus.mjs`, the fixture chats, and the blind sets `holdout.mjs` and `holdout2.mjs`). It fails on any false alarm and on precision under 95%. The Fix numbers button follows only the blind sets, each measured once before the checker was tuned on it (`BLIND` in the test): `FIX_NUMBERS_DEFAULT` (`src/lib/number-note.ts`) must be on exactly when the latest blind precision is ≥ 95%. To add a blind set: have someone who hasn't seen the checker write it, measure it once, record it in `BLIND`, then fix what it found. `--corpus` prints every answer's verdict. A new false alarm seen in a real chat: add the answer to `corpus.mjs` (labelled), then fix the check.
 - **Checking any chat:** `pnpm eval:check <export.md|export.json>` prints each answer's findings (error, warning, hint) and exits 1 on any error. It reads every export form: the share link's `/md` and `/json`, `pnpm chat:export` (with or without `--json` and `--debug`). A real bad answer that no check flags: write the check first, then add the export to the goldens in `scripts/test-eval-checks.mjs`.
 - **syrup's OpenCode plugin and the config dirs:** `pnpm test:plugin` (no engine, under 2 s) checks the config-dir rule on temporary folders and the sandbox's build of it; that the plugin registers nothing with both features off; the replay tools (hit, fuzzy, fallback, miss, argument checks) and that they carry OpenCode 1.18.32's own tool definitions (`scripts/fixtures/eval/opencode-web-tools.json`; re-capture it after an engine upgrade); and the Q2 context hooks: the search trimmer on the six real K2 searches and on adversarial inputs (a price table split across highlights, rows without a header, a table bigger than the budget, malformed blocks, a huge single passage), the table rule, the webfetch cap, masking of earlier turns, the in-turn budget, the compaction "continue" rule, and that coding tools are never touched.
 - **Router changes:** also `pnpm bench:agent` before and after (ROADMAP §2, "First token first").
@@ -103,17 +105,27 @@ Other flags: `--no-rerun`, `--timeout <s>` per turn (default 300), `--keep` (lea
 
 | Case | Kind | Passes when |
 |---|---|---|
-| `k2-pkr` | numbers, research | The incident chat: turns 1–6 imported from `transcripts/k2.md`, "in PKR" live with its own search results. `eval:check` finds no error in the answer: PKR equals USD at the stated rate, totals equal their parts (recorded, blocking from Q3), and the last turn's input is at most 15k tokens (11.4k since Q2) |
+| `k2-pkr` | numbers, research | The incident chat: turns 1–6 imported from `transcripts/k2.md`, "in PKR" live with its own search results. `eval:check` finds no error in the answer: PKR equals USD at the stated rate, totals equal their parts (blocking since Q3), and the last turn's input is at most 15k tokens (11.4k since Q2). Whether it called `syrup_calc` is recorded (`tools`) |
 | `budget-table` | numbers | From hand-written price pages, a Hunza trip table with a Total row that adds up to the total the pages imply (PKR 275,000) |
 | `counterfactual-fee` | citation | The only page says Spantik's 2026 fee is USD 1,370, a number no model remembers: the answer gives it and links that page |
 | `fix-failing-test` | coding | `util.py` has two bugs: fixed without touching `test_util.py`, and hidden tests (copied in afterwards) pass |
 | `add-slugify` | coding | `slugify()` written from a spec passes hidden edge-case tests |
 
+**The numeric set** (`pnpm eval --set numeric`, Q3; no web results, so no cassette): each case gives its figures in the question and checks the answer's number with the money parser (`amount`, ±0.5% unless the case says otherwise), plus no totals or currency error. Run it with the smoke set for any change to the prompt's "# Numbers", `syrup_calc` or the answer checks.
+
+| Case | Passes when |
+|---|---|
+| `num-convert` | $3,450 + $1,280 at the user's 280 PKR/USD: PKR 13,24,400 |
+| `num-ranges` | Five ranges add up to $18,600 – $28,800 |
+| `num-percent` | 23 seats × $49 × 12, 15% off, then 8.5% tax: $12,472.51 |
+| `num-lakh-crore` | PKR 3.75 lakh a month with two 12% raises, 3 years: PKR 1,51,84,800 (1.52 crore) |
+| `num-live-rate` | $2,500 + €1,800 in PKR at today's rate (`syrup_calc`'s live table): about PKR 12.5 lakh (±5%) |
+
 **Adding a case**
 
 1. Copy the closest module in `scripts/fixtures/eval/cases/`: one `defineCase({ … })` per file (`scripts/eval/kit.mjs`).
 2. Give it what it needs: `seed` (an export and how many user turns to import), `cassette` (`pnpm eval:record <export> --case <id>`, or hand-written pages marked `"synthetic": true`), `workspace` (files copied in; a `hidden/` folder is copied only after the agent finished).
-3. Pick checks: `answered`, `noErrors([answer check ids])`, `hasTotalRow`, `contains`, `untouched`, `hiddenTests`, `lastTurnInputTokens`, `judged` (Q1b). Any check takes `column`, `info: true` (shown, never fails) or `gap: "why"` (must fail today).
+3. Pick checks: `answered`, `noErrors([answer check ids])`, `hasTotalRow`, `contains`, `amount({ cur, value | lo, hi, tol })`, `usedTool(name)`, `untouched`, `hiddenTests`, `lastTurnInputTokens`, `judged` (Q1b). Any check takes `column`, `info: true` (shown, never fails) or `gap: "why"` (must fail today).
 4. Run it alone (`pnpm eval --case <id>`) and read its transcript. Then add it to the baseline with `--update-baseline`.
 
 **The judge (Q1b).** "Is this claim supported by what the agent read?" needs a model from another family, calibrated on ~40 hand labels before it is trusted. It is not built yet: `judged` checks report "–" and never pass or fail a case.
@@ -229,6 +241,8 @@ All play in one fictional project, `acme-shop` (`C:\Users\dev\code\acme-shop`), 
 | `chat-rich-zoom` | chat + Preview | Round 2a: a click (desktop) or tap (phone) on a diagram opens it in the panel, "Preview · Diagram", with Fit · 100% · 200% |
 | `chat-rich-export`, `-dark` | Share → HTML | Round 2a: the file has `shadowrootmode="open"`, the diagrams' `<rect>`s, MathML and no `<script>`; opened with JavaScript off, both diagrams and the SVG show. From a dark page the file still draws in the light tokens' colours |
 | `weight-mermaid`, `weight-math`, `weight-svg` | a finished chat | One rich block each, for `pnpm ui:weight --budgets` (§4) |
+| `chat-numbers`, `-dark` | a finished chat | Q3: an earlier answer with right numbers gets no note; the last one (a stale total, every PKR figure 10x) gets one quiet note naming the discrepancies. With the button's flag on (`storage: { "syrup.fix-numbers": "on" }`), Fix numbers sends them as the next message (`prompt_async` body) and goes away; `-dark` keeps the default (flag off): the note, no button. Planted on purpose: the scenario's `numbers` labels tell `test:eval-checks` and `test:numbers` |
+| `chat-numbers-streaming` | a reply streaming | Q3: no note while the wrong answer streams or types out; after the turn ends, the note, with Fix numbers (flag on) in view above the composer |
 | `chat-rich-beacon`, `-export` | a finished chat; Share → HTML | Round 2a review: Mermaid sources that would fetch another origin while Mermaid lays them out in the page (the img shape, `classDef`/`style` with `url()`, CSS-escaped or not) show as source with "This diagram asks to load something from the web…"; a plain diagram beside them draws; no request leaves, live or in the export's prerender |
 | `chat-rich-queue` | three chats | Round 2a review (h7): leave a chat with 30 diagrams while they render, open another: its diagram draws before the first chat's leftovers (renders whose blocks left the screen are dropped at their turn). Mermaid numbers renders in order, so the new picture's id must be among `rich-m1`…`rich-m15`; without the fix it is about `rich-m30` |
 | `chat-rich-large` | chat + Preview | Round 2a review: a 260-link flowchart shows its source with "Too large to draw here."; Open draws it in the panel |

@@ -137,6 +137,10 @@ check('"between X and Y" is a range; "X and Y" alone is two amounts', () => {
 })
 check('"L" alone is not lakh; "m" without a currency is metres', () => {
   eq(lohi("55 L – 1.1 Cr"), [[11_000_000, 11_000_000, "PKR"]], "only 1.1 Cr parses")
+  // Q3: "L" is lakh only on an amount marked as rupees.
+  eq(lohi("PKR 5L – 10m"), [[500_000, 10_000_000, "PKR"]], "rupee-marked: 5 lakh to 10 million")
+  eq(lohi("₹14.4 L"), [[1_440_000, 1_440_000, "INR"]], "₹14.4 L is 14.4 lakh")
+  eq(lohi("5L – 10m"), [], "unmarked: 5 L (litres?) and 10 m (metres) are not amounts")
   eq(C.parseAmounts("8,000 m and 5–8 m"), [], "metres")
   eq(lohi("$5 m budget"), [[5e6, 5e6, "USD"]], "with a currency, m is million")
 })
@@ -342,6 +346,21 @@ check("json: the share/CLI JSON and its --debug wrapper parse the same", () => {
   eq([a.form, a.messages[0].context, a.messages[1].meta.tookMs, a.messages[1].meta.ttftMs, a.messages[1].meta.inputTokens, a.messages[1].tools[0].output], ["json", ["file body"], 2000, 700, 1000, "Price: $5,000"], "fields")
 })
 
+// ---------------------------------------------------------------- 1c. hostile whitespace (the chat runs these checks)
+console.log("hostile whitespace (each under 50 ms; pnpm test:numbers sweeps every token pair)")
+for (const [name, text] of [
+  ['"Total: $" + 99,000 spaces + "1"', `Total: $${" ".repeat(99_000)}1`],
+  ["40,000 spaces", " ".repeat(40_000)],
+  ['"1 USD =" + 50,000 spaces + "277"', `1 USD =${" ".repeat(50_000)}277`],
+  ['"PKR 5" + 50,000 tabs + "per USD"', `PKR 5${"\t".repeat(50_000)}per USD`],
+])
+  check(name, () => {
+    const t0 = performance.now()
+    answer(text)
+    const ms = performance.now() - t0
+    assert(ms < 50, `${ms.toFixed(0)} ms`)
+  })
+
 // ---------------------------------------------------------------- 2. goldens
 console.log("goldens")
 
@@ -382,17 +401,34 @@ console.log("false alarms (UI harness fixtures, exported through src/lib/transcr
 
 const uiDir = path.join(ROOT, "scripts", "fixtures", "ui")
 const chats = new Map()
+/** Chats whose scenario plants wrong numbers on purpose (`numbers: { messageId: "wrong" }`, Q3's chat-numbers). */
+const planted = new Map()
 for (const file of readdirSync(uiDir).filter((f) => f.endsWith(".mjs") && !f.startsWith("_")).sort()) {
   const mod = await import(pathToFileURL(path.join(uiDir, file)).href)
   for (const s of [mod.default].flat()) {
     const e = s.engine
     for (const session of e.sessions) {
       const messages = e.messages[session.id]
-      if (!messages?.length || chats.has(session.id)) continue
-      chats.set(session.id, { title: session.title, messages, answers: e.answers?.[session.id] ?? [] })
+      if (!messages?.length || chats.has(session.id) || planted.has(session.id)) continue
+      const labels = s.numbers ?? {}
+      if (messages.some((m) => labels[m.info.id] === "wrong")) planted.set(session.id, { title: session.title, messages, labels })
+      else chats.set(session.id, { title: session.title, messages, answers: e.answers?.[session.id] ?? [] })
     }
   }
 }
+check(`planted wrong numbers (${planted.size} chat): flagged exactly where planted, as totals and currency errors`, () => {
+  assert(planted.size > 0, "no fixture chat plants wrong numbers (chat-numbers.mjs)")
+  for (const [, c] of planted)
+    for (const m of c.messages) {
+      if (m.info.role !== "assistant") continue
+      const text = m.parts.filter((p) => p.type === "text").map((p) => p.text).join("\n\n")
+      const errs = errors(answer(text))
+      if (c.labels[m.info.id] === "wrong") {
+        const kinds = new Set(errs.map((f) => f.check))
+        assert(kinds.has("table-total") && kinds.has("currency"), `${c.title}: expected table-total and currency errors, got:\n${show(errs)}`)
+      } else none(answer(text), `${c.title}: a right answer in a planted chat`)
+    }
+})
 let answers = 0
 check(`every fixture chat, Markdown and JSON, gets no errors or warnings (${chats.size} chats)`, () => {
   const bad = []

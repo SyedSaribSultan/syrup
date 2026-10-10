@@ -29,7 +29,7 @@ export { parseDuration, parseTokenCount, parseTranscript } from "./transcript"
  * coarse: the check only fails beyond 1.5x, so drift of a few percent never matters. Callers with
  * a live rate (the Q3 calc tool's cache) pass their own.
  */
-export const REFERENCE_RATES: Rates = { USD: { PKR: 277, INR: 88, EUR: 0.86, GBP: 0.75 } }
+export const REFERENCE_RATES: Rates = { USD: { PKR: 277, INR: 88, EUR: 0.86, GBP: 0.75, AED: 3.6725, SAR: 3.75 } }
 export const REFERENCE_RATES_AS_OF = "2026-10-08"
 
 /** The context budget for one request (docs/QUALITY.md §7: the K2 replay's last turn ≤ 15k). */

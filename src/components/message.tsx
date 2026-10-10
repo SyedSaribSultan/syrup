@@ -9,6 +9,7 @@ import { providerName } from "@/lib/model-registry"
 import type { RatedModel, Rating } from "@/lib/use-feedback"
 import { answersFor, useSessionAnswers } from "@/lib/use-session-answers"
 import { Brew } from "./brew"
+import { NumberNote } from "./number-note"
 import { RouterProgress } from "./router-progress"
 import { PartView } from "./parts"
 import { useReadOnly } from "./read-only"
@@ -34,6 +35,10 @@ type Props = {
   onRate?: (rating: Rating | 0, model: RatedModel) => void
   /** Parts this page watched from their first character, live or frozen by a dropped stream (the engine store's `live`). */
   live?: Record<string, PartStream>
+  /** Its turn has ended: check its numbers (docs/QUALITY.md Q3). Never while the turn runs. */
+  checkNumbers?: boolean
+  /** Set on the chat's last reply while nothing runs: the note's Fix numbers button sends this follow-up. */
+  onFix?: (prompt: string) => void
 }
 
 /**
@@ -41,9 +46,12 @@ type Props = {
  * written changes with it. `onRate` is a new closure on every render of the chat but always calls the same
  * per-session `rate`, so only whether it is set matters.
  */
-export const MessageView = memo(MessageViewImpl, (a, b) => a.entry === b.entry && a.streaming === b.streaming && a.rating === b.rating && !!a.onRate === !!b.onRate && a.live === b.live)
+export const MessageView = memo(
+  MessageViewImpl,
+  (a, b) => a.entry === b.entry && a.streaming === b.streaming && a.rating === b.rating && !!a.onRate === !!b.onRate && a.live === b.live && a.checkNumbers === b.checkNumbers && a.onFix === b.onFix,
+)
 
-function MessageViewImpl({ entry, streaming, rating = null, onRate, live }: Props) {
+function MessageViewImpl({ entry, streaming, rating = null, onRate, live, checkNumbers = false, onFix }: Props) {
   const { info, parts } = entry
   // A shared snapshot: its router answers come with it, nothing is fetched and no timer runs.
   const ro = useReadOnly()
@@ -114,6 +122,8 @@ function MessageViewImpl({ entry, streaming, rating = null, onRate, live }: Prop
 
   const meta = routedLine ?? (tokens > 0 || info.cost > 0 ? `${info.modelID} · ${fmtTokens(tokens)} tokens · ${fmtCost(info.cost)}` : null)
   const rateable = !!onRate && !ro && !streaming
+  // The answer's own words, joined as the transcript joins them; checked only once it is finished and its turn has ended.
+  const answerText = checkNumbers && !ro && !streaming && completed ? visible.map((p) => (p.type === "text" && !p.synthetic ? p.text : "")).filter(Boolean).join("\n\n") : ""
   const answeredBy: RatedModel = routed
     ? { alias: info.modelID, providerId: final?.providerId ?? null, modelId: final?.modelId ?? null }
     : { alias: null, providerId: info.providerID, modelId: info.modelID }
@@ -141,6 +151,7 @@ function MessageViewImpl({ entry, streaming, rating = null, onRate, live }: Prop
           </div>
         )}
       </div>
+      {answerText && /\d/.test(answerText) && <NumberNote text={answerText} fresh={visible.some((p) => !!live?.[p.id])} onFix={onFix} />}
       {note && <div className="mt-1.5 text-[11px] text-muted">{note}</div>}
       {!streaming && (meta || rateable) && (
         <div className="mt-1.5 flex items-center gap-2 text-[11px] text-muted">

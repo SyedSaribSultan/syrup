@@ -62,6 +62,11 @@ export function SessionView({ id }: { id: string }) {
   // Thumbs go on the last reply of each turn: an assistant message followed by the user's next message, or by nothing.
   const turnEnds = useMemo(() => new Set(entries.filter((e, i) => e.info.role === "assistant" && entries[i + 1]?.info.role !== "assistant").map((e) => e.info.id)), [entries])
   const lastID = entries[entries.length - 1]?.info.id
+  // While the chat is busy, replies after its last user message belong to the running turn: their numbers wait for its end.
+  // (No user message yet while busy: everything is the running turn, so nothing is checked.)
+  const lastUser = entries.findLastIndex((e) => e.info.role === "user")
+  const runningFrom = !busy ? entries.length : Math.max(lastUser, 0)
+  const fixNumbers = useCallback((prompt: string) => void send(id, prompt), [send, id])
   const lastRole = entries[entries.length - 1]?.info.role
   // Sent, but the engine has not opened the answer yet.
   const awaiting = busy && lastRole === "user"
@@ -245,7 +250,7 @@ export function SessionView({ id }: { id: string }) {
       <div ref={scroller} onScroll={onScroll} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
         <div className="chat-log mx-auto w-full max-w-[720px] space-y-6 px-4 pt-5 pb-40 medium:px-6 medium:pt-6">
           {!sm?.loaded && entries.length === 0 && <ChatSkeleton />}
-          {entries.map((e) => (
+          {entries.map((e, i) => (
             <MessageView
               key={e.info.id}
               entry={e}
@@ -253,6 +258,8 @@ export function SessionView({ id }: { id: string }) {
               live={live}
               rating={ratings[e.info.id] ?? null}
               onRate={turnEnds.has(e.info.id) ? (r, model) => rate(e.info.id, r, model) : undefined}
+              checkNumbers={e.info.role === "assistant" && i < runningFrom}
+              onFix={!busy && e.info.id === lastID && e.info.role === "assistant" ? fixNumbers : undefined}
             />
           ))}
           {awaiting && (

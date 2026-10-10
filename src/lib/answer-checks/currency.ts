@@ -15,15 +15,15 @@ import type { Finding, Rates } from "./types"
 
 export type CurrencyOptions = { rupee?: "PKR" | "INR"; reference?: Rates }
 
-const NUMBER = String.raw`(\d{1,3}(?:,\d{2,3})+(?:\.\d+)?|\d+(?:\.\d+)?)`
+const NUMBER = String.raw`(\d{1,3}(?:,\d{2,3})+(?:\.\d{1,15})?|\d{1,15}(?:\.\d{1,15})?)`
 const LOCAL = String.raw`(PKR|INR|EUR|GBP|Rs\.?|₨|₹|€|£|rupees?|euros?)`
 const DOLLAR = String.raw`(?:USD|US\$|\$|U\.?S\.? dollars?|dollars?)`
 
 const RATE_PATTERNS: RegExp[] = [
   // 1 USD = 277 PKR · $1 ≈ PKR 277 · 1 dollar is about Rs 277
-  new RegExp(String.raw`(?:\b1\s*${DOLLAR}|\$\s*1(?![\d.,]))\s*(?:=|≈|~|:|\bis\b|\bequals\b|\bbuys\b|\bto\b)\s*(?:about\s+|around\s+|roughly\s+|approx\.?\s+|~\s*)?${LOCAL}?\s*${NUMBER}\s*${LOCAL}?`, "gi"),
+  new RegExp(String.raw`(?:\b1\s*${DOLLAR}|\$\s*1(?![\d.,]))\s*(?:=|≈|~|:|\bis\b|\bequals\b|\bbuys\b|\bto\b)\s*(?:about\s+|around\s+|roughly\s+|approx\.?\s+|~\s*)?(?:${LOCAL}\s*)?${NUMBER}(?:\s*${LOCAL})?`, "gi"),
   // 277 PKR per USD · ~277 PKR per 1 USD · Rs 277/$ · PKR 277 to the dollar
-  new RegExp(String.raw`${LOCAL}?\s*${NUMBER}\s*${LOCAL}?\s*(?:per|\/|to the|for (?:one|1|each|a|every))\s*(?:1\s*)?${DOLLAR}`, "gi"),
+  new RegExp(String.raw`(?:${LOCAL}\s*)?${NUMBER}\s*(?:${LOCAL}\s*)?(?:per|\/|to the|for (?:one|1|each|a|every))\s*(?:1\s*)?${DOLLAR}`, "gi"),
   // USD/PKR 277 · USD to PKR rate of 277 · PKR/USD: 277
   new RegExp(String.raw`\b(?:USD\s*[/-]\s*(PKR|INR|EUR|GBP)|(PKR|INR|EUR|GBP)\s*[/-]\s*USD|USD[- ]to[- ](PKR|INR|EUR|GBP))\b[^\d\n]{0,30}?${NUMBER}`, "gi"),
 ]
@@ -68,17 +68,39 @@ function rateFor(rates: Rates | undefined, from: string, to: string): number | n
   const direct = rates[from]?.[to]
   if (direct) return direct
   const inverse = rates[to]?.[from]
-  return inverse ? 1 / inverse : null
+  if (inverse) return 1 / inverse
+  // Through a common base: GBP → PKR is (USD → PKR) / (USD → GBP).
+  for (const base of Object.keys(rates)) {
+    const f = base === from ? 1 : rates[base]?.[from]
+    const t = base === to ? 1 : rates[base]?.[to]
+    if (f && t) return t / f
+  }
+  return null
+}
+
+/** The period a table column is over: "Monthly (PKR)", "Annual (USD)", "Per night" → "month", "year", "night". */
+function headerPeriod(h: string): string {
+  const m = /\b(month(?:ly)?|mo|annual(?:ly)?|year(?:ly)?|yr|per annum|week(?:ly)?|dai?ly|day|night(?:ly)?|hour(?:ly)?)\b/i.exec(h)
+  if (!m) return ""
+  const w = m[1].toLowerCase()
+  return w.startsWith("mo") ? "month" : /^(annual|year|yr|per annum)/.test(w) ? "year" : w.startsWith("week") ? "week" : w.startsWith("da") ? "day" : w.startsWith("night") ? "night" : "hour"
 }
 
 type Pair = { a: Amount; b: Amount; excerpt: string; line: number }
 
 /** Words that present two amounts in one sentence as the same money. */
 const CONVERSION_CUE = /[≈~=]|\b(?:is|are|was|were|comes? to|came to|converts? to|works? out (?:to|at)|equals?|equal to|equivalent|about|around|roughly|approximately|approx|nearly|which is|that's|that is|in (?:PKR|INR|rupees?|dollars?|USD))\b/i
+/** Verbs that convert wherever they stand in the sentence. */
+const CONVERTING = /\b(?:comes? to|came to|converts? to|works? out (?:to|at)|equivalent|in (?:PKR|INR|rupees?|dollars?|USD))\b/i
+/** Words that set two prices against each other: not one amount in two currencies. */
+const CONTRAST = /\b(?:while|whereas|but|versus|vs\.?|compared|than|instead|unlike|whilst|however)\b|;/i
 
 /** Stated exchange rates ("1 USD = 277 PKR", "277 PKR per USD", "at Rs 277/$") blanked out, offsets kept, so they are not amounts. */
 function blankRates(t: string): string {
-  const RATE = /\b1\s*(?:USD|US\$|\$|dollars?)\s*=\s*(?:PKR|INR|Rs\.?|₨|₹)?\s*[\d.,]+\s*(?:PKR|INR|rupees?)?|(?:PKR|INR|Rs\.?|₨|₹)?\s*[\d.,]+\s*(?:PKR|INR|rupees?)?\s*(?:per|\/|a|to the|to a)\s*(?:USD|US\$|\$|dollars?|U\.S\. dollars?)\b/gi
+  // Bounded, and starting only where a number starts: "1,1,1,…" 200 KB long once took 97 s here (quadratic backtracking).
+  // Every \s* hangs off its own optional token: two optional \s* side by side over a long run of spaces backtrack
+  // quadratically ("Total: $" + 99,000 spaces + "1" froze the tab for 23 s, review 2026-10-11).
+  const RATE = /\b1\s*(?:USD|US\$|\$|dollars?)\s*=\s*(?:(?:PKR|INR|Rs\.?|₨|₹)\s*)?[\d.,]{1,24}(?:\s*(?:PKR|INR|rupees?))?|(?:(?:PKR|INR|Rs\.?|₨|₹)\s*)?(?<![\d.,])[\d.,]{1,24}\s*(?:(?:PKR|INR|rupees?)\s*)?(?:per|\/|a|to the|to a)\s*(?:USD|US\$|\$|dollars?|U\.S\. dollars?)\b/gi
   return t.replace(RATE, (m) => " ".repeat(m.length))
 }
 
@@ -113,17 +135,24 @@ function pairs(md: string, rupee: "PKR" | "INR"): Pair[] {
     inTable.add(table.line)
     inTable.add(table.line + 1)
     const curs = table.header.map((h) => headerCurrency(h, rupee))
+    // "Monthly (PKR)" beside "Annual (USD)" is not the same money: only columns over the same period pair up.
+    const periods = table.header.map((h) => headerPeriod(plain(h)))
     for (const row of table.rows) {
       inTable.add(row.line)
-      const cells = row.cells.map((c, i) => (i === 0 ? null : cellAmount(c, curs[i] ?? null, rupee))).filter((a): a is Amount => !!a && !!a.cur && (a.lo > 0 || a.hi > 0))
-      const usd = cells.filter((a) => a.cur === "USD")
-      const other = cells.filter((a) => a.cur !== "USD")
+      const cells = row.cells
+        .map((c, i) => ({ a: i === 0 ? null : cellAmount(c, curs[i] ?? null, rupee), period: periods[i] ?? "" }))
+        .filter((x): x is { a: Amount; period: string } => !!x.a && !!x.a.cur && (x.a.lo > 0 || x.a.hi > 0))
+      const usd = cells.filter((x) => x.a.cur === "USD")
+      const other = cells.filter((x) => x.a.cur !== "USD")
       if (usd.length !== 1) continue
-      for (const o of other) out.push({ a: usd[0], b: o, excerpt: row.raw.trim(), line: row.line })
+      for (const o of other) if (o.period === usd[0].period) out.push({ a: usd[0].a, b: o.a, excerpt: row.raw.trim(), line: row.line })
     }
   }
 
-  const GAP = /^[\s(\[≈~=:,/|→-]*(?:about|approx\.?|approximately|roughly|around|i\.e\.?|or|equals|equal to|equivalent to|which is|that is|or about|so)?[\s(\[≈~=:,/|→-]*$/i
+  // "$5,000 (about PKR 13.9 lakh)"; also after a period, "£45,000 a year (about PKR 1.66 crore)".
+  const GAP = /^(?:\s*(?:a|an|per|\/)\s*(?:year|month|week|day|night|hour)\b)?[\s(\[≈~=:,/|→-]*(?:(?:about|approx\.?|approximately|roughly|around|i\.e\.?|or|equals|equal to|equivalent to|which is|that is|or about|so)[\s(\[≈~=:,/|→-]*)?$/i
+  // "the $8,500 package is PKR 23.8 lakh", "$15,000 one comes to about PKR 42 lakh": up to two words, then a verb of equality.
+  const VERB_GAP = /^\s+(?:[a-z]+\s+){0,2}(?:is|are|comes? to|works? out (?:to|at)|equals|becomes|converts? to)\s+(?:about\s+|around\s+|roughly\s+|approximately\s+|approx\.?\s+|~\s*)?$/i
   const prose = lines.filter((l) => !l.code && !inTable.has(l.index) && l.text.trim())
   prose.forEach((l, k) => {
     const t = blankRates(plain(l.text))
@@ -134,7 +163,12 @@ function pairs(md: string, rupee: "PKR" | "INR"): Pair[] {
       const x = amounts[i]
       const y = amounts[i + 1]
       if (x.cur === y.cur) continue
-      if (!GAP.test(t.slice(x.end + (x.plus ? 1 : 0), y.start))) continue
+      const gap = t.slice(x.end + (x.plus ? 1 : 0), y.start)
+      // "$20 per month, or PKR 66,000 a year" is two prices; "£45,000 a year (about PKR 1.66 crore)" restates one.
+      const px = periodAfter(t, x)
+      const py = periodAfter(t, y)
+      const samePeriod = px === py || (!py && gap.includes("("))
+      if (!samePeriod || (!GAP.test(gap) && !VERB_GAP.test(gap))) continue
       out.push({ a: x, b: y, excerpt: l.text.trim(), line: l.index })
       paired.add(x).add(y)
       i++
@@ -146,7 +180,13 @@ function pairs(md: string, rupee: "PKR" | "INR"): Pair[] {
       const usd = inS.filter((a) => a.cur === "USD")
       const other = inS.filter((a) => a.cur !== "USD")
       if (usd.length !== 1 || other.length !== 1) continue
-      if (!CONVERSION_CUE.test(t.slice(s.start, s.end))) continue
+      // The cue joins the two amounts: it sits between them ("$15,000 is about PKR 41.5 lakh"), or is a converting
+      // verb anywhere ("That comes to 4.1 crore PKR for $15,000"). "Locals pay around PKR 50,000, while foreigners
+      // pay $500" contrasts two prices: "around" is outside the pair, and "while" sits between.
+      const [first, second] = usd[0].start < other[0].start ? [usd[0], other[0]] : [other[0], usd[0]]
+      const between = t.slice(first.end, second.start)
+      if (CONTRAST.test(between)) continue
+      if (!CONVERSION_CUE.test(between) && !CONVERTING.test(t.slice(s.start, s.end))) continue
       if (periodAfter(t, usd[0]) !== periodAfter(t, other[0])) continue
       out.push({ a: usd[0], b: other[0], excerpt: l.text.trim(), line: l.index })
     }

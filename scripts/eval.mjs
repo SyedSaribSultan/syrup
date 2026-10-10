@@ -333,6 +333,7 @@ async function runTrial(host, kase, n) {
     live,
     report,
     answers,
+    parseAmounts: (text) => L.parseAmounts(text, { rupee: L.inferRupee(text) }),
     workspace: ws,
     seedDir,
     runTests(cmd, timeoutMs) {

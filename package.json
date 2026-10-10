@@ -19,6 +19,7 @@
     "test:guard": "node scripts/test-guard.mjs",
     "test:rich": "node scripts/test-rich.mjs",
     "test:eval-checks": "node scripts/test-eval-checks.mjs",
+    "test:numbers": "node scripts/test-numbers.mjs",
     "test:plugin": "node scripts/test-plugin.mjs",
     "bench:agent": "node scripts/bench-agent.mjs",
     "chat:export": "node scripts/chat-export.mjs",
