@@ -1,0 +1,21 @@
+{
+  "format": "syrup.cassette",
+  "version": 1,
+  "case": "cite-table-label",
+  "synthetic": true,
+  "note": "Hand-written pages (example.org): the search snippet says \"from $8,500\"; only the page's table says $8,500 is base camp service for 6+ and full board is $28,000 (the K2 label error in miniature). docs/QUALITY.md Q4.",
+  "entries": [
+    {
+      "tool": "websearch",
+      "key": "*",
+      "output": "Title: K2 Expedition 2026 | Karakoram Base Treks: from $8,500\nURL: https://karakoram-base.example.org/k2-expedition\nPublished: 2026-04-20T00:00:00.000Z\nAuthor: N/A\nHighlights:\nK2 Expedition 2026 with Karakoram Base Treks: from $8,500 per person. Group discounts available. Contact us for a full-board quote."
+    },
+    {
+      "tool": "webfetch",
+      "key": "https://karakoram-base.example.org/k2-expedition",
+      "fetched": "2026-10-10",
+      "pageTitle": "K2 Expedition 2026 | Karakoram Base Treks",
+      "output": "# K2 Expedition 2026\n\nTwo service levels: base camp service (permits, porters, base camp meals) or full board (also high-altitude porters, oxygen and the summit push).\n\n## Prices per person\n\n| Group size | Base camp service | Full board |\n| --- | --- | --- |\n| 1-2 members | $15,000 | $30,000 |\n| 3-5 members | $11,000 | $29,000 |\n| 6+ members | $8,500 | $28,000 |\n\nThe royalty and the liaison officer's fee are included in both."
+    }
+  ]
+}

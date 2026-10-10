@@ -1,0 +1,21 @@
+{
+  "format": "syrup.cassette",
+  "version": 1,
+  "case": "cite-not-confirmed",
+  "synthetic": true,
+  "note": "Hand-written pages (example.org): the royalty for foreign climbers on Nanga Parbat, and nothing about Pakistani citizens. The answer must not invent a rule (K2 error c). docs/QUALITY.md Q4.",
+  "entries": [
+    {
+      "tool": "websearch",
+      "key": "*",
+      "output": "Title: Nanga Parbat royalty 2026 | Mountaineering permits\nURL: https://permits.example.org/nanga-parbat-2026\nPublished: 2026-02-01T00:00:00.000Z\nAuthor: N/A\nHighlights:\nThe 2026 summer royalty for Nanga Parbat (8,126 m) is USD 1,800 per foreign member. Expeditions apply through a registered operator at least 45 days ahead."
+    },
+    {
+      "tool": "webfetch",
+      "key": "https://permits.example.org/nanga-parbat-2026",
+      "fetched": "2026-10-10",
+      "pageTitle": "Nanga Parbat royalty 2026 | Mountaineering permits",
+      "output": "# Nanga Parbat royalty 2026\n\n| Season | Royalty per foreign member |\n| --- | --- |\n| Summer (June – August) | USD 1,800 |\n| Winter (December – February) | USD 400 |\n\nApply through a registered operator at least 45 days before arrival. A liaison officer is assigned to every expedition; the operator pays the officer's kit allowance."
+    }
+  ]
+}

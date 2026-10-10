@@ -1,13 +1,14 @@
 "use client"
 
 import { createContext, memo, useContext, useMemo, useRef, useState, type ComponentProps } from "react"
-import ReactMarkdown, { type Components } from "react-markdown"
+import ReactMarkdown, { defaultUrlTransform, type Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { useOptionalEngine } from "@/lib/engine-store"
 import { copyText, filePathIn } from "@/lib/file-actions"
 import { loadMath, MATH_MARK, useLazy } from "@/lib/rich/lazy"
 import { FenceSlot, InlineMath, MdContext, type FenceOrigin } from "./rich/slot"
 import { FileLink } from "./file-link"
+import { GroundCtx } from "./grounding"
 
 const InPre = createContext(false)
 
@@ -27,11 +28,85 @@ function Code({ node, children, ...props }: ComponentProps<"code"> & { node?: un
   )
 }
 
+/** A link. In a finished web answer (GroundCtx, docs/QUALITY.md Q4) a link to a page syrup read gets its numbered source chip. */
+function Link({ node, ...props }: ComponentProps<"a"> & { node?: unknown }) {
+  const g = useContext(GroundCtx)
+  const chip = g?.chipFor(props.href)
+  // The answer's line (react-markdown keeps each node's position): the flag goes on the chip of the line that earned it.
+  const at = (node as { position?: { start?: { line?: number } } } | undefined)?.position?.start?.line
+  if (g && chip) return <g.Chip chip={chip} href={props.href} line={at === undefined ? undefined : at - 1}>{props.children}</g.Chip>
+  return <a {...props} target="_blank" rel="noreferrer noopener" />
+}
+
+
+function Para({ node, ...props }: ComponentProps<"p"> & { node?: unknown }) {
+  const g = useContext(GroundCtx)
+  return <p {...props} {...g?.callout(node)} />
+}
+
+function Item({ node, ...props }: ComponentProps<"li"> & { node?: unknown }) {
+  const g = useContext(GroundCtx)
+  return <li {...props} {...g?.callout(node)} />
+}
+
+/** Same origin (syrup's own images), a relative path, or an inline data: image: shown at once. Anything else waits for a tap. */
+function sameOrigin(src: string): boolean {
+  if (/^data:image\//i.test(src)) return true
+  if (typeof window === "undefined") return false
+  try {
+    return new URL(src, window.location.href).origin === window.location.origin
+  } catch {
+    return false
+  }
+}
+
+/**
+ * An image in a reply (docs/ROADMAP.md §7, the founder's decision): one from another site loads only after a tap, so a
+ * reply can't make the browser call a third party (a tracking pixel, an IP logger) just by being read. The button
+ * names the host; the image then loads without a referrer. A share and the HTML export render the same button (the
+ * export has no script, so the image never loads there).
+ */
+function ReplyImage({ node, src, alt, ...props }: ComponentProps<"img"> & { node?: unknown }) {
+  void node
+  const url = typeof src === "string" ? src : ""
+  const [shown, setShown] = useState(false)
+  if (!url) return alt ? <span>{alt}</span> : null
+  if (shown || sameOrigin(url)) {
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img {...props} src={url} alt={alt ?? ""} loading="lazy" referrerPolicy="no-referrer" className="max-w-full rounded-lg" />
+  }
+  let host = ""
+  try {
+    host = new URL(url).hostname
+  } catch {
+    return alt ? <span>{alt}</span> : null
+  }
+  return (
+    <button
+      type="button"
+      data-external-image={host}
+      onClick={() => setShown(true)}
+      className="my-1 inline-flex max-w-full items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-left align-middle font-sans text-[12px] text-ink-2 transition hover:bg-surface-2 hover:text-ink pointer-coarse:py-2.5"
+    >
+      <span className="min-w-0 [overflow-wrap:anywhere]">
+        Load image from {host}
+        {alt ? <span className="text-muted"> · {alt.slice(0, 80)}</span> : null}
+      </span>
+    </button>
+  )
+}
+
+/** react-markdown's own URL rule (http, https, mailto…, relative), plus inline data: images for an <img>. */
+function urlTransform(url: string, key: string): string {
+  if (key === "src" && /^data:image\/(?:png|jpe?g|gif|webp|avif|svg\+xml)[;,]/i.test(url)) return url
+  return defaultUrlTransform(url)
+}
+
 const components: Components = {
-  a: ({ node, ...props }) => {
-    void node
-    return <a {...props} target="_blank" rel="noreferrer" />
-  },
+  a: Link,
+  img: ReplyImage,
+  p: Para,
+  li: Item,
   // A fence may be a picture (Mermaid, SVG) or display math: the slot decides, and falls back to the code block.
   pre: ({ node, ...props }) => (
     <FenceSlot node={node as Parameters<typeof FenceSlot>[0]["node"]}>
@@ -99,7 +174,7 @@ export const Markdown = memo(function Markdown({ text, final = true, origin }: {
   return (
     <div className="md" aria-busy={(wantsMath && !math.module && !math.failed) || undefined}>
       <MdContext.Provider value={ctx}>
-        <ReactMarkdown remarkPlugins={mod ? pluginsWith(mod) : BASE_PLUGINS} components={components}>
+        <ReactMarkdown remarkPlugins={mod ? pluginsWith(mod) : BASE_PLUGINS} components={components} urlTransform={urlTransform}>
           {source}
         </ReactMarkdown>
       </MdContext.Provider>

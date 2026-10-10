@@ -8,6 +8,7 @@ import { ChangesButton } from "@/components/changes"
 import { RouterProgress } from "@/components/router-progress"
 import { Composer } from "@/components/composer"
 import { useLogs } from "@/components/logs-modal"
+import type { WebSources } from "@/components/grounding"
 import { MessageView } from "@/components/message"
 import { preloadLiveText } from "@/components/parts"
 import { Prompts } from "@/components/prompts"
@@ -66,6 +67,32 @@ export function SessionView({ id }: { id: string }) {
   // (No user message yet while busy: everything is the running turn, so nothing is checked.)
   const lastUser = entries.findLastIndex((e) => e.info.role === "user")
   const runningFrom = !busy ? entries.length : Math.max(lastUser, 0)
+  // What each finished answer's turn, and the chat up to it, read on the web (docs/QUALITY.md Q4). A message keeps the
+  // same object while that doesn't change, so MessageView's memo holds while another reply streams.
+  const [webCache] = useState(() => new Map<string, { sig: string; value: WebSources }>())
+  const webFor = useMemo(() => {
+    const out = new Map<string, WebSources>()
+    let turn: WebSources["turn"] = []
+    let session: WebSources["session"] = []
+    entries.forEach((e, i) => {
+      if (e.info.role === "user") {
+        turn = []
+        return
+      }
+      for (const p of e.parts)
+        if (p.type === "tool" && (p.tool === "webfetch" || p.tool === "websearch") && p.state.status === "completed") {
+          turn = [...turn, p]
+          session = [...session, p]
+        }
+      if (i >= runningFrom || !session.length) return
+      const sig = `${turn.length}:${session.length}`
+      const old = webCache.get(e.info.id)
+      const value = old?.sig === sig ? old.value : { turn, session }
+      webCache.set(e.info.id, { sig, value })
+      out.set(e.info.id, value)
+    })
+    return out
+  }, [entries, runningFrom, webCache])
   const fixNumbers = useCallback((prompt: string) => void send(id, prompt), [send, id])
   const lastRole = entries[entries.length - 1]?.info.role
   // Sent, but the engine has not opened the answer yet.
@@ -259,6 +286,7 @@ export function SessionView({ id }: { id: string }) {
               rating={ratings[e.info.id] ?? null}
               onRate={turnEnds.has(e.info.id) ? (r, model) => rate(e.info.id, r, model) : undefined}
               checkNumbers={e.info.role === "assistant" && i < runningFrom}
+              web={webFor.get(e.info.id)}
               onFix={!busy && e.info.id === lastID && e.info.role === "assistant" ? fixNumbers : undefined}
             />
           ))}

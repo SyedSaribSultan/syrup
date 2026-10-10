@@ -9,6 +9,7 @@ import { providerName } from "@/lib/model-registry"
 import type { RatedModel, Rating } from "@/lib/use-feedback"
 import { answersFor, useSessionAnswers } from "@/lib/use-session-answers"
 import { Brew } from "./brew"
+import { Grounded, type WebSources } from "./grounding"
 import { NumberNote } from "./number-note"
 import { RouterProgress } from "./router-progress"
 import { PartView } from "./parts"
@@ -39,6 +40,8 @@ type Props = {
   checkNumbers?: boolean
   /** Set on the chat's last reply while nothing runs: the note's Fix numbers button sends this follow-up. */
   onFix?: (prompt: string) => void
+  /** What this reply's turn and the chat up to it read on the web: its sources, once the turn has ended (Q4). */
+  web?: WebSources
 }
 
 /**
@@ -48,10 +51,10 @@ type Props = {
  */
 export const MessageView = memo(
   MessageViewImpl,
-  (a, b) => a.entry === b.entry && a.streaming === b.streaming && a.rating === b.rating && !!a.onRate === !!b.onRate && a.live === b.live && a.checkNumbers === b.checkNumbers && a.onFix === b.onFix,
+  (a, b) => a.entry === b.entry && a.streaming === b.streaming && a.rating === b.rating && !!a.onRate === !!b.onRate && a.live === b.live && a.checkNumbers === b.checkNumbers && a.onFix === b.onFix && a.web === b.web,
 )
 
-function MessageViewImpl({ entry, streaming, rating = null, onRate, live, checkNumbers = false, onFix }: Props) {
+function MessageViewImpl({ entry, streaming, rating = null, onRate, live, checkNumbers = false, onFix, web }: Props) {
   const { info, parts } = entry
   // A shared snapshot: its router answers come with it, nothing is fetched and no timer runs.
   const ro = useReadOnly()
@@ -130,6 +133,7 @@ function MessageViewImpl({ entry, streaming, rating = null, onRate, live, checkN
 
   return (
     <div className="group relative">
+      <Grounded text={answerText} web={web} fresh={visible.some((p) => !!live?.[p.id])}>
       <div className="space-y-1">
         {visible.map((p) => (
           <PartView key={p.id} part={p} streaming={streaming} live={live?.[p.id] === "live"} frozen={live?.[p.id] === "frozen"} paths={info.path} />
@@ -151,6 +155,7 @@ function MessageViewImpl({ entry, streaming, rating = null, onRate, live, checkN
           </div>
         )}
       </div>
+      </Grounded>
       {answerText && /\d/.test(answerText) && <NumberNote text={answerText} fresh={visible.some((p) => !!live?.[p.id])} onFix={onFix} />}
       {note && <div className="mt-1.5 text-[11px] text-muted">{note}</div>}
       {!streaming && (meta || rateable) && (

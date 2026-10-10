@@ -27,7 +27,7 @@ const loadLib = () =>
 const cache = new Map<string, Finding[]>()
 const CACHE_MAX = 300
 
-function idle(fn: () => void): () => void {
+export function idle(fn: () => void): () => void {
   const w = window as Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number; cancelIdleCallback?: (id: number) => void }
   if (w.requestIdleCallback) {
     // Idle time, but soon: in a chat opened again the notes should be there almost at once.
@@ -39,7 +39,7 @@ function idle(fn: () => void): () => void {
 }
 
 /** Where scroll anchoring is missing (WebKit): a note that just appeared above the view moves the view by its height. */
-function holdView(note: HTMLElement): void {
+export function holdView(note: HTMLElement): void {
   if (typeof CSS !== "undefined" && CSS.supports?.("overflow-anchor", "auto")) return
   let scroller: HTMLElement | null = note.parentElement
   while (scroller && !/(auto|scroll)/.test(getComputedStyle(scroller).overflowY)) scroller = scroller.parentElement
@@ -49,7 +49,7 @@ function holdView(note: HTMLElement): void {
 }
 
 /** Whether the element still holds text typing out. */
-const revealing = (el: Element | null | undefined) => !!el?.querySelector("[data-revealing]")
+export const revealing = (el: Element | null | undefined) => !!el?.querySelector("[data-revealing]")
 
 /**
  * `fresh`: the answer streamed in front of this page, so the note arrives later and fades in (MOTION.md §4.6, a

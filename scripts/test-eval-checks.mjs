@@ -410,6 +410,8 @@ for (const file of readdirSync(uiDir).filter((f) => f.endsWith(".mjs") && !f.sta
     for (const session of e.sessions) {
       const messages = e.messages[session.id]
       if (!messages?.length || chats.has(session.id) || planted.has(session.id)) continue
+      // Q4's chat-sources plants an unsourced amount and links to pages never read on purpose (its own harness checks them).
+      if (s.plantedSources) continue
       const labels = s.numbers ?? {}
       if (messages.some((m) => labels[m.info.id] === "wrong")) planted.set(session.id, { title: session.title, messages, labels })
       else chats.set(session.id, { title: session.title, messages, answers: e.answers?.[session.id] ?? [] })

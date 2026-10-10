@@ -1,0 +1,28 @@
+{
+  "format": "syrup.cassette",
+  "version": 1,
+  "case": "cite-conflict",
+  "synthetic": true,
+  "note": "Hand-written pages (example.org): an older club page and the newer official schedule disagree on Gasherbrum II's royalty (USD 4,000 vs 4,600). docs/QUALITY.md Q4.",
+  "entries": [
+    {
+      "tool": "websearch",
+      "key": "*",
+      "output": "Title: Gasherbrum II climbing guide | Alpine Club Notes\nURL: https://alpine-club.example.org/guides/gasherbrum-ii\nPublished: 2024-03-02T00:00:00.000Z\nAuthor: N/A\nHighlights:\nThe summer royalty for Gasherbrum II (8,035 m) is USD 4,000 per foreign climber, paid to the tourism department.\n\n---\n\nTitle: Royalty schedule 2026: peaks above 8,000 m\nURL: https://gb-tourism.example.org/royalty/8000m-2026\nPublished: 2026-01-15T00:00:00.000Z\nAuthor: N/A\nHighlights:\nRoyalty for the 2026 summer season, per foreign climber: K2 USD 5,000; Gasherbrum II USD 4,600; Broad Peak USD 4,600."
+    },
+    {
+      "tool": "webfetch",
+      "key": "https://alpine-club.example.org/guides/gasherbrum-ii",
+      "fetched": "2026-10-10",
+      "pageTitle": "Gasherbrum II climbing guide | Alpine Club Notes",
+      "output": "# Gasherbrum II climbing guide\n\n*Updated March 2024*\n\nGasherbrum II (8,035 m) is often called the easiest 8,000 m peak in the Karakoram.\n\n## Permits\n\n| Season | Royalty per foreign climber |\n| --- | --- |\n| Summer | USD 4,000 |\n| Autumn | USD 2,000 |\n\nThe royalty is paid to the tourism department before the expedition."
+    },
+    {
+      "tool": "webfetch",
+      "key": "https://gb-tourism.example.org/royalty/8000m-2026",
+      "fetched": "2026-10-10",
+      "pageTitle": "Royalty schedule 2026: peaks above 8,000 m",
+      "output": "# Royalty schedule 2026: peaks above 8,000 m\n\nIssued 15 January 2026. Applies to expeditions from 1 March 2026.\n\n| Peak | Height | Summer, per foreign climber | Winter, per foreign climber |\n| --- | --- | --- | --- |\n| K2 | 8,611 m | USD 5,000 | USD 1,500 |\n| Gasherbrum II | 8,035 m | USD 4,600 | USD 1,200 |\n| Broad Peak | 8,051 m | USD 4,600 | USD 1,200 |"
+    }
+  ]
+}

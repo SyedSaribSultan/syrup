@@ -11,8 +11,11 @@
  *   - contextHygiene (Q2, on unless SYRUP_CONTEXT_HYGIENE=0): web results trimmed at the source,
  *     web results of earlier user turns masked in what is sent, a shorter websearch definition,
  *     and no "continue" request after a compaction that followed a finished answer.
- *   - the Q4 webfetch override joins FEATURES below.
- * The two are independent: the replay only decides where web results come from, the hygiene only
+ *   - webfetchOverride (Q4, on unless SYRUP_WEBFETCH=0): syrup's own webfetch, whose pages keep their tables as
+ *     GFM tables, lose their navigation and banners, and start with a "Source / Title / Fetched" header.
+ *   - webRules (Q4, on unless SYRUP_WEB_RULES=0): the "When you answer from the web" rules join the system prompt
+ *     for the requests after a web tool ran in the turn; ordinary coding turns never carry them.
+ * The replay and the hygiene are independent: the replay only decides where web results come from, the hygiene only
  * what happens to them afterwards, so an eval measures the hygiene production runs. With every
  * feature off the plugin returns no hooks at all, so the engine (tools, prompts, requests) is
  * exactly what it is without the plugin.
@@ -21,11 +24,20 @@
  * Tests drive it through that export (scripts/test-plugin.mjs).
  */
 import fs from "node:fs"
+import { htmlToMarkdown } from "./html-to-md"
+import { WEB_ANSWER_RULES } from "./prompt"
 
 // ---------------------------------------------------------------- the hook shapes used here (OpenCode 1.18.32)
 
-type ToolContext = { sessionID: string; messageID?: string; agent?: string; callID?: string; abort?: AbortSignal }
-type ToolResult = { title: string; output: string; metadata: Record<string, unknown> }
+type ToolContext = {
+  sessionID: string
+  messageID?: string
+  agent?: string
+  callID?: string
+  abort?: AbortSignal
+  ask?: (input: { permission: string; patterns: string[]; always: string[]; metadata: Record<string, unknown> }) => Promise<void>
+}
+type ToolResult = { title: string; output: string; metadata: Record<string, unknown>; attachments?: { type: "file"; mime: string; url: string }[] }
 type ToolDef = {
   description: string
   /** OpenCode builds a schema from these keys; `tool.definition` then replaces it with the built-in one. */
@@ -34,7 +46,7 @@ type ToolDef = {
 }
 type DefinitionHook = (input: { toolID: string }, output: { description: string; parameters?: unknown; jsonSchema?: unknown }) => Promise<void>
 type ToolState = { status: string; input?: Record<string, unknown>; output?: string; time?: { compacted?: number } }
-type Part = { type: string; tool?: string; state?: ToolState; messageID?: string }
+type Part = { type: string; tool?: string; state?: ToolState; messageID?: string; text?: string; synthetic?: boolean }
 type Message = { info: { id?: string; role: string; sessionID?: string; parentID?: string; summary?: unknown; finish?: string }; parts: Part[] }
 type Hooks = {
   tool?: Record<string, ToolDef>
@@ -42,6 +54,7 @@ type Hooks = {
   "tool.execute.before"?: (input: { tool: string; sessionID: string; callID: string }, output: { args: Record<string, unknown> }) => Promise<void>
   "tool.execute.after"?: (input: { tool: string; sessionID: string; callID: string; args: unknown }, output: { title: string; output: string; metadata: Record<string, unknown> }) => Promise<void>
   "experimental.chat.messages.transform"?: (input: unknown, output: { messages: Message[] }) => Promise<void>
+  "experimental.chat.system.transform"?: (input: { sessionID?: string }, output: { system: string[] }) => Promise<void>
   "experimental.compaction.autocontinue"?: (input: { sessionID: string; overflow: boolean }, output: { enabled: boolean }) => Promise<void>
   event?: (input: { event: { type: string; properties: Record<string, unknown> } }) => Promise<void>
 }
@@ -124,7 +137,7 @@ const WEBFETCH_SCHEMA = {
 /** OpenCode's own words when a search finds nothing (websearch.ts). */
 const NO_RESULTS = "No search results found. Please try a different query."
 
-type Entry = { tool: string; key: string; input?: Record<string, unknown>; title?: string; output: string }
+type Entry = { tool: string; key: string; input?: Record<string, unknown>; title?: string; output: string; pageTitle?: string; fetched?: string }
 type Cassette = { format?: string; version?: number; entries: Entry[]; synthetic?: boolean }
 
 /** websearch key: lower case, punctuation dropped, whitespace collapsed. */
@@ -213,6 +226,7 @@ const evalReplay: Feature = (env) => {
   const file = env.SYRUP_EVAL_REPLAY
   if (!file) return null
   const cassette = cassetteReader(file)
+  const header = env.SYRUP_WEBFETCH !== "0"
   const year = new Date().getFullYear()
   const definitions: Record<string, { description: string; jsonSchema: unknown }> = {
     websearch: { description: builtinWebsearchDescription(year), jsonSchema: WEBSEARCH_SCHEMA },
@@ -254,7 +268,9 @@ const evalReplay: Feature = (env) => {
       const hit = cassette().entries.find((e) => e.tool === "webfetch" && urlKey(e.key) === key)
       // A page the cassette doesn't have behaves like a dead link, as the real tool reports one.
       if (!hit) throw new Error("Request failed with status code: 404")
-      return { title: hit.title ?? `${url} (text/html)`, output: hit.output, metadata: { replay: { mode: "hit", key } } }
+      // With syrup's webfetch on (production's default) a replayed page carries its header too, as a live one would.
+      const output = !header ? hit.output : withSourceHeader(hit.output, { url: hit.key, title: hit.pageTitle ?? headingOf(hit.output), fetched: hit.fetched ?? today() }, { recorded: true })
+      return { title: hit.title ?? `${url} (text/html)`, output, metadata: { replay: { mode: "hit", key } } }
     },
   }
 
@@ -583,13 +599,57 @@ function trimSearch(raw: string, query: string): { text: string; mode: "unchange
   return { text: out, mode: "passages" }
 }
 
-/** A fetched page cut to 12,000 characters at a line end, tables kept whole at the cut. */
-function trimFetch(raw: string): { text: string; mode: "unchanged" | "cut" } {
+/** The part of a long page always kept: its top (title, summary, the header syrup's webfetch adds). */
+const FETCH_TOP = 2_500
+
+/**
+ * A fetched page cut to 12,000 characters. Without a question to go by: its first 12,000 at a line end, tables kept
+ * whole at the cut. With one (Q4: the turn's question and searches), a page that long keeps its top and then the
+ * sections (split at headings, long ones at blank lines) that best match the question, in page order, so a price
+ * table 28,000 characters down a tour page still reaches the model. Same BM25 and numbers bonus as the search trimmer.
+ */
+function trimFetch(raw: string, query = ""): { text: string; mode: "unchanged" | "cut" | "sections" } {
   const text = raw.replace(ENGINE_TRUNCATION, "")
   if (text.length <= HYGIENE.fetchCap) return { text: raw, mode: "unchanged" }
   const note = (n: number) => `\n\n[Page trimmed to its first ${n.toLocaleString("en-US")} of ${text.length.toLocaleString("en-US")} characters to save context.]`
-  const kept = cutKeepingTables(text, HYGIENE.fetchCap - note(HYGIENE.fetchCap).length)
-  return { text: kept + note(kept.length), mode: "cut" }
+  const plain = () => {
+    const kept = cutKeepingTables(text, HYGIENE.fetchCap - note(HYGIENE.fetchCap).length)
+    return { text: kept + note(kept.length), mode: "cut" as const }
+  }
+  if (!queryTerms(query).length) return plain()
+  const top = cutKeepingTables(text, FETCH_TOP)
+  const rest = text.slice(top.length)
+  // Sections: a heading starts one; one longer than 3,000 characters splits at blank lines (never inside a table).
+  const sections: string[] = []
+  for (const sec of rest.split(/\n(?=#{1,6} )/)) {
+    if (sec.length <= 3_000) sections.push(sec)
+    else {
+      let cur = ""
+      for (const para of sec.split(/\n{2,}/)) {
+        if (cur && cur.length + para.length > 3_000 && !(isTableLine(para.split("\n")[0]) && isTableLine(cur.split("\n").at(-1) ?? ""))) {
+          sections.push(cur)
+          cur = ""
+        }
+        cur = cur ? `${cur}\n\n${para}` : para
+      }
+      if (cur) sections.push(cur)
+    }
+  }
+  const units: Unit[] = sections.map((t, i) => ({ result: 0, order: i, text: t.trim(), score: 0 }))
+  score(units, query)
+  const sectionNote = (shown: number) => `\n\n[Page trimmed to save context: its top and the ${shown} section${shown === 1 ? "" : "s"} most relevant to the question, of ${text.length.toLocaleString("en-US")} characters. "..." marks a gap.]`
+  let room = HYGIENE.fetchCap - top.length - sectionNote(99).length
+  const picked = new Set<Unit>()
+  for (const u of [...units].sort((a, b) => b.score - a.score || a.order - b.order)) {
+    if (u.score <= 0 || !u.text) break
+    const need = Math.min(u.text.length, 3_000) + 7
+    if (need > room) continue
+    picked.add(u)
+    room -= need
+  }
+  if (!picked.size) return plain()
+  const kept = units.filter((u) => picked.has(u)).map((u) => cutKeepingTables(u.text, 3_000))
+  return { text: `${top}\n\n...\n\n${kept.join("\n\n...\n\n")}${sectionNote(kept.length)}`, mode: "sections" }
 }
 
 /** Title and URL pairs in a search output, raw or trimmed (both keep Exa's "Title:" / "URL:" lines). */
@@ -641,6 +701,19 @@ function maskWebResults(messages: Message[]) {
     tokens -= now[i].state!.output!.length / 4
     now[i].state!.output = stubFor(now[i], false)
   }
+}
+
+/** The latest user message's own words and this turn's search queries (before any masking), at most 600 characters. */
+function turnQueryOf(messages: Message[]): { sessionID: string; text: string } | null {
+  let last = -1
+  messages.forEach((m, i) => {
+    if (m.info.role === "user") last = i
+  })
+  const sessionID = messages.find((m) => m.info?.sessionID)?.info.sessionID
+  if (last < 0 || !sessionID) return null
+  const said = messages[last].parts.filter((p) => p.type === "text" && !p.synthetic && typeof p.text === "string").map((p) => p.text)
+  const searched = messages.slice(last + 1).flatMap((m) => m.parts.filter((p) => p.type === "tool" && p.tool === "websearch").map((p) => String(p.state?.input?.query ?? "")))
+  return { sessionID, text: [...said, ...searched].join(" ").replace(/\s+/g, " ").slice(0, 600) }
 }
 
 /**
@@ -711,6 +784,8 @@ const contextHygiene: Feature = (env) => {
   if (env.SYRUP_CONTEXT_HYGIENE === "0") return null
   const definition = websearchDefinition(new Date().getFullYear())
   const tracker = compactionTracker()
+  // The current turn's question and searches, per session (from the messages about to be sent), for trimFetch.
+  const turnQuery = new Map<string, string>()
   return {
     "tool.definition": async (input, output) => {
       if (input.toolID !== "websearch") return
@@ -727,7 +802,7 @@ const contextHygiene: Feature = (env) => {
       const raw = output.output
       let r: { text: string; mode: string }
       try {
-        r = input.tool === "websearch" ? trimSearch(raw, String((input.args as { query?: unknown } | undefined)?.query ?? "")) : trimFetch(raw)
+        r = input.tool === "websearch" ? trimSearch(raw, String((input.args as { query?: unknown } | undefined)?.query ?? "")) : trimFetch(raw, turnQuery.get(input.sessionID) ?? "")
       } catch {
         // Never lose a result to a trimmer bug: the plain cut.
         r = { text: raw.length > HYGIENE.hard ? cutKeepingTables(raw, HYGIENE.hard) : raw, mode: "cut" }
@@ -736,7 +811,14 @@ const contextHygiene: Feature = (env) => {
       output.metadata = { ...output.metadata, rawChars: raw.length, keptChars: r.text.length, trim: r.mode }
     },
     "experimental.chat.messages.transform": async (_input, output) => {
-      if (Array.isArray(output?.messages)) maskWebResults(output.messages)
+      if (!Array.isArray(output?.messages)) return
+      const q = turnQueryOf(output.messages)
+      if (q) {
+        turnQuery.delete(q.sessionID)
+        turnQuery.set(q.sessionID, q.text)
+        if (turnQuery.size > 500) turnQuery.delete(turnQuery.keys().next().value!)
+      }
+      maskWebResults(output.messages)
     },
     "experimental.compaction.autocontinue": async (input, output) => {
       if (!input.overflow && tracker.answered(input.sessionID)) output.enabled = false
@@ -745,10 +827,186 @@ const contextHygiene: Feature = (env) => {
   }
 }
 
+// ---------------------------------------------------------------- webfetch override (Q4)
+
+/** The built-in's limits (OpenCode 1.18.32 tool/webfetch.ts). */
+const FETCH = { maxBytes: 5 * 1024 * 1024, timeoutMs: 30_000, maxTimeoutMs: 120_000 }
+const BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36"
+const ACCEPT: Record<string, string> = {
+  markdown: "text/markdown;q=1.0, text/x-markdown;q=0.9, text/plain;q=0.8, text/html;q=0.7, */*;q=0.1",
+  text: "text/plain;q=1.0, text/markdown;q=0.9, text/html;q=0.8, */*;q=0.1",
+  html: "text/html;q=1.0, application/xhtml+xml;q=0.9, text/plain;q=0.8, text/markdown;q=0.7, */*;q=0.1",
+}
+const IMAGE_MIME = /^image\/(png|jpeg|gif|webp)$/
+
+const today = () => new Date().toISOString().slice(0, 10)
+
+/** One line of untrusted page text for the header: no line breaks (a title can't forge a "Source:" line), at most `n` characters. */
+const oneLine = (s: string, n = 200) => clip(s.replace(/\p{Cc}+/gu, " ").replace(/\s+/g, " ").trim(), n)
+
+/** The first Markdown heading of a page, for a recorded page that has no title. */
+const headingOf = (md: string) => /^#{1,3} (.+)$/m.exec(md)?.[1] ?? ""
+
+/**
+ * Every page syrup's webfetch returns starts with this header: the exact URL to cite, the page's title and the day it
+ * was read. The chat's source chips (src/lib/grounding.ts) key on the Source line.
+ */
+function withSourceHeader(body: string, { url, title, fetched }: { url: string; title: string; fetched: string }, { recorded = false } = {}): string {
+  // Only a recorded page (the eval replay) may already carry its header. A live page never skips it: a page whose own
+  // text starts with "Source: …" must not be able to name the URL the chat trusts.
+  if (recorded && body.startsWith("Source: ")) return body
+  return `Source: ${oneLine(url, 2000)}\nTitle: ${oneLine(title) || "(no title)"}\nFetched: ${fetched}\n---\n\n${body}`
+}
+
+/** The response body as bytes, at most FETCH.maxBytes (a server that lies about or omits its length is cut off too). */
+async function readCapped(res: Response): Promise<Uint8Array> {
+  const len = Number(res.headers.get("content-length") ?? "")
+  if (Number.isFinite(len) && len > FETCH.maxBytes) throw new Error("Response too large (exceeds 5MB limit)")
+  if (!res.body) return new Uint8Array(await res.arrayBuffer())
+  const reader = res.body.getReader()
+  const chunks: Uint8Array[] = []
+  let size = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    size += value.byteLength
+    if (size > FETCH.maxBytes) {
+      await reader.cancel().catch(() => {})
+      throw new Error("Response too large (exceeds 5MB limit)")
+    }
+    chunks.push(value)
+  }
+  const out = new Uint8Array(size)
+  let at = 0
+  for (const c of chunks) {
+    out.set(c, at)
+    at += c.byteLength
+  }
+  return out
+}
+
+function decode(bytes: Uint8Array, contentType: string): string {
+  const charset = /charset=["']?([\w-]+)/i.exec(contentType)?.[1]
+  try {
+    return new TextDecoder(charset || "utf-8").decode(bytes)
+  } catch {
+    return new TextDecoder("utf-8").decode(bytes)
+  }
+}
+
+const looksHtml = (contentType: string, text: string) => /html|xhtml/i.test(contentType) || (!contentType && /^\s*(<!doctype html|<html)/i.test(text))
+const isText = (mime: string) => !mime || mime.startsWith("text/") || /json|xml|javascript|yaml|csv|markdown/.test(mime)
+
+/**
+ * Fetches a page the way OpenCode's webfetch does (same arguments, permission, headers, Cloudflare retry, 5 MB and
+ * timeout limits, image attachments, error words), then converts HTML with html-to-md.ts and puts the Source header
+ * on top. Reads globalThis.fetch at call time, so scripts/test-plugin.mjs can stand in for the network.
+ */
+async function fetchPage(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
+  validate("webfetch", args, WEBFETCH_SCHEMA)
+  const url = String(args.url)
+  const format = String(args.format ?? "markdown")
+  if (!url.startsWith("http://") && !url.startsWith("https://")) throw new Error("URL must start with http:// or https://")
+  if (typeof ctx.ask === "function") await ctx.ask({ permission: "webfetch", patterns: [url], always: ["*"], metadata: { url, format, timeout: args.timeout } })
+  const timeoutMs = Math.min((typeof args.timeout === "number" && args.timeout > 0 ? args.timeout : FETCH.timeoutMs / 1000) * 1000, FETCH.maxTimeoutMs)
+  const timer = AbortSignal.timeout(timeoutMs)
+  const signal = ctx.abort ? AbortSignal.any([timer, ctx.abort]) : timer
+  const headers: Record<string, string> = { "User-Agent": BROWSER_UA, Accept: ACCEPT[format] ?? "*/*", "Accept-Language": "en-US,en;q=0.9" }
+  const get = (h: Record<string, string>) =>
+    globalThis.fetch(url, { headers: h, redirect: "follow", signal }).catch((e: unknown) => {
+      if (timer.aborted && !ctx.abort?.aborted) throw new Error("Request timed out")
+      throw e
+    })
+  let res = await get(headers)
+  // Retry with an honest user agent when Cloudflare's bot check answers (TLS fingerprint mismatch), as the built-in does.
+  if (res.status === 403 && res.headers.get("cf-mitigated") === "challenge") res = await get({ ...headers, "User-Agent": "opencode" })
+  if (!res.ok) throw new Error(`Request failed with status code: ${res.status}`)
+  const bytes = await readCapped(res)
+  const contentType = res.headers.get("content-type") ?? ""
+  const mime = contentType.split(";")[0].trim().toLowerCase()
+  const finalUrl = /^https?:\/\//i.test(res.url) ? res.url : url
+  const title = `${url} (${contentType})`
+  if (IMAGE_MIME.test(mime)) {
+    let bin = ""
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+    return { title, output: "Image fetched successfully", metadata: {}, attachments: [{ type: "file", mime, url: `data:${mime};base64,${btoa(bin)}` }] }
+  }
+  const fetched = today()
+  const meta = { source: finalUrl, fetched }
+  if (!isText(mime)) return { title, output: withSourceHeader(`This URL returned ${mime}, which webfetch can't read as text.`, { url: finalUrl, title: "", fetched }), metadata: meta }
+  const text = decode(bytes, contentType)
+  if (format === "html" || !looksHtml(contentType, text)) return { title, output: withSourceHeader(text, { url: finalUrl, title: "", fetched }), metadata: meta }
+  const page = htmlToMarkdown(text, finalUrl, { links: format !== "text" })
+  const body = page.markdown || "(The page has no readable text. It may need JavaScript to show its content.)"
+  return { title, output: withSourceHeader(body, { url: finalUrl, title: page.title, fetched }), metadata: { ...meta, pageTitle: oneLine(page.title), htmlChars: text.length } }
+}
+
+/**
+ * Q4: syrup's own webfetch (a plugin tool with the built-in's name replaces the built-in, verified on 1.18.32 in Q0),
+ * shown to the model with the built-in's own description and schema. The eval replay's webfetch, later in FEATURES,
+ * takes its place while a cassette is set. Q2's 12,000-character cap applies to it as it did to the built-in.
+ */
+const webfetchOverride: Feature = (env) => {
+  if (env.SYRUP_WEBFETCH === "0") return null
+  const webfetch: ToolDef = { description: WEBFETCH_DESCRIPTION, args: argsOf(WEBFETCH_SCHEMA), execute: (args, ctx) => fetchPage(args, ctx) }
+  return {
+    tool: { webfetch },
+    "tool.definition": async (input, output) => {
+      if (input.toolID !== "webfetch") return
+      output.description = WEBFETCH_DESCRIPTION
+      output.jsonSchema = WEBFETCH_SCHEMA
+    },
+  }
+}
+
+// ---------------------------------------------------------------- web answer rules (Q4)
+
+/**
+ * Q4: the "When you answer from the web" rules (prompt.ts WEB_ANSWER_RULES) join the system prompt only for the
+ * requests after a web tool ran in the current turn, so a coding turn pays nothing and a research turn gets them
+ * exactly when it writes from what it read. OpenCode runs messages.transform before it builds each request's system
+ * prompt (session/prompt.ts, then session/llm/request.ts), so the first sees the turn and the second reads the answer.
+ * The rules go last, after the cached system prompt, so the prefix every request shares is unchanged.
+ */
+/** Added under a search whose query asks for a number (Q4; rule 3 of the web rules, at the point of use). */
+const OPEN_HINT = "[Snippets can drop what a number is for (group size, what it includes, the year). Before quoting a price, fee, limit or date from them, open its page with webfetch.]"
+
+const webRules: Feature = (env) => {
+  if (env.SYRUP_WEB_RULES === "0") return null
+  const webTurn = new Map<string, boolean>()
+  return {
+    "experimental.chat.messages.transform": async (_input, output) => {
+      const messages = output?.messages
+      if (!Array.isArray(messages) || !messages.length) return
+      const sessionID = messages.find((m) => m.info?.sessionID)?.info.sessionID
+      if (!sessionID) return
+      let last = -1
+      messages.forEach((m, i) => {
+        if (m.info.role === "user") last = i
+      })
+      const used = messages.slice(last + 1).some((m) => m.parts.some((p) => p.type === "tool" && WEB_TOOLS.has(p.tool ?? "")))
+      webTurn.delete(sessionID)
+      webTurn.set(sessionID, used)
+      if (webTurn.size > 500) webTurn.delete(webTurn.keys().next().value!)
+    },
+    // Where the model reads a search's numbers, one line: weak models follow a nearby hint better than a rule far up.
+    "tool.execute.after": async (input, output) => {
+      if (input.tool !== "websearch" || typeof output?.output !== "string" || output.output.includes(OPEN_HINT)) return
+      if (NUMBER_SEEKING.test(String((input.args as { query?: unknown } | undefined)?.query ?? ""))) output.output += `
+
+${OPEN_HINT}`
+    },
+    "experimental.chat.system.transform": async (input, output) => {
+      if (!input?.sessionID || !webTurn.get(input.sessionID) || !Array.isArray(output?.system)) return
+      if (!output.system.includes(WEB_ANSWER_RULES)) output.system.push(WEB_ANSWER_RULES)
+    },
+  }
+}
+
 // ---------------------------------------------------------------- composition
 
 /** In order; a later feature's tool with the same name wins, and hooks of the same name run one after another. */
-const FEATURES: Feature[] = [evalReplay, contextHygiene]
+const FEATURES: Feature[] = [webfetchOverride, evalReplay, contextHygiene, webRules]
 
 function compose(list: Hooks[]): Hooks {
   const out: Hooks = {}

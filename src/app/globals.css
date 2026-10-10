@@ -280,6 +280,24 @@ body {
   padding-left: 0.9em;
   color: var(--ink-2);
 }
+/*
+ * "Sources differ:" and "Not confirmed:" lines in a finished web answer (components/markdown.tsx, docs/QUALITY.md Q4).
+ * Tint and edge are shadows outside the box, so the text doesn't move when a callout appears.
+ */
+.md [data-callout] {
+  --callout-tint: color-mix(in oklab, var(--surface-2) 70%, transparent);
+  --callout-edge: var(--line-2);
+  border-radius: 0.25rem;
+  background: var(--callout-tint);
+  box-shadow:
+    -0.5rem 0 0 0 var(--callout-tint),
+    0.5rem 0 0 0 var(--callout-tint),
+    calc(-0.5rem - 2px) 0 0 0 var(--callout-edge);
+}
+.md [data-callout="differ"] {
+  --callout-tint: color-mix(in oklab, var(--warn) 9%, transparent);
+  --callout-edge: color-mix(in oklab, var(--warn) 70%, transparent);
+}
 .md .md-table {
   overflow-x: auto;
 }

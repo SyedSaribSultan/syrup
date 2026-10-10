@@ -160,6 +160,9 @@ export const checks = {
       { name: "hidden-tests", ...opts },
     ),
 
+  /** A check written next to its case (scripts/eval/grounding-checks.mjs): run(trial) → { pass, detail }. */
+  custom: ({ name, column = "claims", run, ...opts }) => mk(column, run, { name, ...opts }),
+
   /**
    * The judge (docs/QUALITY.md Q1, "Judged checks"): is this claim supported by what the agent read?
    * Not built yet (Q1b). With `pnpm eval --judge` it says so; it never passes or fails a case.

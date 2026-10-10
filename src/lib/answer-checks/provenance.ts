@@ -27,17 +27,17 @@ export type ProvenanceOptions = {
   rupee?: "PKR" | "INR"
 }
 
-const CALCULATED = /≈|~|∼|\babout\b|\baround\b|\broughly\b|\bapprox|\bestimat|\bin total\b|\btotal\b|\ball[- ]in\b|\bsum\b|\bcombined\b|\bconvert|\bcalculat|\bexpect|\bbudget\b|\bat (?:the )?(?:current )?(?:exchange )?rate\b/i
+export const CALCULATED = /≈|~|∼|\babout\b|\baround\b|\broughly\b|\bapprox|\bestimat|\bin total\b|\btotal\b|\ball[- ]in\b|\bsum\b|\bcombined\b|\bconvert|\bcalculat|\bexpect|\bbudget\b|\bat (?:the )?(?:current )?(?:exchange )?rate\b/i
 
 const NUM_IN_SOURCE = /(?<![\w.])(\d{1,3}(?:,\d{2,3})+(?:\.\d+)?|\d+(?:\.\d+)?)(?:\s?(thousand|million|billion|lakhs?|lacs?|crores?|mn|bn|cr|k|m|b)(?![a-z]))?/gi
 const SCALE: Record<string, number> = { thousand: 1e3, million: 1e6, billion: 1e9, lakh: 1e5, lakhs: 1e5, lac: 1e5, lacs: 1e5, crore: 1e7, crores: 1e7, mn: 1e6, bn: 1e9, cr: 1e7, k: 1e3, m: 1e6, b: 1e9 }
 
-const key = (v: number) => Number(v.toPrecision(6))
+export const key = (v: number) => Number(v.toPrecision(6))
 
-type Hit = { source: number; pos: number }
+export type Hit = { source: number; pos: number }
 
 /** value → where it appears. Each number is indexed as written and with its scale applied ("28k" → 28 and 28,000). */
-function indexNumbers(texts: string[]): Map<number, Hit[]> {
+export function indexNumbers(texts: string[]): Map<number, Hit[]> {
   const idx = new Map<number, Hit[]>()
   const add = (v: number, hit: Hit) => {
     if (!Number.isFinite(v)) return

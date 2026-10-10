@@ -7,7 +7,7 @@ import { checks as c, defineCase } from "../../../eval/kit.mjs"
 export default defineCase({
   id: "counterfactual-fee",
   title: "Permit fee the agent must read, not remember (citation)",
-  tags: ["smoke", "citations", "research"],
+  tags: ["smoke", "citations", "research", "grounding"],
   cassette: "cassettes/counterfactual-fee.json",
   turns: ["What is the 2026 climbing permit fee (royalty) for Spantik in Pakistan for a foreign climber? Look it up and cite your source."],
   checks: [

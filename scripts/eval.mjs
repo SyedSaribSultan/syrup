@@ -142,6 +142,8 @@ const engineEnv = (() => {
     SYRUP_EVAL_REPLAY: cassetteFile,
     // SYRUP_CONTEXT_HYGIENE=0 runs the eval without the plugin's Q2 context hooks: an A/B of them in one sitting.
     ...(process.env.SYRUP_CONTEXT_HYGIENE ? { SYRUP_CONTEXT_HYGIENE: process.env.SYRUP_CONTEXT_HYGIENE } : {}),
+    // Likewise SYRUP_WEBFETCH=0 and SYRUP_WEB_RULES=0 for Q4's webfetch and web rules (the "before" of an A/B).
+    ...Object.fromEntries(["SYRUP_WEBFETCH", "SYRUP_WEB_RULES"].filter((k) => process.env[k]).map((k) => [k, process.env[k]])),
     SYRUP_EVAL_HOST_PORT: String(hostPort),
     OPENCODE_PORT: String(enginePort),
     OPENCODE_HOSTNAME: "127.0.0.1",
@@ -331,6 +333,8 @@ async function runTrial(host, kase, n) {
     .flatMap((r) => r.findings)
   const ctx = {
     live,
+    // The whole chat (seeded turns too): what the agent had read by the live turn (scripts/eval/grounding-checks.mjs).
+    parsed,
     report,
     answers,
     parseAmounts: (text) => L.parseAmounts(text, { rupee: L.inferRupee(text) }),
