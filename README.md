@@ -136,6 +136,10 @@ The same codebase runs as a hosted product at https://syrup.syedsarib.com, open 
 
 Working end to end, early. Things still rough: no theme toggle, no mobile layout, the router has been tested against real provider endpoints but not yet under sustained rate limiting. Issues and PRs welcome.
 
+## Author
+
+Built by [Syed Sarib Sultan](https://syedsarib.com), senior product design engineer. More work and guides at [syedsarib.com](https://syedsarib.com).
+
 ## License
 
 MIT
