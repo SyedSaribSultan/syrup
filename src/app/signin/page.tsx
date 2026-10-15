@@ -33,7 +33,7 @@ export default async function SignInPage({ searchParams }: PageProps<"/signin">)
       <div className="flex min-h-full flex-col items-center justify-center px-4 pt-[max(4rem,env(safe-area-inset-top))] pb-[max(4rem,env(safe-area-inset-bottom))] medium:px-6">
         <div className="w-full max-w-[400px]">
           <div className="mb-8 text-center">
-            <div className="font-serif text-[2.2rem] font-semibold tracking-tight text-ink">syrup</div>
+            <h1 className="font-serif text-[2.2rem] font-semibold tracking-tight text-ink">syrup</h1>
             <p className="mt-2 text-[15px] text-ink-2">A coding agent powered by your own API keys.</p>
           </div>
 
