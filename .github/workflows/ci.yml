@@ -30,6 +30,8 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # PageProps, LayoutProps and RouteContext are generated route types (.next/types), git-ignored.
+      - run: pnpm exec next typegen
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test:transcript
