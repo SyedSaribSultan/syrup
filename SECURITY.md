@@ -24,7 +24,7 @@ syrup runs a coding agent that reads, writes and executes code. Two modes exist:
 - Provider keys are envelope-encrypted per user. They never touch a sandbox disk.
 - The agent runs in an isolated Firecracker microVM per workspace (Vercel Sandbox). Only OpenCode's port is exposed, behind a per-start password that lives in the browser's memory and, encrypted, in the database; it is discarded when the sandbox stops.
 - Provider keys and tokens reach the VM only as process environment of the sidecar; nothing secret is written to its filesystem, so snapshots contain none.
-- Private networks and the cloud metadata service are unreachable from every sandbox. Workspaces can opt into a strict host allow-list.
+- Private networks and the cloud metadata service are unreachable from every sandbox. Sandboxes run a strict host allow-list by default (git, package registries, web search, syrup itself, plus hosts the workspace adds); open internet is an explicit per-workspace opt-in.
 - Database access uses a role without `BYPASSRLS`; row-level security is forced on every tenant table.
 - Abuse caps: each account gets a daily allowance of sandbox time (default 2 hours, UTC day) and at most 2 sandboxes running at once; past either, opening a workspace answers 429 with the reason. Browser log rows are rate limited and each row's data is capped at 4 KB. All are set by environment variables (`docs/DEPLOY.md` Part 8).
 - Kill switch: setting `SYRUP_AGENT_ENABLED=0` in Vercel (then redeploying) stops every new sandbox start; workspaces answer "paused for maintenance". Use it first if the agent is being abused.

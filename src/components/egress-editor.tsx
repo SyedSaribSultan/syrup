@@ -2,10 +2,13 @@
 
 import { useState } from "react"
 
+/** The allow-list entry that opts into open internet (src/server/engine/egress.ts OPEN_INTERNET). */
+const OPEN = "*"
+
 /**
- * Per-workspace network allow-list. Empty = open internet (private networks
- * always blocked). Any host listed switches the sandbox to strict mode: only
- * providers, git, package registries, syrup, and these hosts.
+ * Per-workspace network allow-list. Strict by default: only git, package
+ * registries, syrup, and the hosts listed. Open internet is an explicit
+ * opt-in, stored as "*" in the list. Private networks are always blocked.
  */
 export function EgressEditor({ workspaceId, initial }: { workspaceId: string; initial: string[] }) {
   const [hosts, setHosts] = useState(initial)
@@ -27,18 +30,25 @@ export function EgressEditor({ workspaceId, initial }: { workspaceId: string; in
     setBusy(false)
   }
 
+  const openNet = hosts.includes(OPEN)
+  const listed = hosts.filter((h) => h !== OPEN)
+
   return (
     <div className="border-t border-line px-3 py-2">
       <button type="button" onClick={() => setOpen((v) => !v)} className="flex w-full items-center justify-between text-[11px] font-medium uppercase tracking-wider text-muted hover:text-ink">
         <span>Network</span>
-        <span>{hosts.length ? `strict · ${hosts.length}` : "open"}</span>
+        <span>{openNet ? "open" : listed.length ? `strict · ${listed.length}` : "strict"}</span>
       </button>
       {open && (
         <div className="mt-2 space-y-2">
-          <p className="text-[11px] leading-relaxed text-muted">{hosts.length ? "Strict: the agent can only reach your providers, git, package registries, syrup, and the hosts below." : "Open: the agent can reach the internet. Private networks are always blocked. Add a host to switch to strict mode."}</p>
-          {hosts.length > 0 && (
+          <p className="text-[11px] leading-relaxed text-muted">{openNet ? "Open: the agent can reach the internet. Private networks are always blocked." : "Strict: the agent can only reach git, package registries, web search, syrup, and the hosts below."}</p>
+          <label className="flex items-center gap-2 text-[11px] text-ink-2">
+            <input type="checkbox" checked={openNet} disabled={busy} onChange={(e) => void save(e.target.checked ? [...listed, OPEN] : listed)} />
+            Allow the open internet
+          </label>
+          {listed.length > 0 && (
             <ul className="flex flex-wrap gap-1">
-              {hosts.map((h) => (
+              {listed.map((h) => (
                 <li key={h} className="flex items-center gap-1 rounded bg-surface px-1.5 py-0.5 font-mono text-[11px] text-ink-2">
                   {h}
                   <button type="button" disabled={busy} onClick={() => void save(hosts.filter((x) => x !== h))} className="text-muted hover:text-err" title="Remove">
