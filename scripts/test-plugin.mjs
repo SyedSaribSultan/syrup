@@ -135,10 +135,14 @@ await test("config dirs: local resolution follows OpenCode 1.18.32", () => {
   eq(C.prepareConfigDirs([{ dir: same, create: true }, { dir: same, create: true }]).length, 1, "a dir listed twice is handled once")
 })
 
-await test("config dirs: the sandbox's CLI build does the same on disk", () => {
+await test("config dirs: the sandbox's CLI build does the same on disk", async () => {
   const cli = path.join(OUT, "prepare-config-dirs.mjs")
-  const r0 = spawnSync(process.execPath, [path.join(ROOT, "node_modules", "esbuild", "bin", "esbuild"), path.join(ROOT, "sidecar", "prepare-config-dirs.ts"), "--bundle", "--platform=node", "--format=esm", `--outfile=${cli}`, "--log-level=warning"], { encoding: "utf8" })
-  ok(r0.status === 0, `esbuild: ${r0.stderr}`)
+  // esbuild's API, not `node node_modules/esbuild/bin/esbuild`: on Linux that file is the native binary, not JS.
+  const r0 = await build({ entryPoints: [path.join(ROOT, "sidecar", "prepare-config-dirs.ts")], bundle: true, platform: "node", format: "esm", outfile: cli, logLevel: "warning" }).then(
+    () => null,
+    (err) => err,
+  )
+  ok(r0 === null, `esbuild: ${r0?.message}`)
   const xdg = path.join(tmp, "sb", ".config", "opencode")
   const installer = mk("sb", ".opencode", "bin")
   const r = spawnSync(process.execPath, [cli, "--create", xdg, "--existing", path.dirname(installer), "--existing", path.join(tmp, "sb", "nope")], { encoding: "utf8" })
