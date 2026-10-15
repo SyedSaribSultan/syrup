@@ -1,5 +1,6 @@
 import crypto from "node:crypto"
 import { eq } from "drizzle-orm"
+import { after } from "next/server"
 import { auth } from "@/auth"
 import { isAdmin } from "@/auth.config"
 import { pg, pgReady, pgSchema } from "../db/pg"
@@ -74,6 +75,13 @@ export async function requireAdmin(): Promise<Viewer> {
 export function internalError(err: unknown, where = "api"): Response {
   const requestId = crypto.randomBytes(6).toString("hex")
   console.error(`[syrup:${where}] request ${requestId} failed:`, err)
+  // after(): the report finishes once the response is sent, before the function is frozen.
+  const report = () => import("../analytics").then((a) => a.reportServerError(err, { requestId, where }))
+  try {
+    after(report)
+  } catch {
+    void report()
+  }
   return Response.json({ error: `Something went wrong on our side. Reference: ${requestId}`, requestId }, { status: 500, headers: { "x-request-id": requestId } })
 }
 

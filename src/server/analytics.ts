@@ -44,3 +44,24 @@ export async function identify(userId: string, properties: Record<string, unknow
     await ph.flush()
   } catch {}
 }
+
+/**
+ * Server error tracking (audit 2026-10-15 M2) through PostHog's error tracking, no other vendor. Not tied to a person:
+ * the distinct id is "server", and the message and stack go through the secret redaction the logs use. Does nothing
+ * without a PostHog key; never throws.
+ */
+export async function reportServerError(err: unknown, properties: Record<string, unknown> = {}): Promise<void> {
+  const ph = client()
+  if (!ph) return
+  try {
+    const { redactText } = await import("@/lib/redact")
+    const clean = (s: string | undefined) => (s ? redactText(s).text : s)
+    const e = err instanceof Error ? err : new Error(String(err))
+    const safe = new Error(clean(e.message))
+    safe.name = e.name
+    safe.stack = clean(e.stack)
+    await ph.captureExceptionImmediate(safe, "server", { ...properties, mode: env.mode, $process_person_profile: false })
+  } catch {
+    // Error reporting never breaks a request.
+  }
+}
