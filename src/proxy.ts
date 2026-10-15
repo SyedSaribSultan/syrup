@@ -38,6 +38,9 @@ const LOCAL_ONLY_PAGE = /^\/s(\/|$)/
 /** Shared chats (/c/<id> and its /md, /json, /debug, /view, preview image) are readable without an account; ids are unguessable. */
 const PUBLIC = [/^\/signin(\/|$)/, /^\/legal(\/|$)/, /^\/api\/auth(\/|$)/, /^\/api\/health$/, /^\/ingest(\/|$)/, /^\/c(\/|$)/]
 
+/** API paths whose routes check a Bearer token themselves (audit 2026-10-15 L8: was every /api path). */
+const BEARER_API = /^\/api\/(ingest|cron|admin)\//
+
 const SHARE_PAGE = /^\/c\/([0-9A-Za-z]{22})(\.md|\.json)?$/
 
 /** q-value of one media type in an Accept header (exact type only; 0 when absent). */
@@ -84,8 +87,9 @@ const cloudGuard = auth((req) => {
   if (LOCAL_ONLY_API.test(pathname)) return NextResponse.json({ error: "not available in the hosted version yet" }, { status: 501 })
   if (LOCAL_ONLY_PAGE.test(pathname)) return NextResponse.redirect(new URL("/", req.nextUrl.origin))
   const session = req.auth
-  // Scripted access: a Bearer token is validated by the route itself (cloud/session.ts opsViewer).
-  if (!session?.user && pathname.startsWith("/api/") && req.headers.get("authorization")?.startsWith("Bearer ")) return NextResponse.next()
+  // Scripted access, only where a route validates a Bearer itself: the sandbox's ingest token (/api/ingest), the
+  // cron secret (/api/cron) and the ops token (/api/admin, cloud/session.ts opsViewer). Elsewhere a Bearer is ignored.
+  if (!session?.user && BEARER_API.test(pathname) && req.headers.get("authorization")?.startsWith("Bearer ")) return NextResponse.next()
   if (!session?.user) {
     if (pathname.startsWith("/api/")) return NextResponse.json({ error: "sign in required" }, { status: 401 })
     const url = new URL("/signin", req.nextUrl.origin)

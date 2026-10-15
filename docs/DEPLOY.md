@@ -182,7 +182,7 @@ Optional:
 - `SYRUP_SANDBOX_MAX_RUNNING` — sandboxes one account may have running at once (default `2`; `0` = no cap). Admins are exempt.
 - `SYRUP_LOG_DATA_MAX_BYTES` — largest serialized `data` of one log row; bigger ones are stored as a truncated preview (default `4096`).
 - `SYRUP_LOG_ROWS_PER_MINUTE` — browser log rows one account may post per minute, per server instance (default `1000`).
-- `SYRUP_OPS_TOKEN` — a long random token. A request with `Authorization: Bearer <token>` acts as the first admin in `SYRUP_ADMIN_EMAILS`, for scripted smoke tests. Leave unset unless you need it.
+- `SYRUP_OPS_TOKEN` — a long random token. A request with `Authorization: Bearer <token>` acts as the first admin in `SYRUP_ADMIN_EMAILS`, for scripted smoke tests. It is accepted on `/api/admin/*` only; the proxy lets a Bearer through on `/api/ingest`, `/api/cron` and `/api/admin` and nowhere else. Leave unset unless you need it.
 
 Not needed: `AUTH_URL` and `AUTH_TRUST_HOST` (Auth.js detects Vercel), any `VERCEL_*` variable (Sandbox authenticates with the deployment's OIDC token automatically).
 
