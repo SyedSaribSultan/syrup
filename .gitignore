@@ -47,6 +47,8 @@ next-env.d.ts
 .vercel
 .env*.local
 /.sidecar
+# written by scripts/migrate-pg.mjs during a deploy build
+/drizzle-pg/meta/applied.json
 
 # local builds, runtime data and personal tooling
 /app.py

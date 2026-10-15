@@ -1,3 +1,4 @@
+import fs from "node:fs"
 import path from "node:path"
 import { neonConfig, Pool } from "@neondatabase/serverless"
 import { sql } from "drizzle-orm"
@@ -49,10 +50,30 @@ export function pgAdmin(): PgDb {
   return g.__syrupPgAdmin
 }
 
-/** Applies pending migrations from ./drizzle-pg once per process, as the owner role. */
+/**
+ * True when the build already applied every migration this deploy carries (scripts/migrate-pg.mjs wrote
+ * drizzle-pg/meta/applied.json naming the journal's last tag). A cheap file read instead of a database round trip.
+ */
+function migratedAtBuild(folder: string): boolean {
+  try {
+    const applied = JSON.parse(fs.readFileSync(path.join(folder, "meta", "applied.json"), "utf8")) as { tag?: string }
+    const journal = JSON.parse(fs.readFileSync(path.join(folder, "meta", "_journal.json"), "utf8")) as { entries: { tag: string }[] }
+    return !!applied.tag && applied.tag === journal.entries.at(-1)?.tag
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Ready to query. Deploys migrate at build time, so this resolves at once; without the build's marker (local cloud
+ * testing, a build that could not reach the database) it applies pending migrations from ./drizzle-pg once per
+ * process, as the owner role, as before.
+ */
 export function pgReady(): Promise<void> {
   if (!g.__syrupPgReady) {
-    g.__syrupPgReady = migrate(pgAdmin(), { migrationsFolder: path.join(process.cwd(), "drizzle-pg") }).catch((err) => {
+    const folder = path.join(process.cwd(), "drizzle-pg")
+    if (migratedAtBuild(folder)) return (g.__syrupPgReady = Promise.resolve())
+    g.__syrupPgReady = migrate(pgAdmin(), { migrationsFolder: folder }).catch((err) => {
       g.__syrupPgReady = undefined
       throw err
     })

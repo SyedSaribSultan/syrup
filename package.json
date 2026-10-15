@@ -4,9 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "node sidecar/build.mjs && next dev -H 127.0.0.1",
-    "build": "node sidecar/build.mjs && next build",
+    "build": "node sidecar/build.mjs && node scripts/migrate-pg.mjs && next build",
     "start": "next start -H 127.0.0.1",
     "db:generate:pg": "drizzle-kit generate --config drizzle-pg.config.ts",
+    "db:migrate:pg": "node scripts/migrate-pg.mjs",
     "lint": "eslint && node scripts/check-motion.mjs",
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",

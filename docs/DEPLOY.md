@@ -104,7 +104,7 @@ Console labels drift over time; if a label differs slightly, look for the neares
 7. Optional: Neon → **Integrations** → **Vercel** → connect your project. This creates a **Neon branch per preview deployment** with its own connection string, so PRs test against the real schema.
 
 **Create the app role (required for row-level security).** Neon's default owner role inherits `BYPASSRLS` from `neon_superuser`, which silently disables row-level security. The app therefore uses two connections ([PLAN.md](PLAN.md) §3, `src/server/db/pg/index.ts`):
-- `DATABASE_URL_UNPOOLED` — the owner role. Runs migrations (applied automatically on first use) and admin aggregates only.
+- `DATABASE_URL_UNPOOLED` — the owner role. Runs migrations and admin aggregates only. Migrations are applied by `pnpm build` on Vercel (`scripts/migrate-pg.mjs`; the build fails if one fails), so it must be available to builds as well as at runtime; without it at build time they run on first use instead.
 - `DATABASE_URL` — a dedicated `syrup_app` role with `NOBYPASSRLS`. Every request handler uses it.
 
 Create that role in Neon's **SQL Editor**, connected as the owner. Create it with SQL, not in the console's Roles page: roles made there join `neon_superuser` and would bypass RLS again.
