@@ -7,6 +7,7 @@ import { slog } from "../log"
 import { BUILT_IN, CURATED, isRoutable, type KeyInfo, type ProviderInfo, type Tier } from "../providers"
 import { audit } from "./audit"
 import { hint, openWith, sealWith, userDek } from "./crypto"
+import { UserError } from "../user-error"
 
 /**
  * Provider keys in cloud mode: per user, envelope-encrypted, never written
@@ -56,7 +57,7 @@ export async function listProviders(userId: string): Promise<{ providers: Provid
 }
 
 export async function addKey(userId: string, providerId: string, key: string, label: string, tier: Tier): Promise<KeyInfo> {
-  if (BUILT_IN.has(providerId)) throw new Error(`${providerId} is built in and does not take a key`)
+  if (BUILT_IN.has(providerId)) throw new UserError(`${providerId} is built in and does not take a key`)
   const info = await withUser(userId, async (tx) => {
     const dek = await userDek(tx, userId)
     const id = ulid()
@@ -75,7 +76,7 @@ export async function addKey(userId: string, providerId: string, key: string, la
 export async function activateKey(userId: string, providerId: string, keyId: string): Promise<void> {
   await withUser(userId, async (tx) => {
     const [row] = await tx.select().from(pgSchema.providerKeys).where(and(eq(pgSchema.providerKeys.id, keyId), eq(pgSchema.providerKeys.providerId, providerId)))
-    if (!row) throw new Error("key not found")
+    if (!row) throw new UserError("key not found", 404)
     await tx.update(pgSchema.providerKeys).set({ active: false }).where(and(eq(pgSchema.providerKeys.userId, userId), eq(pgSchema.providerKeys.providerId, providerId)))
     await tx.update(pgSchema.providerKeys).set({ active: true }).where(eq(pgSchema.providerKeys.id, keyId))
     await audit(tx, { userId, actor: "user", action: "provider_key.activate", target: keyId, data: { providerId } })

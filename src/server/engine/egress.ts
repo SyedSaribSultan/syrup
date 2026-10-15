@@ -2,6 +2,7 @@ import type { NetworkPolicy } from "@vercel/sandbox"
 import { FX_HOSTS } from "../calc/fx"
 import { BASE_URL } from "../router/backends"
 import { env } from "../env"
+import { UserError } from "../user-error"
 
 /**
  * Sandbox egress policy (docs/PHASE2.md S7).
@@ -63,7 +64,7 @@ export function normalizeHosts(input: string[]): string[] {
       out.add(h)
       continue
     }
-    if (!HOST.test(h)) throw new Error(`"${raw}" is not a hostname (use e.g. api.example.com or *.example.com)`)
+    if (!HOST.test(h)) throw new UserError(`"${raw}" is not a hostname (use e.g. api.example.com or *.example.com)`)
     out.add(h)
   }
   return [...out].slice(0, 50)

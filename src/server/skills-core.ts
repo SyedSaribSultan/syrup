@@ -1,4 +1,5 @@
 import { gunzipSync } from "node:zlib"
+import { UserError } from "./user-error"
 
 /**
  * Pure skill helpers shared by local mode (skills.ts) and the hosted version
@@ -10,7 +11,7 @@ import { gunzipSync } from "node:zlib"
 export const SKILL_NAME_RE = /^[a-z0-9][a-z0-9-]{0,63}$/
 
 export function validSkillName(name: string): string {
-  if (!SKILL_NAME_RE.test(name)) throw new Error("Skill name must be lowercase letters, digits and hyphens (1–64 chars)")
+  if (!SKILL_NAME_RE.test(name)) throw new UserError("Skill name must be lowercase letters, digits and hyphens (1–64 chars)")
   return name
 }
 
@@ -51,9 +52,9 @@ export type GithubSource = { owner: string; repo: string; ref: string | null; su
 /** `owner/repo`, a repo URL, or either with `/path/inside` (or `/tree/<ref>/path`) appended. */
 export function parseGithubSource(source: string): GithubSource {
   const m = source.trim().match(/^(?:https?:\/\/github\.com\/)?([\w.-]+)\/([\w.-]+?)(?:\.git)?(?:\/tree\/([\w.-]+))?(?:\/(.*?))?\/?$/)
-  if (!m || m[1] === "." || m[1] === ".." || m[2] === "." || m[2] === "..") throw new Error("Give a GitHub `owner/repo`, a repo URL, or a URL to a folder inside a repo")
+  if (!m || m[1] === "." || m[1] === ".." || m[2] === "." || m[2] === "..") throw new UserError("Give a GitHub `owner/repo`, a repo URL, or a URL to a folder inside a repo")
   const sub = (m[4] ?? "").split("/").filter(Boolean)
-  if (sub.some((s) => s === "." || s === "..")) throw new Error("That path is not allowed")
+  if (sub.some((s) => s === "." || s === "..")) throw new UserError("That path is not allowed")
   return { owner: m[1], repo: m[2], ref: m[3] ?? null, sub: sub.join("/") }
 }
 
@@ -146,7 +147,7 @@ export function extractSkills(files: TarFile[], sub: string): { skills: Extracte
     .map((f) => ({ path: f.path.split("/").slice(1).join("/"), data: f.data }))
     .filter((f) => f.path && (!sub || f.path === sub || f.path.startsWith(`${sub}/`)))
     .map((f) => ({ path: sub ? f.path.slice(sub.length + 1) : f.path, data: f.data }))
-  if (rooted.length === 0) throw new Error(sub ? `Path not found in repo: ${sub}` : "The repository is empty")
+  if (rooted.length === 0) throw new UserError(sub ? `Path not found in repo: ${sub}` : "The repository is empty")
 
   const dirs = new Set<string>()
   for (const f of rooted) {
@@ -156,7 +157,7 @@ export function extractSkills(files: TarFile[], sub: string): { skills: Extracte
     dirs.add(parts.join("/"))
   }
   const roots = [...dirs].filter((d) => ![...dirs].some((o) => o !== d && (o === "" || d.startsWith(`${o}/`)))).sort()
-  if (roots.length === 0) throw new Error("No SKILL.md found there")
+  if (roots.length === 0) throw new UserError("No SKILL.md found there")
 
   const skills = new Map<string, ExtractedSkill>()
   const skipped: string[] = []
@@ -182,7 +183,7 @@ export function extractSkills(files: TarFile[], sub: string): { skills: Extracte
     else if (bytes > SKILL_LIMITS.maxSkillBytes) skipped.push(`${name} (larger than ${SKILL_LIMITS.maxSkillBytes / 1024 / 1024} MB)`)
     else skills.set(name, { name, description: fm.description ?? "", content, files: out, bytes })
   }
-  if (skills.size === 0) throw new Error(`Nothing could be installed: ${skipped.join(", ")}`)
+  if (skills.size === 0) throw new UserError(`Nothing could be installed: ${skipped.join(", ")}`)
   return { skills: [...skills.values()], skipped }
 }
 
@@ -190,8 +191,8 @@ export function extractSkills(files: TarFile[], sub: string): { skills: Extracte
 export function pastedSkill(content: string, nameOverride?: string): ExtractedSkill {
   const fm = parseFrontmatter(content)
   const name = validSkillName((nameOverride ?? fm.name ?? "").trim())
-  if (!fm.description && !content.includes("description:")) throw new Error("SKILL.md needs a `description` in its frontmatter")
+  if (!fm.description && !content.includes("description:")) throw new UserError("SKILL.md needs a `description` in its frontmatter")
   const data = Buffer.from(content, "utf8")
-  if (data.length > SKILL_LIMITS.maxSkillBytes) throw new Error("SKILL.md is too large")
+  if (data.length > SKILL_LIMITS.maxSkillBytes) throw new UserError("SKILL.md is too large")
   return { name, description: fm.description ?? "", content, files: [{ path: "SKILL.md", data: data.toString("base64") }], bytes: data.length }
 }

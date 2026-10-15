@@ -1,6 +1,6 @@
 import { after } from "next/server"
 import { z } from "zod"
-import { requireUser } from "@/server/cloud/session"
+import { internalError, requireUser, UserError } from "@/server/cloud/session"
 import { env } from "@/server/env"
 import { createSkill, installFromGit, listSkills, setSkillsEnabled, skillsDir } from "@/server/skills"
 
@@ -10,6 +10,9 @@ export const maxDuration = 120
 
 function fail(err: unknown, status: number) {
   if (err instanceof Response) return err
+  if (err instanceof UserError) return Response.json({ error: err.message }, { status: err.status })
+  // Cloud: other errors are internal and stay in the server log. Local: one user, their own machine; show the message.
+  if (env.isCloud) return internalError(err, "skills")
   return Response.json({ error: err instanceof Error ? err.message : String(err) }, { status })
 }
 

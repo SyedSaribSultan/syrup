@@ -1,5 +1,5 @@
 import { after } from "next/server"
-import { requireUser } from "@/server/cloud/session"
+import { internalError, requireUser, UserError } from "@/server/cloud/session"
 import { env } from "@/server/env"
 import { removeSkill } from "@/server/skills"
 
@@ -21,6 +21,8 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ name: strin
     return Response.json({ ok: true })
   } catch (err) {
     if (err instanceof Response) return err
+    if (err instanceof UserError) return Response.json({ error: err.message }, { status: err.status })
+    if (env.isCloud) return internalError(err, "skills")
     return Response.json({ error: err instanceof Error ? err.message : String(err) }, { status: 400 })
   }
 }

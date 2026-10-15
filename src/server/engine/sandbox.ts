@@ -19,6 +19,7 @@ import { getWorkspace, touchWorkspace, type SandboxRow, type Workspace } from ".
 import { pgSchema, withUser } from "../db/pg"
 import { env } from "../env"
 import { slog } from "../log"
+import { UserError } from "../user-error"
 
 /**
  * SandboxEngine (docs/PHASE2.md): one Vercel Sandbox per workspace running
@@ -357,7 +358,7 @@ async function storePassword(userId: string, workspaceId: string, password: stri
 export async function openWorkspace(userId: string, workspaceId: string, opts: { exempt?: boolean } = {}): Promise<Connection> {
   const t0 = Date.now()
   const ws = await getWorkspace(userId, workspaceId)
-  if (!ws || !ws.sandbox) throw new Error("workspace not found")
+  if (!ws || !ws.sandbox) throw new UserError("workspace not found", 404)
   const row = ws.sandbox
   slog("engine", "sandbox.open", { workspaceId, name: row.vercelName, status: row.status }, { directory: workspaceId })
   // Caps first, before anything starts: a thrown 429 Response reaches the route handler as is.
@@ -438,7 +439,8 @@ export async function openWorkspace(userId: string, workspaceId: string, opts: {
     await saveSandbox(userId, workspaceId, { status: "error", lastError: message.slice(0, 1000) })
     slog("engine", "sandbox.open_failed", { workspaceId, err }, { level: "error", directory: workspaceId })
     await track(userId, "sandbox_error", { stage: "open" })
-    throw new Error(message)
+    // Already phrased for the person (friendly()), and shown as the workspace's last error anyway.
+    throw new UserError(message, 500)
   }
 }
 
@@ -479,7 +481,7 @@ const INGEST_TOKEN_TTL_MS = SESSION_CAP_MS + 15 * 60_000
 
 export async function heartbeat(userId: string, workspaceId: string, opts: { exempt?: boolean } = {}): Promise<Heartbeat> {
   const ws = await getWorkspace(userId, workspaceId)
-  if (!ws?.sandbox) throw new Error("workspace not found")
+  if (!ws?.sandbox) throw new UserError("workspace not found", 404)
   let sb: Sandbox
   try {
     sb = await Sandbox.get({ name: ws.sandbox.vercelName, resume: false })
@@ -515,7 +517,7 @@ export async function heartbeat(userId: string, workspaceId: string, opts: { exe
 /** Ops hook (admin probe): one shell command inside the running sandbox. */
 export async function runInWorkspace(userId: string, workspaceId: string, command: string): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   const ws = await getWorkspace(userId, workspaceId)
-  if (!ws?.sandbox) throw new Error("workspace not found")
+  if (!ws?.sandbox) throw new UserError("workspace not found", 404)
   const sb = await Sandbox.get({ name: ws.sandbox.vercelName })
   const r = await sb.runCommand({ cmd: "bash", args: ["-lc", command], cwd: workDir(ws) })
   return { exitCode: r.exitCode, stdout: (await r.stdout()).slice(-4000), stderr: (await r.stderr()).slice(-2000) }
@@ -524,7 +526,7 @@ export async function runInWorkspace(userId: string, workspaceId: string, comman
 /** Stops the VM (filesystem is snapshotted) and records the session's cost. */
 export async function stopWorkspace(userId: string, workspaceId: string): Promise<{ cpuMs: number } | null> {
   const ws = await getWorkspace(userId, workspaceId)
-  if (!ws?.sandbox) throw new Error("workspace not found")
+  if (!ws?.sandbox) throw new UserError("workspace not found", 404)
   let sb: Sandbox
   try {
     sb = await Sandbox.get({ name: ws.sandbox.vercelName, resume: false })

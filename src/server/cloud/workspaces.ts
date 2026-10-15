@@ -5,6 +5,7 @@ import { pgSchema, withUser } from "../db/pg"
 import { invalidateShare } from "../share-cache"
 import { audit } from "./audit"
 import { githubToken, inspectGithubRepo } from "./github"
+import { UserError } from "../user-error"
 
 /**
  * Workspaces (cloud). A workspace is a repository (or an empty folder) the
@@ -22,7 +23,7 @@ export function normalizeRepoUrl(input: string): string {
   const short = url.match(/^([\w.-]+)\/([\w.-]+)$/)
   if (short) url = `https://github.com/${short[1]}/${short[2]}`
   url = url.replace(/\/+$/, "")
-  if (!GIT_URL.test(url)) throw new Error("Give a public https URL on GitHub, GitLab, Bitbucket or Codeberg (or owner/repo for GitHub)")
+  if (!GIT_URL.test(url)) throw new UserError("Give a public https URL on GitHub, GitLab, Bitbucket or Codeberg (or owner/repo for GitHub)")
   return url.endsWith(".git") ? url : `${url}.git`
 }
 

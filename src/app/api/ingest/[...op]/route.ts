@@ -4,6 +4,7 @@ import { verifyIngestToken, type IngestClaims } from "@/server/cloud/ingest"
 import { activeKeyMeta } from "@/server/cloud/keys"
 import { pgMemoryStore } from "@/server/cloud/memory"
 import { BASE_URL } from "@/server/router/backends"
+import { internalError } from "@/server/cloud/session"
 
 export const dynamic = "force-dynamic"
 
@@ -88,7 +89,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ op: string[] }>
     try {
       return Response.json({ version: await pgMemoryStore(claims.u).version() }, { headers: { "cache-control": "no-store" } })
     } catch (err) {
-      return Response.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 })
+      return internalError(err, "ingest")
     }
   }
   if (op.join("/") === "router/recent") {
@@ -98,7 +99,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ op: string[] }>
       const floor = Date.now() - 3_600_000
       return Response.json({ events: await recentRouterEvents(claims.u, Number.isFinite(since) ? Math.max(since, floor) : floor) }, { headers: { "cache-control": "no-store" } })
     } catch (err) {
-      return Response.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 })
+      return internalError(err, "ingest")
     }
   }
   if (op.join("/") !== "router/keys") return Response.json({ error: `unknown ingest op ${op.join("/")}` }, { status: 404 })
@@ -106,7 +107,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ op: string[] }>
     const keys = Object.fromEntries(Object.entries(await activeKeyMeta(claims.u)).filter(([providerId]) => Object.hasOwn(BASE_URL, providerId)))
     return Response.json({ keys }, { headers: { "cache-control": "no-store" } })
   } catch (err) {
-    return Response.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 })
+    return internalError(err, "ingest")
   }
 }
 
@@ -134,6 +135,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ op: string[] }
     if (op[0] === "memory" && op[1]) return await memory(op[1], claims, body)
     return Response.json({ error: `unknown ingest op ${op.join("/")}` }, { status: 404 })
   } catch (err) {
-    return Response.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 })
+    return internalError(err, "ingest")
   }
 }

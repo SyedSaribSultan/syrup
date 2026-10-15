@@ -4,6 +4,9 @@ import { auth } from "@/auth"
 import { isAdmin } from "@/auth.config"
 import { pg, pgReady, pgSchema } from "../db/pg"
 import { env } from "../env"
+import { UserError } from "../user-error"
+
+export { UserError }
 
 export type Viewer = { id: string; email: string; name: string | null; admin: boolean }
 
@@ -64,14 +67,25 @@ export async function requireAdmin(): Promise<Viewer> {
   return v
 }
 
-/** Route-handler wrapper: turns thrown Responses into responses and other errors into 500s. */
+/**
+ * A 500 that tells the client nothing internal (audit 2026-10-15 M3): a generic sentence and a request id. The
+ * details go to the server log under the same id, so a user's report can be matched to the stack.
+ */
+export function internalError(err: unknown, where = "api"): Response {
+  const requestId = crypto.randomBytes(6).toString("hex")
+  console.error(`[syrup:${where}] request ${requestId} failed:`, err)
+  return Response.json({ error: `Something went wrong on our side. Reference: ${requestId}`, requestId }, { status: 500, headers: { "x-request-id": requestId } })
+}
+
+/** Route-handler wrapper: thrown Responses and UserErrors become responses, anything else a generic 500 with a request id. */
 export function handler<A extends unknown[]>(fn: (...a: A) => Promise<Response>) {
   return async (...a: A): Promise<Response> => {
     try {
       return await fn(...a)
     } catch (err) {
       if (err instanceof Response) return err
-      return Response.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 })
+      if (err instanceof UserError) return Response.json({ error: err.message }, { status: err.status })
+      return internalError(err)
     }
   }
 }

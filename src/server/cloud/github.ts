@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm"
 import { pgSchema, withUser } from "../db/pg"
 import { audit } from "./audit"
 import { hint, openWith, sealWith, userDek } from "./crypto"
+import { UserError } from "../user-error"
 
 /**
  * GitHub access for private repositories (S5). One fine-grained personal
@@ -14,10 +15,10 @@ export type RepoInfo = { fullName: string; defaultBranch: string; private: boole
 
 export async function saveGithubToken(userId: string, token: string): Promise<{ hint: string }> {
   const t = token.trim()
-  if (!/^(ghp_|github_pat_)[A-Za-z0-9_]{20,}$/.test(t)) throw new Error("That does not look like a GitHub token (ghp_… or github_pat_…)")
+  if (!/^(ghp_|github_pat_)[A-Za-z0-9_]{20,}$/.test(t)) throw new UserError("That does not look like a GitHub token (ghp_… or github_pat_…)")
   // Verify it works before storing it.
   const res = await fetch("https://api.github.com/user", { headers: { authorization: `Bearer ${t}`, accept: "application/vnd.github+json", "user-agent": "syrup" }, signal: AbortSignal.timeout(10_000) })
-  if (!res.ok) throw new Error(`GitHub rejected the token (${res.status})`)
+  if (!res.ok) throw new UserError(`GitHub rejected the token (${res.status})`)
   const h = hint(t)
   await withUser(userId, async (tx) => {
     const dek = await userDek(tx, userId)
@@ -58,9 +59,9 @@ export async function inspectGithubRepo(cloneUrl: string, token: string | null):
     headers: { accept: "application/vnd.github+json", "user-agent": "syrup", ...(token ? { authorization: `Bearer ${token}` } : {}) },
     signal: AbortSignal.timeout(10_000),
   })
-  if (res.status === 404) throw new Error(token ? "Repository not found, or your GitHub token cannot access it." : "Repository not found. If it is private, add a GitHub token under Account & privacy → Connections.")
-  if (res.status === 401) throw new Error("Your GitHub token was rejected. Replace it under Account & privacy → Connections.")
-  if (!res.ok) throw new Error(`GitHub returned ${res.status} for that repository.`)
+  if (res.status === 404) throw new UserError(token ? "Repository not found, or your GitHub token cannot access it." : "Repository not found. If it is private, add a GitHub token under Account & privacy → Connections.")
+  if (res.status === 401) throw new UserError("Your GitHub token was rejected. Replace it under Account & privacy → Connections.")
+  if (!res.ok) throw new UserError(`GitHub returned ${res.status} for that repository.`)
   const j = (await res.json()) as { full_name: string; default_branch: string; private: boolean; clone_url: string }
   return { fullName: j.full_name, defaultBranch: j.default_branch, private: j.private, cloneUrl: j.clone_url }
 }

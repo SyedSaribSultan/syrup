@@ -6,6 +6,7 @@ import type { SkillInfo } from "../skills"
 import { extractSkills, parseGithubSource, pastedSkill, promptTokens, safeRelPath, SKILL_LIMITS, SKILL_NAME_RE, untar, validSkillName, type ExtractedSkill } from "../skills-core"
 import { audit } from "./audit"
 import { githubToken } from "./github"
+import { UserError } from "../user-error"
 
 /**
  * Skills (cloud). Each user's SKILL.md folders live in user_skills and are
@@ -40,9 +41,9 @@ async function saveSkills(userId: string, source: string, skills: ExtractedSkill
   await withUser(userId, async (tx) => {
     const existing = await tx.select({ name: pgSchema.userSkills.name, bytes: pgSchema.userSkills.bytes }).from(pgSchema.userSkills).where(eq(pgSchema.userSkills.userId, userId))
     const kept = existing.filter((r) => !names.includes(r.name))
-    if (kept.length + skills.length > SKILL_LIMITS.maxSkills) throw new Error(`You can keep up to ${SKILL_LIMITS.maxSkills} skills. Remove some first.`)
+    if (kept.length + skills.length > SKILL_LIMITS.maxSkills) throw new UserError(`You can keep up to ${SKILL_LIMITS.maxSkills} skills. Remove some first.`)
     const total = kept.reduce((n, r) => n + r.bytes, 0) + skills.reduce((n, s) => n + s.bytes, 0)
-    if (total > SKILL_LIMITS.maxUserBytes) throw new Error(`Skills are limited to ${SKILL_LIMITS.maxUserBytes / 1024 / 1024} MB in total. Remove some first.`)
+    if (total > SKILL_LIMITS.maxUserBytes) throw new UserError(`Skills are limited to ${SKILL_LIMITS.maxUserBytes / 1024 / 1024} MB in total. Remove some first.`)
     const now = new Date()
     for (const s of skills) {
       const values = { source, description: s.description, content: s.content, files: s.files, bytes: s.bytes, enabled: true, updatedAt: now }
@@ -65,7 +66,7 @@ export async function createCloudSkill(userId: string, content: string, nameOver
 
 /** Reads a response body, refusing more than `max` bytes. */
 async function readCapped(res: Response, max: number): Promise<Buffer> {
-  if (Number(res.headers.get("content-length") ?? 0) > max) throw new Error(`That repository is larger than ${max / 1024 / 1024} MB`)
+  if (Number(res.headers.get("content-length") ?? 0) > max) throw new UserError(`That repository is larger than ${max / 1024 / 1024} MB`)
   const reader = res.body!.getReader()
   const chunks: Uint8Array[] = []
   let size = 0
@@ -75,7 +76,7 @@ async function readCapped(res: Response, max: number): Promise<Buffer> {
     size += value.length
     if (size > max) {
       await reader.cancel()
-      throw new Error(`That repository is larger than ${max / 1024 / 1024} MB`)
+      throw new UserError(`That repository is larger than ${max / 1024 / 1024} MB`)
     }
     chunks.push(value)
   }
@@ -93,9 +94,9 @@ async function fetchTarball(userId: string, owner: string, repo: string, ref: st
   const url = token ? `https://api.github.com/repos/${path}/tarball${ref ? `/${encodeURIComponent(ref)}` : ""}` : `https://codeload.github.com/${path}/tar.gz/${ref ? encodeURIComponent(ref) : "HEAD"}`
   const headers: Record<string, string> = { "user-agent": "syrup", ...(token ? { authorization: `Bearer ${token}`, accept: "application/vnd.github+json" } : {}) }
   const res = await fetch(url, { headers, redirect: "follow", signal: AbortSignal.timeout(60_000) })
-  if (res.status === 404) throw new Error(token ? "Repository not found, or your GitHub token cannot access it." : "Repository not found. If it is private, add a GitHub token under Account & privacy → Connections.")
-  if (res.status === 401) throw new Error("Your GitHub token was rejected. Replace it under Account & privacy → Connections.")
-  if (!res.ok || !res.body) throw new Error(`GitHub returned ${res.status} for that repository.`)
+  if (res.status === 404) throw new UserError(token ? "Repository not found, or your GitHub token cannot access it." : "Repository not found. If it is private, add a GitHub token under Account & privacy → Connections.")
+  if (res.status === 401) throw new UserError("Your GitHub token was rejected. Replace it under Account & privacy → Connections.")
+  if (!res.ok || !res.body) throw new UserError(`GitHub returned ${res.status} for that repository.`)
   return readCapped(res, MAX_TARBALL_BYTES)
 }
 
@@ -133,7 +134,7 @@ export async function removeCloudSkill(userId: string, name: string): Promise<vo
     if (rows.length) await audit(tx, { userId, actor: "user", action: "skill.remove", target: name })
     return rows.length
   })
-  if (!removed) throw new Error("Only skills installed by syrup can be removed here")
+  if (!removed) throw new UserError("Only skills installed by syrup can be removed here")
   slog("skills", "removed", { name, userId })
 }
 
