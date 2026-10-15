@@ -54,9 +54,9 @@ export const POST = handler(async (req: Request) => {
     temporary = true
   }
   const t0 = Date.now()
-  const conn = await openWorkspace(me.id, workspaceId)
+  const conn = await openWorkspace(me.id, workspaceId, { exempt: true })
   const health = await fetch(`${conn.baseUrl}/global/health`, { headers: { authorization: conn.authorization }, cache: "no-store" }).then((r) => r.json() as Promise<Record<string, unknown>>)
-  const second = await openWorkspace(me.id, workspaceId)
+  const second = await openWorkspace(me.id, workspaceId, { exempt: true })
   let chat: Awaited<ReturnType<typeof ask>> | { error: string } | null = null
   if (parsed.data.prompt) {
     try {

@@ -7,5 +7,5 @@ export const dynamic = "force-dynamic"
 export const POST = handler(async (_req: Request, ctx: { params: Promise<{ id: string }> }) => {
   const me = await requireUser()
   const { id } = await ctx.params
-  return Response.json(await heartbeat(me.id, id))
+  return Response.json(await heartbeat(me.id, id, { exempt: me.admin }))
 })

@@ -178,6 +178,10 @@ Project → **Settings** → **Environment Variables** → **Add New**. For each
 
 Optional:
 - `SYRUP_AGENT_ENABLED=0` — kill switch: opening a workspace returns "paused for maintenance" instead of starting a sandbox ([PHASE2.md](PHASE2.md) S7).
+- `SYRUP_SANDBOX_DAILY_SECONDS` — sandbox wall-clock seconds each account may use per UTC day, all workspaces together (default `7200`; `0` = no cap). Admins are exempt.
+- `SYRUP_SANDBOX_MAX_RUNNING` — sandboxes one account may have running at once (default `2`; `0` = no cap). Admins are exempt.
+- `SYRUP_LOG_DATA_MAX_BYTES` — largest serialized `data` of one log row; bigger ones are stored as a truncated preview (default `4096`).
+- `SYRUP_LOG_ROWS_PER_MINUTE` — browser log rows one account may post per minute, per server instance (default `1000`).
 - `SYRUP_OPS_TOKEN` — a long random token. A request with `Authorization: Bearer <token>` acts as the first admin in `SYRUP_ADMIN_EMAILS`, for scripted smoke tests. Leave unset unless you need it.
 
 Not needed: `AUTH_URL` and `AUTH_TRUST_HOST` (Auth.js detects Vercel), any `VERCEL_*` variable (Sandbox authenticates with the deployment's OIDC token automatically).

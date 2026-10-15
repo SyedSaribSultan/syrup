@@ -2,7 +2,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { z } from "zod"
-import { insertCloudLogs, queryCloudLogs } from "@/server/cloud/logs"
+import { insertCloudLogs, queryCloudLogs, takeLogBudget } from "@/server/cloud/logs"
 import { requireUser } from "@/server/cloud/session"
 import { env } from "@/server/env"
 import { formatLogs, queryLogs, slogMany, type Level, type Source } from "@/server/log"
@@ -97,6 +97,7 @@ export async function POST(req: Request) {
     } catch (res) {
       return res as Response
     }
+    if (!takeLogBudget(me.id, parsed.data.length)) return Response.json({ error: "too many log rows; try again in a minute" }, { status: 429, headers: { "retry-after": "60" } })
     await insertCloudLogs(me.id, parsed.data.map((r) => ({ ...r, source: "ui" })))
     return Response.json({ ok: true })
   }

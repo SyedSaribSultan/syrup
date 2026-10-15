@@ -2,8 +2,9 @@ import crypto from "node:crypto"
 import fs from "node:fs"
 import path from "node:path"
 import { Sandbox } from "@vercel/sandbox"
-import { and, eq, isNull } from "drizzle-orm"
+import { and, eq, gte, isNull, lt, or, sql } from "drizzle-orm"
 import { track } from "../analytics"
+import { audit } from "../cloud/audit"
 import { openWith, sealWith, userDek } from "../cloud/crypto"
 import { mintIngestToken } from "../cloud/ingest"
 import { githubToken } from "../cloud/github"
@@ -244,6 +245,98 @@ async function saveSandbox(userId: string, workspaceId: string, patch: Partial<t
   })
 }
 
+/** True while the row's last engine session has not been accounted (no end recorded after its start). */
+function sessionOpen(row: SandboxRow): boolean {
+  return !!row.lastSessionStartedAt && (!row.lastSessionEndedAt || row.lastSessionEndedAt < row.lastSessionStartedAt)
+}
+
+/**
+ * When an unaccounted session ended, or will end at the latest: the 45-minute cap, or the idle timeout after the row
+ * was last touched (the heartbeat touches it whenever it extends the sandbox), or now. An upper bound, never under.
+ */
+function sessionEndEstimate(row: SandboxRow, now = Date.now()): number {
+  const start = row.lastSessionStartedAt!.getTime()
+  return Math.min(now, start + SESSION_CAP_MS, Math.max(row.updatedAt.getTime(), start) + IDLE_MS)
+}
+
+/**
+ * Accounts one finished engine session exactly once: adds its seconds to total_session_seconds and writes a
+ * `sandbox.session` audit row, which the daily cap sums. The update is conditional on the session still being open,
+ * so two requests closing the same session (heartbeat and stop) count it once.
+ */
+async function closeSession(userId: string, workspaceId: string, row: SandboxRow, endAt: number, patch: Partial<typeof pgSchema.sandboxes.$inferInsert> = {}) {
+  if (!sessionOpen(row)) {
+    if (Object.keys(patch).length) await saveSandbox(userId, workspaceId, patch)
+    return
+  }
+  const startedAt = row.lastSessionStartedAt!
+  const end = Math.max(startedAt.getTime(), Math.min(endAt, startedAt.getTime() + SESSION_CAP_MS))
+  const seconds = Math.round((end - startedAt.getTime()) / 1000)
+  await withUser(userId, async (tx) => {
+    const s = pgSchema.sandboxes
+    const done = await tx
+      .update(s)
+      .set({ ...patch, lastSessionEndedAt: new Date(end), totalSessionSeconds: sql`${s.totalSessionSeconds} + ${seconds}`, updatedAt: new Date() })
+      .where(and(eq(s.workspaceId, workspaceId), eq(s.lastSessionStartedAt, startedAt), or(isNull(s.lastSessionEndedAt), lt(s.lastSessionEndedAt, s.lastSessionStartedAt))))
+      .returning({ id: s.id })
+    if (done.length) await audit(tx, { userId, actor: "system", action: "sandbox.session", target: workspaceId, data: { seconds, startedAt: startedAt.toISOString() } })
+    else if (Object.keys(patch).length) await tx.update(s).set({ ...patch, updatedAt: new Date() }).where(eq(s.workspaceId, workspaceId))
+  })
+}
+
+export type SandboxUsage = { usedSeconds: number; running: number }
+
+/** Today's (UTC) sandbox seconds for a user, and how many of their other sandboxes are running or starting. */
+export async function sandboxUsage(userId: string, exceptWorkspaceId?: string): Promise<SandboxUsage> {
+  const now = Date.now()
+  const day = new Date(now)
+  day.setUTCHours(0, 0, 0, 0)
+  return withUser(userId, async (tx) => {
+    const a = pgSchema.auditLog
+    const [closed] = await tx
+      .select({ seconds: sql<string | null>`sum((${a.data}->>'seconds')::int)` })
+      .from(a)
+      .where(and(eq(a.userId, userId), eq(a.action, "sandbox.session"), gte(a.createdAt, day)))
+    const rows = await tx.select().from(pgSchema.sandboxes).where(eq(pgSchema.sandboxes.userId, userId))
+    let usedSeconds = Number(closed?.seconds ?? 0)
+    let running = 0
+    for (const r of rows) {
+      const open = sessionOpen(r)
+      if (open) usedSeconds += Math.max(0, sessionEndEstimate(r, now) - Math.max(r.lastSessionStartedAt!.getTime(), day.getTime())) / 1000
+      if (r.workspaceId === exceptWorkspaceId) continue
+      const starting = r.status === "starting" && now - r.updatedAt.getTime() < 90_000
+      // A "running" row can outlive its VM until a heartbeat notices; the estimate says whether it could still be up.
+      const up = r.status === "running" && open && sessionEndEstimate(r, Number.MAX_SAFE_INTEGER) > now
+      if (starting || up) running++
+    }
+    return { usedSeconds: Math.round(usedSeconds), running }
+  })
+}
+
+function hours(seconds: number): string {
+  const h = seconds / 3600
+  return h >= 1 ? `${Number.isInteger(h) ? h : h.toFixed(1)} hour${h === 1 ? "" : "s"}` : `${Math.round(seconds / 60)} minutes`
+}
+
+/** Thrown 429 when a new sandbox start would pass a cap (audit 2026-10-15 H2). */
+async function enforceSandboxCaps(userId: string, workspaceId: string) {
+  const daily = env.sandboxDailySeconds
+  const max = env.sandboxMaxRunning
+  if (daily <= 0 && max <= 0) return
+  const u = await sandboxUsage(userId, workspaceId)
+  if (daily > 0 && u.usedSeconds >= daily) {
+    slog("engine", "sandbox.cap_daily", { workspaceId, usedSeconds: u.usedSeconds, cap: daily }, { level: "warn", directory: workspaceId })
+    throw Response.json({ error: `You've used today's ${hours(daily)} of workspace time. It resets at midnight UTC.`, code: "sandbox_daily_cap" }, { status: 429 })
+  }
+  if (max > 0 && u.running >= max) {
+    slog("engine", "sandbox.cap_running", { workspaceId, running: u.running, cap: max }, { level: "warn", directory: workspaceId })
+    throw Response.json(
+      { error: `You already have ${u.running} workspace${u.running === 1 ? "" : "s"} running (the limit is ${max}). Stop one with "Stop workspace" in its sidebar, or wait about 10 minutes for an idle one to sleep.`, code: "sandbox_running_cap" },
+      { status: 429 },
+    )
+  }
+}
+
 async function storedPassword(userId: string, row: SandboxRow): Promise<string | null> {
   if (!row.passwordEnc) return null
   return withUser(userId, async (tx) => openWith(await userDek(tx, userId), row.passwordEnc!))
@@ -261,12 +354,14 @@ async function storePassword(userId: string, workspaceId: string, password: stri
  * how the browser should connect. Idempotent: a hot engine is reused, a
  * stopped one is resumed from its snapshot, a missing one is created.
  */
-export async function openWorkspace(userId: string, workspaceId: string): Promise<Connection> {
+export async function openWorkspace(userId: string, workspaceId: string, opts: { exempt?: boolean } = {}): Promise<Connection> {
   const t0 = Date.now()
   const ws = await getWorkspace(userId, workspaceId)
   if (!ws || !ws.sandbox) throw new Error("workspace not found")
   const row = ws.sandbox
   slog("engine", "sandbox.open", { workspaceId, name: row.vercelName, status: row.status }, { directory: workspaceId })
+  // Caps first, before anything starts: a thrown 429 Response reaches the route handler as is.
+  if (!opts.exempt) await enforceSandboxCaps(userId, workspaceId)
   // Another request (a second tab) is already starting this sandbox: wait for it instead of racing it.
   if (row.status === "starting" && Date.now() - row.updatedAt.getTime() < 90_000) {
     const other = await waitForOther(userId, workspaceId, 90_000)
@@ -321,6 +416,8 @@ export async function openWorkspace(userId: string, workspaceId: string): Promis
       password = crypto.randomBytes(24).toString("base64url")
       // Saved before the sidecar starts: its ingest token is bound to this stamp, and the relay checks it from the first call.
       const sessionStart = new Date()
+      // The previous engine session, if a heartbeat or stop never accounted it, ends now at the latest.
+      await closeSession(userId, workspaceId, row, sessionEndEstimate(row))
       await saveSandbox(userId, workspaceId, { lastSessionStartedAt: sessionStart })
       await startEngine(sb, ws, userId, password, sessionStart.getTime())
       version = (await waitHealthy(baseUrl, password, 60_000)).version
@@ -380,7 +477,7 @@ export const SESSION_CAP_MS = 45 * 60_000
 /** The sidecar's ingest token: one session plus a margin (was 2 h). A sidecar never outlives its session. */
 const INGEST_TOKEN_TTL_MS = SESSION_CAP_MS + 15 * 60_000
 
-export async function heartbeat(userId: string, workspaceId: string): Promise<Heartbeat> {
+export async function heartbeat(userId: string, workspaceId: string, opts: { exempt?: boolean } = {}): Promise<Heartbeat> {
   const ws = await getWorkspace(userId, workspaceId)
   if (!ws?.sandbox) throw new Error("workspace not found")
   let sb: Sandbox
@@ -391,14 +488,26 @@ export async function heartbeat(userId: string, workspaceId: string): Promise<He
   }
   const startedAt = ws.sandbox.lastSessionStartedAt?.toISOString() ?? null
   if (sb.status !== "running") {
-    if (ws.sandbox.status === "running") await saveSandbox(userId, workspaceId, { status: "stopped", lastSessionEndedAt: new Date() })
+    const row = ws.sandbox
+    if (sessionOpen(row)) await closeSession(userId, workspaceId, row, Math.min(sb.statusUpdatedAt?.getTime() ?? Date.now(), sessionEndEstimate(row)), { status: "stopped" })
+    else if (row.status === "running") await saveSandbox(userId, workspaceId, { status: "stopped", lastSessionEndedAt: new Date() })
     return { running: false, expiresAt: null, sessionStartedAt: startedAt, sessionCapMs: SESSION_CAP_MS }
   }
   const remaining = (sb.expiresAt?.getTime() ?? 0) - Date.now()
   let expiresAt = sb.expiresAt ?? null
   if (remaining < IDLE_MS / 2) {
+    // Past the daily cap the sandbox is no longer kept awake: it sleeps at its idle timeout and the next open says why.
+    if (!opts.exempt && env.sandboxDailySeconds > 0) {
+      const u = await sandboxUsage(userId, workspaceId)
+      if (u.usedSeconds >= env.sandboxDailySeconds) {
+        slog("engine", "sandbox.cap_daily", { workspaceId, usedSeconds: u.usedSeconds, cap: env.sandboxDailySeconds, at: "heartbeat" }, { level: "warn", directory: workspaceId })
+        throw Response.json({ error: `You've used today's ${hours(env.sandboxDailySeconds)} of workspace time. This workspace will sleep within ${Math.max(1, Math.round(remaining / 60_000))} minutes; it resets at midnight UTC.`, code: "sandbox_daily_cap" }, { status: 429 })
+      }
+    }
     await sb.extendTimeout(IDLE_MS)
     expiresAt = new Date(Date.now() + IDLE_MS)
+    // Touching the row records that the sandbox was kept awake; the session's end estimate counts from here.
+    await saveSandbox(userId, workspaceId, {})
   }
   return { running: true, expiresAt: expiresAt?.toISOString() ?? null, sessionStartedAt: startedAt, sessionCapMs: SESSION_CAP_MS }
 }
@@ -425,12 +534,10 @@ export async function stopWorkspace(userId: string, workspaceId: string): Promis
   if (sb.status !== "running") return null
   const r = await sb.stop()
   const seconds = ws.sandbox.lastSessionStartedAt ? Math.max(0, Math.round((Date.now() - ws.sandbox.lastSessionStartedAt.getTime()) / 1000)) : 0
-  // The password dies with the session; the next start mints a new one.
-  await saveSandbox(userId, workspaceId, {
+  // The password dies with the session; the next start mints a new one. The session's seconds are counted once.
+  await closeSession(userId, workspaceId, ws.sandbox, Date.now(), {
     status: "stopped",
     passwordEnc: null,
-    lastSessionEndedAt: new Date(),
-    totalSessionSeconds: ws.sandbox.totalSessionSeconds + seconds,
     totalCpuMs: ws.sandbox.totalCpuMs + Math.round(r.activeCpuDurationMs ?? 0),
   })
   slog("engine", "sandbox.stopped", { workspaceId, seconds, cpuMs: r.activeCpuDurationMs, snapshot: r.snapshot?.status }, { directory: workspaceId })

@@ -3,6 +3,7 @@ import { ulid } from "ulid"
 import { pg, pgReady, pgSchema } from "../db/pg"
 import type { LogQuery } from "../log"
 import { redact } from "../log"
+import { env } from "../env"
 
 /**
  * Logs in cloud mode: the user's own rows (app + sidecar + browser), in the
@@ -39,6 +40,43 @@ export async function queryCloudLogs(userId: string, qy: LogQuery & { workspaceI
   })
 }
 
+/**
+ * Caps one row's `data` at env.logDataMaxBytes serialized (audit 2026-10-15 H2): a bigger value is replaced by a
+ * marker with its size and the start of its JSON, so the row still says what happened without filling the database.
+ */
+export function capLogData<T>(data: T): T | { truncated: true; bytes: number; preview: string } {
+  const max = env.logDataMaxBytes
+  if (max <= 0 || data === undefined) return data
+  let json: string
+  try {
+    json = JSON.stringify(data) ?? ""
+  } catch {
+    return { truncated: true, bytes: -1, preview: "" }
+  }
+  const bytes = Buffer.byteLength(json)
+  if (bytes <= max) return data
+  return { truncated: true, bytes, preview: json.slice(0, Math.max(0, max - 200)) }
+}
+
+// Per-user token bucket for browser log rows. Per server instance: it stops one tab flooding, not a fleet.
+const g = globalThis as unknown as { __syrupLogBuckets?: Map<string, { tokens: number; at: number }> }
+const buckets = (g.__syrupLogBuckets ??= new Map())
+
+/** Takes `rows` tokens from the user's bucket (env.logRowsPerMinute per minute, burst of one minute). False when empty. */
+export function takeLogBudget(userId: string, rows: number): boolean {
+  const perMin = env.logRowsPerMinute
+  if (perMin <= 0) return true
+  const now = Date.now()
+  const b = buckets.get(userId) ?? { tokens: perMin, at: now }
+  b.tokens = Math.min(perMin, b.tokens + ((now - b.at) / 60_000) * perMin)
+  b.at = now
+  if (buckets.size > 10_000) buckets.clear()
+  buckets.set(userId, b)
+  if (b.tokens < rows) return false
+  b.tokens -= rows
+  return true
+}
+
 export async function insertCloudLogs(userId: string, rows: { ts?: number; level?: string; source?: string; event: string; data?: unknown; sessionId?: string | null; directory?: string | null }[]): Promise<void> {
   if (!rows.length) return
   await pgReady()
@@ -53,7 +91,7 @@ export async function insertCloudLogs(userId: string, rows: { ts?: number; level
         event: String(r.event).slice(0, 120),
         userId,
         workspaceId: r.directory ?? null,
-        data: { ...(typeof r.data === "object" && r.data ? (redact(r.data) as object) : r.data === undefined ? {} : { value: redact(r.data) }), sessionId: r.sessionId ?? undefined },
+        data: capLogData({ ...(typeof r.data === "object" && r.data ? (redact(r.data) as object) : r.data === undefined ? {} : { value: redact(r.data) }), sessionId: r.sessionId ?? undefined }),
       })),
     )
 }

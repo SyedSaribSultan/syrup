@@ -73,4 +73,14 @@ export const env = {
   /** Bearer that lets CLI smoke tests act as the first admin (see cloud/session.ts). */
   opsToken: process.env.SYRUP_OPS_TOKEN || undefined,
   posthogHost: process.env.NEXT_PUBLIC_POSTHOG_HOST || "https://eu.i.posthog.com",
+
+  // Abuse caps (cloud). 0 turns a cap off. Admins are exempt from the sandbox caps.
+  /** Sandbox wall-clock seconds one user may use per UTC day, across all workspaces. */
+  sandboxDailySeconds: int(process.env.SYRUP_SANDBOX_DAILY_SECONDS, 2 * 60 * 60),
+  /** Sandboxes one user may have running at once. */
+  sandboxMaxRunning: int(process.env.SYRUP_SANDBOX_MAX_RUNNING, 2),
+  /** Largest serialized `data` of one log row; bigger values are replaced by a truncated preview. */
+  logDataMaxBytes: int(process.env.SYRUP_LOG_DATA_MAX_BYTES, 4096),
+  /** Browser log rows one user may post per minute (per server instance). */
+  logRowsPerMinute: int(process.env.SYRUP_LOG_ROWS_PER_MINUTE, 1000),
 }

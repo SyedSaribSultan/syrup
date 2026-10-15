@@ -26,6 +26,8 @@ syrup runs a coding agent that reads, writes and executes code. Two modes exist:
 - Provider keys and tokens reach the VM only as process environment of the sidecar; nothing secret is written to its filesystem, so snapshots contain none.
 - Private networks and the cloud metadata service are unreachable from every sandbox. Workspaces can opt into a strict host allow-list.
 - Database access uses a role without `BYPASSRLS`; row-level security is forced on every tenant table.
+- Abuse caps: each account gets a daily allowance of sandbox time (default 2 hours, UTC day) and at most 2 sandboxes running at once; past either, opening a workspace answers 429 with the reason. Browser log rows are rate limited and each row's data is capped at 4 KB. All are set by environment variables (`docs/DEPLOY.md` Part 8).
+- Kill switch: setting `SYRUP_AGENT_ENABLED=0` in Vercel (then redeploying) stops every new sandbox start; workspaces answer "paused for maintenance". Use it first if the agent is being abused.
 - See `docs/PLAN.md` §3, §4 and §6 for the full design and data handling.
 
 **Shared chat links** (both modes)

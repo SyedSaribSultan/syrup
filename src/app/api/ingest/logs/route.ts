@@ -1,6 +1,7 @@
 import { ulid } from "ulid"
 import { z } from "zod"
 import { verifyIngestToken } from "@/server/cloud/ingest"
+import { capLogData } from "@/server/cloud/logs"
 import { pg, pgReady, pgSchema } from "@/server/db/pg"
 
 export const dynamic = "force-dynamic"
@@ -22,7 +23,7 @@ export async function POST(req: Request) {
   const parsed = Body.safeParse(await req.json().catch(() => ({})))
   if (!parsed.success) return Response.json({ error: "invalid rows" }, { status: 400 })
   await pgReady()
-  const rows = parsed.data.rows.map((r) => ({ id: ulid(), ts: new Date(r.ts), level: r.level, source: r.source, event: r.event, userId: claims.u, workspaceId: claims.w, data: { ...(typeof r.data === "object" && r.data ? (r.data as object) : { value: r.data }), sessionId: r.sessionId ?? undefined } }))
+  const rows = parsed.data.rows.map((r) => ({ id: ulid(), ts: new Date(r.ts), level: r.level, source: r.source, event: r.event, userId: claims.u, workspaceId: claims.w, data: capLogData({ ...(typeof r.data === "object" && r.data ? (r.data as object) : { value: r.data }), sessionId: r.sessionId ?? undefined }) }))
   if (rows.length) await pg().insert(pgSchema.logs).values(rows)
   return Response.json({ ok: true, n: rows.length })
 }
