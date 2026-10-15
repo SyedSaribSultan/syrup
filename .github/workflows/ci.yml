@@ -37,6 +37,8 @@ jobs:
       - run: pnpm test:transcript
       - run: pnpm test:diffs
       - run: pnpm test:guard
+      # test:rich renders the HTML export in headless Chromium (local only, no network).
+      - run: pnpm exec playwright install --with-deps --only-shell chromium
       - run: pnpm test:rich
       - run: pnpm test:eval-checks
       - run: pnpm test:plugin
