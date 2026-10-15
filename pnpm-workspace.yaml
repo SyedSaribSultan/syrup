@@ -8,3 +8,6 @@ overrides:
   sharp@<0.35.5: ^0.35.5
   source-map-js@<1.2.2: ^1.2.2
   katex@<0.18.2: 0.19.0
+  # Dev-only (audit 2026-10-15 L5): drizzle-kit > @esbuild-kit/core-utils. The braces advisory (eslint-config-next >
+  # micromatch, dev-only) has no patched release on npm yet (3.0.3 is the latest), so it cannot be overridden.
+  esbuild@<0.24.3: ^0.28.2
