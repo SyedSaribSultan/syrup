@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next"
 import { Geist, Geist_Mono, Lora } from "next/font/google"
+import { Analytics } from "@vercel/analytics/next"
 import { DialogHost } from "@/components/ui/dialog"
 import { ViewportSync } from "@/components/ui/viewport-sync"
 import { THEME_SCRIPT } from "@/lib/theme-script"
@@ -50,6 +51,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {children}
         <DialogHost />
         <ViewportSync />
+        <Analytics />
       </body>
     </html>
   )
