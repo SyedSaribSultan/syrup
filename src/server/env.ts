@@ -72,7 +72,8 @@ export const env = {
   posthogKey: process.env.NEXT_PUBLIC_POSTHOG_KEY || undefined,
   /** Bearer that lets CLI smoke tests act as the first admin (see cloud/session.ts). */
   opsToken: process.env.SYRUP_OPS_TOKEN || undefined,
-  posthogHost: process.env.NEXT_PUBLIC_POSTHOG_HOST || "https://eu.i.posthog.com",
+  /** Server-side PostHog host: direct to EU ingestion (the browser uses the e.syedsarib.com proxy instead). */
+  posthogHost: process.env.POSTHOG_HOST || "https://eu.i.posthog.com",
 
   // Abuse caps (cloud). 0 turns a cap off. Admins are exempt from the sandbox caps.
   /** Sandbox wall-clock seconds one user may use per UTC day, across all workspaces. */

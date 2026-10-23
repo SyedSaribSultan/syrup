@@ -132,7 +132,7 @@ GRANT EXECUTE ON FUNCTION get_shared_chat(text), bump_shared_chat_views(text) TO
 1. https://eu.posthog.com/signup (EU region; the URL matters). Create an organization and a project.
 2. When asked for a framework, pick **Next.js**; skip the wizard's code (syrup already has it).
 3. Left menu → **Settings** → **Project** → **General** → copy **Project API key** (starts with `phc_`). It is safe to expose to browsers.
-4. Into Vercel (Part 8): `NEXT_PUBLIC_POSTHOG_KEY` = that key, `NEXT_PUBLIC_POSTHOG_HOST` = `https://eu.i.posthog.com`.
+4. Into Vercel (Part 8): `NEXT_PUBLIC_POSTHOG_KEY` = that key, `NEXT_PUBLIC_POSTHOG_HOST` = `https://e.syedsarib.com` (the shared managed proxy; the server always sends straight to `https://eu.i.posthog.com`, override with `POSTHOG_HOST`).
 5. Recommended: **Settings** → **Project** → **Session replay** → enable, set **Mask all inputs** and **Mask all text**. Chat text must never reach PostHog ([PLAN.md](PLAN.md) §6, layer B).
 
 PostHog is optional: without the key, analytics are off.
@@ -172,7 +172,7 @@ Project → **Settings** → **Environment Variables** → **Add New**. For each
 | `SYRUP_MASTER_KEY` | 32 random bytes, base64 | `openssl rand -base64 32` | Wraps every user's data key. **Back it up offline.** Losing it loses every stored provider key. Sensitive. |
 | `SYRUP_ADMIN_EMAILS` | `<admin-email>` | Part 6 | Comma-separated if more than one. |
 | `NEXT_PUBLIC_POSTHOG_KEY` | `phc_…` | Part 5 | Public by design. Optional. |
-| `NEXT_PUBLIC_POSTHOG_HOST` | `https://eu.i.posthog.com` | Part 5 | |
+| `NEXT_PUBLIC_POSTHOG_HOST` | `https://e.syedsarib.com` | Part 5 | Browser host (proxy). Server uses `https://eu.i.posthog.com`. |
 | `NEXT_PUBLIC_APP_URL` | `https://<your-domain>` | — | Preview deployments override automatically via `VERCEL_URL`. Set it in production so shared-chat links and their preview cards use your public domain. |
 | `CRON_SECRET` | 32 random bytes | `openssl rand -base64 32` | Vercel sends it to the nightly job in `vercel.json` (`/api/cron/daily`: log retention, account deletions). Without it the job refuses to run. |
 

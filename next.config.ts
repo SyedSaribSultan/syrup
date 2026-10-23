@@ -10,7 +10,8 @@ import type { NextConfig } from "next"
  *
  * Report-Only CSP: the full policy, watched in the browser console before it is enforced. Every origin the browser
  * talks to:
- * - 'self': pages, /_next assets (KaTeX fonts are bundled there), the API, and the PostHog reverse proxy (/ingest).
+ * - 'self': pages, /_next assets (KaTeX fonts are bundled there), the API.
+ * - https://e.syedsarib.com: the shared PostHog proxy (analytics events and its lazily loaded scripts).
  * - https://*.vercel.run: each workspace's sandbox (OpenCode over fetch and SSE, src/lib/oc.ts; Sandbox#domain()).
  * - img https: the Google profile picture and images in rendered Markdown; data:/blob: for agent SVG and file previews.
  * - form-action accounts.google.com: "Continue with Google" posts a server action that redirects there.
@@ -21,11 +22,11 @@ const DEV = process.env.NODE_ENV !== "production"
 const CSP_ENFORCED = ["frame-ancestors 'none'", "base-uri 'self'", "object-src 'none'"].join("; ")
 const CSP_REPORT_ONLY = [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline'${DEV ? " 'unsafe-eval'" : ""}`,
+  `script-src 'self' 'unsafe-inline' https://e.syedsarib.com${DEV ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https:",
   "font-src 'self' data:",
-  `connect-src 'self' https://*.vercel.run${DEV ? " ws: http://127.0.0.1:* http://localhost:*" : ""}`,
+  `connect-src 'self' https://*.vercel.run https://e.syedsarib.com${DEV ? " ws: http://127.0.0.1:* http://localhost:*" : ""}`,
   "frame-src 'self' blob:",
   "worker-src 'self' blob:",
   "manifest-src 'self'",

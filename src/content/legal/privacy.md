@@ -7,7 +7,7 @@
 ## 2. The short version
 
 - We store what is needed to run the service for you: your account, your workspaces, your chats with the agent, your encrypted provider keys, usage and cost records, memory and skills. Basis: the contract between us (the Terms).
-- We collect anonymous product analytics about how the app is used (which features, how often, which errors), never the content of your prompts or code. Basis: legitimate interest. You can turn this off in Settings.
+- We collect product analytics about how the app is used (which features, how often, which errors), linked to your account, never the content of your prompts or code. Basis: legitimate interest. You can turn this off in Settings.
 - We use the **content** of your conversations for research and to improve syrup **only if you switch that on** in Settings. Basis: your explicit consent, which you can withdraw at any time.
 - You can export or delete everything from Settings.
 
@@ -34,6 +34,8 @@ Legal basis: performance of a contract (GDPR Art. 6(1)(b)); for consent and audi
 ### 3b. Product analytics (understanding how syrup is used)
 
 We use **PostHog** (EU-hosted) to record events such as "signed in", "created workspace", "sent message", "sandbox started", feature usage, page views, error types, and timing. We also record session replays of the interface **with all text and inputs masked**, so prompts, code and keys never appear in a recording.
+
+When you are signed in, these events are linked to your account (account id, email and name) so we can understand how each account uses syrup.
 
 We do **not** send prompts, replies, file names, file contents, keys or memory contents to analytics.
 

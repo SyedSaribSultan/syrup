@@ -15,7 +15,7 @@ syrup uses very few cookies and no advertising or cross-site tracking. Because o
 
 | Name | Purpose | Lifetime |
 |---|---|---|
-| `ph_*` (PostHog) | A random identifier so we can count sessions and see which features are used. Text and inputs in session replays are masked. | 1 year |
+| `ph_*` (PostHog) | A random identifier so we can count sessions and see which features are used. It is set on `syedsarib.com`, so the same identifier is used on the other `*.syedsarib.com` sites by the same author. Text and inputs in session replays are masked. | 1 year |
 
 Turn analytics off in **Settings → Privacy**, or send the browser **Do Not Track** signal; syrup honors it. When analytics is off, PostHog cookies are not set and existing ones are cleared.
 

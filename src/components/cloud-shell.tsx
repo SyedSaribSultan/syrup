@@ -12,7 +12,7 @@ export function CloudShell({ session, children }: { session: Session | null; chi
   const user = session?.user
   return (
     <LogsProvider>
-      <Analytics user={user ? { id: user.id, admin: user.admin } : null} />
+      <Analytics user={user ? { id: user.id, admin: user.admin, email: user.email ?? null, name: user.name ?? null } : null} />
       {user ? (
         <CloudWorkspacesProvider user={{ name: user.name ?? null, email: user.email ?? null, image: user.image ?? null, admin: user.admin }}>
           <NavProvider>
