@@ -82,6 +82,38 @@ type State = {
 }
 
 /** A text or reasoning part that is still streaming: started, not ended (OpenCode sets time.end when it ends). */
+
+/** Assistant replies already reported, so a replayed or repeated update never counts twice. */
+const reportedReplies = new Set<string>()
+
+/**
+ * `run_completed`: one agent reply finished. Only its outcome goes to PostHog (duration, success, error kind,
+ * token counts, model), never the text. posthog-js drops it for opted-out or DNT visitors.
+ */
+function replyFinished(info: Message | undefined) {
+  if (!info || info.role !== "assistant" || !info.time?.completed || reportedReplies.has(info.id)) return
+  reportedReplies.add(info.id)
+  try {
+    if (!posthog.__loaded) return
+    const t = info.tokens
+    posthog.capture("run_completed", {
+      duration_ms: Math.max(0, info.time.completed - info.time.created),
+      success: !info.error,
+      error_type: info.error?.name ?? null,
+      finish: typeof info.finish === "string" && info.finish.length <= 30 ? info.finish : null,
+      provider: info.providerID,
+      model: info.modelID,
+      // Built-in agents by name; a custom agent's name is the user's, so it is just "other".
+      agent: ((a) => (a === "build" || a === "plan" ? a : "other"))((info as { agent?: string }).agent ?? info.mode),
+      summary: !!info.summary,
+      tokens_in: t?.input ?? 0,
+      tokens_out: t?.output ?? 0,
+      tokens_reasoning: t?.reasoning ?? 0,
+      tokens_cache_read: t?.cache?.read ?? 0,
+    })
+  } catch {}
+}
+
 export function isOpenPart(p: Part): boolean {
   return (p.type === "text" || p.type === "reasoning") && !!p.time && p.time.end === undefined
 }
@@ -604,6 +636,7 @@ export function EngineProvider({ children, connection, remote }: { children: Rea
           break
         case "message.updated":
           dispatch({ type: "message", info: p.info as Message, seq: n })
+          replyFinished(p.info as Message)
           break
         case "message.removed":
           dispatch({ type: "message.removed", sessionID: p.sessionID as string, messageID: p.messageID as string, seq: n })

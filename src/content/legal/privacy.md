@@ -33,7 +33,7 @@ Legal basis: performance of a contract (GDPR Art. 6(1)(b)); for consent and audi
 
 ### 3b. Product analytics (understanding how syrup is used)
 
-We use **PostHog** (EU-hosted) to record events such as "signed in", "created workspace", "sent message", "sandbox started", feature usage, page views, error types, and timing. We also record session replays of the interface **with all text and inputs masked**, so prompts, code and keys never appear in a recording.
+We use **PostHog** (EU-hosted) to record events such as "signed in", "created workspace", "sent message", "sandbox started", feature usage, the outcome of each agent reply (duration, success, token counts and model), share links and exports (counts and sizes), page views, error types, and timing. Events never contain chat text, file contents, key labels or skill names. We also record session replays of the interface **with all text and inputs masked**, so prompts, code and keys never appear in a recording.
 
 When you are signed in, these events are linked to your account (account id, email and name) so we can understand how each account uses syrup.
 

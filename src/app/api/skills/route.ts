@@ -1,5 +1,6 @@
 import { after } from "next/server"
 import { z } from "zod"
+import { track } from "@/server/analytics"
 import { internalError, requireUser, UserError } from "@/server/cloud/session"
 import { env } from "@/server/env"
 import { createSkill, installFromGit, listSkills, setSkillsEnabled, skillsDir } from "@/server/skills"
@@ -47,6 +48,8 @@ export async function POST(req: Request) {
       const { me, skills, push } = await cloud()
       const result = "source" in parsed.data ? await skills.installCloudFromGit(me.id, parsed.data.source) : { installed: [await skills.createCloudSkill(me.id, parsed.data.content, parsed.data.name)], skipped: [] }
       push()
+      // Counts and the kind of install only: never the skills' names, the repo or the SKILL.md text.
+      await track(me.id, "skill_installed", { source: "source" in parsed.data ? "git" : "pasted", installed: result.installed.length, skipped: result.skipped.length })
       return Response.json(result)
     }
     const installed = "source" in parsed.data ? await installFromGit(parsed.data.source) : [await createSkill(parsed.data.content, parsed.data.name)]

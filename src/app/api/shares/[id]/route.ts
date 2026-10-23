@@ -1,3 +1,4 @@
+import { track } from "@/server/analytics"
 import { handler } from "@/server/cloud/session"
 import { currentOwner } from "@/server/share-owner"
 import { revokeShare, updateShare, requestOrigin } from "@/server/shares"
@@ -11,6 +12,7 @@ export const PATCH = handler(async (req: Request, ctx: Ctx) => {
   const owner = await currentOwner()
   const { id } = await ctx.params
   const share = await updateShare(owner, id, requestOrigin(req))
+  if (owner.mode === "cloud") await track(owner.userId, "share_updated", { messages: share.messageCount, bytes: share.bytes })
   return Response.json({ share })
 })
 
@@ -19,5 +21,6 @@ export const DELETE = handler(async (_req: Request, ctx: Ctx) => {
   const owner = await currentOwner()
   const { id } = await ctx.params
   await revokeShare(owner, id)
+  if (owner.mode === "cloud") await track(owner.userId, "share_revoked")
   return Response.json({ ok: true })
 })

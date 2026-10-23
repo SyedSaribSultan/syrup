@@ -25,9 +25,31 @@ export function setOptOut(userId: string, value: boolean) {
   optOut.set(userId, value)
 }
 
+/**
+ * Whether this user opted out of analytics. The cache answers when it can; on a miss (a fresh serverless
+ * instance) the cloud reads the user row once, so an opted-out user is never tracked just because their
+ * settings weren't loaded in this process yet. A failed read counts as opted out.
+ */
+async function isOptedOut(userId: string): Promise<boolean> {
+  const known = optOut.get(userId)
+  if (known !== undefined) return known
+  if (!env.isCloud) return false
+  try {
+    const { eq } = await import("drizzle-orm")
+    const { pg, pgReady, pgSchema } = await import("./db/pg")
+    await pgReady()
+    const [row] = await pg().select({ out: pgSchema.users.analyticsOptOut }).from(pgSchema.users).where(eq(pgSchema.users.id, userId))
+    const out = row ? row.out : true
+    optOut.set(userId, out)
+    return out
+  } catch {
+    return true
+  }
+}
+
 export async function track(userId: string, event: string, properties: Record<string, unknown> = {}): Promise<void> {
   const ph = client()
-  if (!ph || optOut.get(userId)) return
+  if (!ph || (await isOptedOut(userId))) return
   try {
     ph.capture({ distinctId: userId, event, properties: { ...properties, mode: env.mode } })
     await ph.flush()

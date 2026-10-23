@@ -1,3 +1,4 @@
+import { track } from "@/server/analytics"
 import { renderDebugMarkdown, renderJSON, renderMarkdown } from "@/lib/transcript"
 import { handler } from "@/server/cloud/session"
 import { currentOwner } from "@/server/share-owner"
@@ -32,6 +33,8 @@ export const GET = handler(async (req: Request) => {
   const debug = u.searchParams.get("debug") === "1"
   const out = await exportForOwner(owner, { sessionId, directory: u.searchParams.get("directory"), workspaceId: u.searchParams.get("workspace"), debug })
   const name = `${slug(out.transcript.title)}${debug ? "-debug" : ""}`
+  // Format and size only. The CLI's bundle reads count too (format "bundle").
+  if (owner.mode === "cloud") await track(owner.userId, "export_done", { format, debug, download: u.searchParams.get("download") === "1", messages: out.transcript.stats.messages, tool_calls: out.transcript.stats.toolCalls })
   const headers: Record<string, string> = { "cache-control": "no-store", "x-robots-tag": "noindex, nofollow" }
   if (format === "bundle") return Response.json({ sessionId: out.sessionId, transcript: out.transcript, debug: out.debug ?? null }, { headers })
   if (u.searchParams.get("download") === "1") headers["content-disposition"] = `attachment; filename="${name}.${format === "md" ? "md" : "json"}"`

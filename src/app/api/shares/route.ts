@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { track } from "@/server/analytics"
 import { handler } from "@/server/cloud/session"
 import { currentOwner } from "@/server/share-owner"
 import { createShare, listShares, requestOrigin } from "@/server/shares"
@@ -29,5 +30,7 @@ export const POST = handler(async (req: Request) => {
   const parsed = Body.safeParse(await req.json().catch(() => null))
   if (!parsed.success) return Response.json({ error: "sessionId is required" }, { status: 400 })
   const out = await createShare(owner, parsed.data, requestOrigin(req))
+  // Sizes and counts only: never the title, the models' names or the chat.
+  if (owner.mode === "cloud" && !out.existing) await track(owner.userId, "share_created", { messages: out.share.messageCount, bytes: out.share.bytes, redactions: out.share.redactions, models: out.share.models.length })
   return Response.json(out, { status: out.existing ? 200 : 201 })
 })
