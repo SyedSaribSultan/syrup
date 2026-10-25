@@ -44,9 +44,9 @@ Checked against the code on 2026-09-28 by three independent sweeps: conditional 
 | What | Where | Built on |
 |---|---|---|
 | Confirm / prompt / alert dialogs | `ui/dialog.tsx` | native `<dialog>`. One at a time from a queue (`:62-70`) |
-| Bottom sheets | `ui/sheet.tsx` → `Sheet` | native `<dialog>`. Callers: every Popover below 840 px (`useNarrow`, `use-window-class.ts:15-16`), the model picker (`model-picker.tsx:119`), file menus on phones (`file-link.tsx:228`), the logs filters (`logs-modal.tsx:281`), the phone panel's "View options" menu (`side-panel.tsx:198-206`). The phone workspace panel itself is **not** a Sheet (§2.3) |
+| Bottom sheets | `ui/sheet.tsx` → `Sheet` | native `<dialog>`. Callers: every Popover below 1025 px (`useNarrow`, `use-window-class.ts:15-16`), the model picker (`model-picker.tsx:119`), file menus on phones (`file-link.tsx:228`), the logs filters (`logs-modal.tsx:281`), the phone panel's "View options" menu (`side-panel.tsx:198-206`). The phone workspace panel itself is **not** a Sheet (§2.3) |
 | Desktop popovers, 8 callers | `ui/sheet.tsx` → `Popover` | composer + (`composer.tsx:226`), chat ⋯ (`session-view.tsx:233`), share (`share-dialog.tsx:75`), row menu (`pages/row-menu.tsx:33`), workspace switcher (`workspace-switcher.tsx:66`), settings menu (`sidebar.tsx:263`), file-tree header ⋯ (`side-panel.tsx:472`), file-preview ⋯ (`file-preview.tsx:237`) |
-| Model picker panel (desktop) | `model-picker.tsx:118-124, 208-212` | **own code**, not Popover. Opens up or down at runtime. Only the composer variant does this; the "bar" variant shows only below 840 px, where it is always a Sheet |
+| Model picker panel (desktop) | `model-picker.tsx:118-124, 208-212` | **own code**, not Popover. Opens up or down at runtime. Only the composer variant does this; the "bar" variant shows only below 1025 px, where it is always a Sheet |
 | Right-click / long-press / row ⋯ menu on files, tree rows and diff rows | `file-link.tsx:234-301` (PointerMenu) | **own code**, fixed at the pointer. Flips up when there is no room below; near the right edge it is clamped left, not flipped |
 | Logs viewer (full screen) | `logs-modal.tsx:21, 228-233` | **own code**, `backdrop-blur-sm`. Only its phone Filters panel is a Sheet |
 | Cloud file viewer | was `file-link.tsx:304-342` | **Deleted in M1.** Dead code, verified 2026-10-08: `view()` ran only when `cloud && !panel`, and in the cloud every FileLink sits inside PanelProvider (`workspace-view.tsx:99-100`; the legal pages have no engine, so their Markdown makes no file links). A cloud mention now opens in the panel; its menu offers "Open in panel" and "Download" |
@@ -59,8 +59,8 @@ Root cause: overlays do `if (!open) return null` or `open && …` (`sheet.tsx:15
 
 | What | Where | Notes |
 |---|---|---|
-| Sidebar ↔ icon rail (840 px and up) | `app-shell.tsx:62`, `sidebar.tsx:54-55` | `expanded:transition-none`. **The rail and the full sidebar are two separate DOM trees** swapped with `hidden` |
-| Forced rail when the workspace panel opens (840–1199 px) | `side-panel.tsx:97-100`, `nav.tsx:63-68` | Set from the pane's mount effect. It snaps with the panel. Because it is tied to mount, a pane kept mounted for its exit would bring the sidebar back only after the exit (§6.1) |
+| Sidebar ↔ icon rail (1025 px and up) | `app-shell.tsx:62`, `sidebar.tsx:54-55` | `expanded:transition-none`. **The rail and the full sidebar are two separate DOM trees** swapped with `hidden` |
+| Forced rail when the workspace panel opens (1025–1199 px) | `side-panel.tsx:97-100`, `nav.tsx:63-68` | Set from the pane's mount effect. It snaps with the panel. Because it is tied to mount, a pane kept mounted for its exit would bring the sidebar back only after the exit (§6.1) |
 | Workspace panel, desktop pane and phone layer | `side-panel.tsx:36` | Mounts with `open &&`. It also mounts/unmounts on route changes (`shell.tsx:15-21`; cloud remounts per workspace, `w/[id]/layout.tsx:13`). The phone layer is own code, a fixed full-screen `role=dialog` (`side-panel.tsx:175`), opened and closed through the URL and history (`panel.tsx:200, 205-218`) |
 | Pane width on double-click (440 ↔ 680 px) | `side-panel.tsx:135` | Snaps. Live drag must stay instant |
 | Changes: file list ↔ diff (phones, panes under 560 px) | `changes.tsx:147, 184` | `hidden`/`flex` swap, backed by a history entry (`panel.tsx:256-267`). Split vs drill-in is `expanded:@[560px]:flex` (`:143`); the back button is `:263-272` |
@@ -306,15 +306,12 @@ Defined once. Components use names, never numbers. The values are the Sarib desi
 
 - **Toasts:** fade plus `--motion-shift` rise. A new toast crossfades the old one.
   - Today each toast remounts by key (`key={toast.at}`, `file-link.tsx:182`). A crossfade needs the old one kept mounted.
-  - The file-link toast flips above or below its anchor (`file-link.tsx:204-210`), so its travel direction follows the flip.
 - **Strips and banners:** `<Collapse>` plus a fade, so the layout moves smoothly instead of jumping.
 - **Covers:** file-link toasts, file-tree and preview status strips, workspace banners, the new-chat notices (warm-up status and mini-game, "Couldn't start the chat" / "This folder no longer exists", "Your workspace didn't start", "No API keys yet"), the provider-card auth-failed notice when it arrives late, the late `.sarib` tools card, the composer attachments row and the phone permission tray (with the presence fixes in §2.5).
 - **Not covered:** the provider retry banner (chat content, §2.9) and the model picker footer notice (a crossfade, §2.6).
 - **As built (M1):** `ui/notice.tsx`: `<Notice open onExited side place>` and `useNotices()`, a list where only the newest is open.
   - Showing a toast closes the one before, which stays mounted for its fade: that is the crossfade.
-  - `place(el)` positions the file-link toast before paint and returns its side. Under the mention it drops; above it (no room below) it rises; at the bottom of the screen it rises.
-  - The auto-hide timer and hide-on-scroll moved into `useFileMenu`. They now close the toast with its exit instead of removing it.
-  - **The anchor is measured when the toast shows,** from the mention that was used (M1 review). It was state set in the same click, so the toast got the previous render's anchor. The first click showed it bottom centre, and after a scroll it showed where the mention used to be.
+  - **Changed 2026-10-25 (sarib-design seam rule 2):** the file-link toast is the library's canonical toast. It sits in an `s-toasts` region at the bottom centre (on phones above the composer and safe area, via `--s-toast-offset`), max-content up to 420, with a ghost sm close button. It always rises. No anchor, no flip, no hide-on-scroll; it hides after 4 s or on its close.
 
 ### 4.7 Gestures
 
@@ -462,7 +459,7 @@ Each phase ends usable and deployable.
   - delete the cloud file viewer (verified unreachable, §2.2)
   - **Checked by** `scripts/fixtures/ui/motion-overlays.mjs`, with the harness's `{ presence }` step and assertion. Each overlay opens, then shows `data-state="closed"` (inert, no pointer events) for a moment, then is gone within 300 ms.
     - `motion-popovers`, `motion-panel-popovers`: the header and sidebar popovers, the model picker and the two panel ⋯ menus, with their sides.
-    - `motion-pointer-menu`: down, and flipped up. Copy path plays its exit and its toast drops in; Open in panel hands off.
+    - `motion-pointer-menu`: down, and flipped up. Copy path plays its exit and its toast rises in at the bottom centre; Open in panel hands off.
     - `motion-confirm` (both widths), `motion-handoff`, `motion-sheet-handoff`: menu → confirm, prompt and Logs, from a desktop popover and a phone sheet. The menu never shows a closed frame.
     - `motion-sheet`: the phone sheet rises with its backdrop and exits on base. `close()` comes after the exit, and focus goes back to ⋯.
     - `motion-drawer-scrim`, `motion-drawer-scrim-close`: the scrim fades with the drawer, on the compositor.
@@ -473,7 +470,7 @@ Each phase ends usable and deployable.
     - `motion-dialog-focus-return`: focus goes back to ⋯ after a menu → dialog hand-off, at both widths (§4.2, §4.3).
     - `motion-tap-during-exit`, `motion-click-during-dialog-exit`, `motion-sheet-reopen-during-exit`: a leaving Sheet or Dialog lets taps through, and comes back modal when reopened (§4.2).
     - `motion-pointer-menu-again`: a second right-click focuses the moved menu (§4.5).
-    - `motion-toast-anchor`: the toast shows next to the mention on the first click and after a scroll (§4.6).
+    - `motion-toast-bottom`: the toast shows in the bottom-centre region, with its close button, on the first click and after a scroll (§4.6).
     - `check-motion.mjs`: `transition-property` and the exit step inside the motion block (§9).
   - **Not covered by a scenario:** two queued dialogs back to back (only the admin page queues two), and a drag-dismissed sheet continuing from the finger (M5 checks gestures on devices).
 - **M2 — Collapse and notices.**

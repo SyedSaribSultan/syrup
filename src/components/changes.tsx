@@ -151,6 +151,7 @@ function ChangesView({ sessionID }: { sessionID: string }) {
         {diffs && diffs.length === 0 && touched.length > 0 && (
           <>
             <p className="s-sidebar__label">Files touched</p>
+            {/* pointer-coarse 44: a plain row around a FileLink, not an s- component (no library floor). */}
             {touched.map((f) => (
               <div key={f} className="flex min-h-9 items-center truncate px-3 font-mono text-sm text-ink-2 pointer-coarse:min-h-11">
                 <FileLink path={f} className="max-w-full truncate">
@@ -214,7 +215,7 @@ function DiffRow({ diff, active, onSelect }: { diff: SessionDiff; active: boolea
         onContextMenu={fm.bind.onContextMenu}
         title={diff.file}
         aria-current={active ? "page" : undefined}
-        className="s-row s-row--sm pr-12 [-webkit-touch-callout:none] pointer-coarse:min-h-11 pointer-coarse:select-none"
+        className="s-row s-row--sm pr-12 [-webkit-touch-callout:none] pointer-coarse:select-none"
       >
         <span className="s-row__title flex-1">
           {name}

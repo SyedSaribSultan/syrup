@@ -15,6 +15,7 @@ import type { RichInput } from "./types"
 
 export type BarAction = { label: string; run(): void }
 
+// pointer-coarse 44: these are syrup's own buttons, not s- components, so the library's touch floor does not cover them.
 const btn = "flex items-center justify-center rounded-md px-2 py-0.5 text-xs text-ink-2 transition hover:bg-surface-2 hover:text-ink pointer-coarse:min-h-11 pointer-coarse:min-w-11 pointer-coarse:px-3"
 
 export function Toolbar({ input, caption, onOpen, onSource, sourceOpen, actions = [] }: { input: RichInput; caption?: string; onOpen?: () => void; onSource(): void; sourceOpen: boolean; actions?: BarAction[] }) {

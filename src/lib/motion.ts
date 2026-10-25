@@ -19,12 +19,12 @@ export const motion = {
   shift: 4,
 } as const
 
-/** Easing curves, as CSS timing functions. */
+/** Easing curves: the design system's own tokens (CSS only; JS never animates with these strings). */
 export const ease = {
   /** entering: fast start, soft landing */
-  arrive: "cubic-bezier(0.4, 0, 0.2, 1)",
+  arrive: "var(--s-motion-easing-standard)",
   /** leaving: gets out of the way */
-  leave: "cubic-bezier(0.4, 0, 1, 1)",
+  leave: "var(--s-motion-easing-exit)",
   /** changing size or place on screen */
-  move: "cubic-bezier(0.4, 0, 0.2, 1)",
+  move: "var(--s-motion-easing-standard)",
 } as const

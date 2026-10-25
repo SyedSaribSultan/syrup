@@ -36,7 +36,7 @@ export function Sidebar({ status, footer }: { status?: ReactNode; footer?: React
   const q = query.trim().toLowerCase()
   const shown = q ? chats.filter((c) => (c.title || "Untitled").toLowerCase().includes(q)) : chats
   const nav = useNav()
-  // Collapsed by choice: rail on every desktop width. Forced by an open side panel: rail only between 840 and 1199px.
+  // Collapsed by choice: rail on every desktop width. Forced by an open side panel: rail only between 1025 and 1199px.
   const rail = !!nav?.collapsed
   const forced = !rail && !!nav?.railForced
 
@@ -46,22 +46,25 @@ export function Sidebar({ status, footer }: { status?: ReactNode; footer?: React
   }
 
   async function remove(id: string, title: string) {
-    if (!engine || !(await confirmDialog({ title: `Delete "${title || "Untitled"}"?`, body: "This cannot be undone.", confirmLabel: "Delete", danger: true }))) return
+    if (!engine || !(await confirmDialog({ title: `Delete “${title || "Untitled"}”?`, body: "You can't undo this.", confirmLabel: "Delete", danger: true }))) return
     await engine.deleteSession(id)
     if (activeChat === id) router.push(w.newChatHref ?? "/")
   }
 
   return (
-    // The Sarib sidebar (s-sidebar, DESIGN.md §11.2): P0 band, no border, p12, sections 24 apart. syrup's AppShell owns the
-    // drawer below its `expanded` breakpoint, so the library's own <1025px drawer is off (--static). In that drawer the
-    // band takes the drawer colour the library gives it (fill-secondary-variant): applied here only because syrup's
-    // drawer breakpoint (840, docs/RESPONSIVE.md) differs from the library's (1025). overflow-visible: the workspace
-    // and settings popovers are wider than the column and must not be clipped; the chat list scrolls on its own.
+    // The Sarib sidebar (s-sidebar, DESIGN.md §11.2): P0 band, no border, p12, sections 24 apart. Below 1025 (the
+    // library's breakpoint and syrup's `expanded`) it is a drawer, but syrup's AppShell owns that drawer (swipe to close,
+    // focus, inert main, motion-layer exits), so the library's own drawer styles are off (--static). --static also turns
+    // off the library's drawer fill, so max-expanded:bg-surface restores the same token (fill-secondary-variant).
+    // overflow-visible: the workspace and settings popovers are wider than the column and must not be clipped.
     <aside aria-label="Sidebar" className="flex h-full w-full flex-col pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
       {(rail || forced) && <Rail className={rail ? "hidden expanded:flex" : "hidden expanded:max-large:flex"} />}
       <div className={`s-sidebar s-sidebar--static h-auto min-h-0 w-full flex-1 overflow-visible max-expanded:bg-surface ${rail ? "expanded:hidden" : forced ? "expanded:max-large:hidden" : ""}`}>
         <div className="s-sidebar__head">
           <Link href="/" className="s-sidebar__brand">
+            {/* syrup's mark (app/icon.svg, the favicon) at 32 next to the name (decision 5). */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/icon.svg" alt="" width={32} height={32} className="s-sidebar__logo" />
             syrup
           </Link>
           <div className="flex items-center gap-2">
@@ -119,7 +122,7 @@ export function Sidebar({ status, footer }: { status?: ReactNode; footer?: React
                     title={names.get(c.workspaceId)}
                     aria-current={active ? "page" : undefined}
                     // Room for the row's actions while they show (hover or focus; always on touch), so they never cover the title.
-                    className={`s-row pointer-coarse:min-h-11 ${mine ? "group-focus-within:pr-20 group-hover:pr-20 pointer-coarse:pr-24" : ""}`}
+                    className={`s-row ${mine ? "group-focus-within:pr-20 group-hover:pr-20 pointer-coarse:pr-24" : ""}`}
                   >
                     <WorkspaceDot color={colors.get(c.workspaceId) ?? 0} />
                     <span className="s-row__title flex-1">{c.title || "Untitled"}</span>
@@ -162,14 +165,14 @@ function Rail({ className = "" }: { className?: string }) {
       </div>
       {w.newChatHref && <LinkButton href={w.newChatHref} variant="ghost" icon="plus" label="New chat" />}
       {active && (
-        <button type="button" onClick={nav?.toggleCollapsed} aria-label={`${active.name}: show chats`} title={`${active.name}: show chats`} className={btnClass({ variant: "ghost" }, true)}>
+        <button type="button" onClick={nav?.toggleCollapsed} aria-label={`${active.name}: show chats`} data-s-tip={`${active.name}: show chats`} className={btnClass({ variant: "ghost" }, true)}>
           <span className="s-avatar s-avatar--sm">{active.name.slice(0, 1).toUpperCase()}</span>
         </button>
       )}
       <span className="flex-1" />
       <SettingsTrigger place="bottom-0 left-full ml-2" side="right">
         {(open, toggle) => (
-          <button type="button" onClick={toggle} aria-expanded={open} aria-label="Settings" title="Settings" className={btnClass({ variant: "ghost" }, true)}>
+          <button type="button" onClick={toggle} aria-expanded={open} aria-label="Settings" data-s-tip="Settings" className={btnClass({ variant: "ghost" }, true)}>
             <Avatar small />
           </button>
         )}

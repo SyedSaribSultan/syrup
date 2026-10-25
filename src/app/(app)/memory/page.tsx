@@ -106,12 +106,12 @@ function MemoryCard({ m, onChange }: { m: Memory; onChange(): Promise<void> }) {
         <span className="s-meta">{m.source === "agent" ? "Saved by agent" : "Added by you"}</span>
         <span className="s-meta">{fmtRelative(m.updatedAt)}</span>
         {long && (
-          <Button variant="link-neutral" size="sm" onClick={() => setOpen((v) => !v)} className="pointer-coarse:-my-2.5 pointer-coarse:min-h-11">
+          <Button variant="link-neutral" size="sm" onClick={() => setOpen((v) => !v)}>
             {open ? "Less" : "More"}
           </Button>
         )}
         <span className="flex-1" />
-        <Button variant="link-neutral" size="sm" onClick={() => setEditing(true)} className="pointer-coarse:-my-2.5 pointer-coarse:min-h-11">
+        <Button variant="link-neutral" size="sm" onClick={() => setEditing(true)}>
           Edit
         </Button>
         <Button
@@ -121,7 +121,7 @@ function MemoryCard({ m, onChange }: { m: Memory; onChange(): Promise<void> }) {
             await fetch(`/api/memory/${m.id}`, { method: "DELETE" })
             await onChange()
           }}
-          className="pointer-coarse:-my-2.5 pointer-coarse:min-h-11"
+         
         >
           Forget
         </Button>

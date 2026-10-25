@@ -14,7 +14,7 @@ c.user("Hi")
 c.assistant([text("Reply MARKER-CHAT is here.", { ms: 2200 })])
 
 const base = { route: c.route, chats: [c, ...backgroundChats()], files: WORKSPACE_FILES, storage: { "syrup.prefetch": "off" } }
-const OPEN = { click: "button[title^='Show changes, files & preview'] >> visible=true" }
+const OPEN = { click: "button:is([title^='Show changes, files & preview'], [data-s-tip^='Show changes, files & preview']) >> visible=true" }
 const NOTE = "[aria-label='Workspace panel'] [role=alert]"
 
 const variants = [

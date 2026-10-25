@@ -1,4 +1,4 @@
-/** One distinct color per workspace (globals.css --ws-0 … --ws-7), so the cap equals the palette size. */
+/** One distinct color per workspace (the design system's --s-color-category-1 … 8), so the cap equals the palette size. */
 export const MAX_WORKSPACES = 8
 
 export const LIMIT_MESSAGE = `You can have up to ${MAX_WORKSPACES} workspaces. Remove one to add another.`

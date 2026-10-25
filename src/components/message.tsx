@@ -173,7 +173,7 @@ const THUMB_DOWN = "M17 14V2M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0
 /** Thumbs on a finished reply. Hover-only until one is chosen; clicking the chosen thumb again clears it. */
 function Thumbs({ value, onRate }: { value: Rating | null; onRate: (r: Rating | 0) => void }) {
   const thumb = (r: Rating, label: string, d: string) => (
-    <button type="button" title={label} aria-label={label} aria-pressed={value === r} onClick={() => onRate(value === r ? 0 : r)} className={`rounded p-0.5 transition hover:text-ink pointer-coarse:p-2.5 ${value === r ? "text-ink" : ""}`}>
+    <button type="button" data-s-tip={label} aria-label={label} aria-pressed={value === r} onClick={() => onRate(value === r ? 0 : r)} className={`rounded p-0.5 transition hover:text-ink pointer-coarse:p-2.5 ${value === r ? "text-ink" : ""}`}>
       <svg width="13" height="13" viewBox="0 0 24 24" fill={value === r ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
         <path d={d} />
       </svg>

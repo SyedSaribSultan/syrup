@@ -158,6 +158,7 @@ export function Composer({ onSend, onStop, busy, autoFocus, placeholder }: Props
         placeholder={placeholder ?? "Ask syrup to build, fix, or explain something…"}
         className="block w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-base leading-6 text-ink outline-none placeholder:text-muted"
       />
+      {/* The composer's own buttons (attach, stop, send) are not s- components, so their pointer-coarse 44 sizes stay. */}
       <div className="flex items-center justify-between gap-2 px-2 pb-2">
         <div className="flex min-w-0 items-center gap-1">
           <AttachMenu onFiles={(l) => void addFiles(l)} />
@@ -216,7 +217,7 @@ function AttachMenu({ onFiles }: { onFiles(list: FileList | null): void }) {
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         aria-label="Add photos and files"
-        title="Add photos and files (or paste an image)"
+        data-s-tip="Add photos and files (or paste an image)"
         className={`flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 transition hover:bg-surface-2 hover:text-ink pointer-coarse:h-11 pointer-coarse:w-11 pointer-coarse:rounded-full ${open ? "bg-surface-2 text-ink" : ""}`}
       >
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">

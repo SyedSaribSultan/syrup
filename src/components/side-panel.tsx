@@ -67,7 +67,7 @@ const BlockPreview = lazyPanel(() => import("./rich/block-preview"), (m) => m.Bl
  * The chat column plus, when open, the workspace panel (Changes · Files ·
  * Preview; docs/RESPONSIVE.md §6). Phones and tablets: a full-screen layer over
  * the chat, which stays mounted underneath (its scroll position survives).
- * 840–1199px: a side pane, the sidebar drops to its rail and the chat keeps
+ * 1025–1199px: a side pane, the sidebar drops to its rail and the chat keeps
  * 440px. From 1200px: the resizable side pane.
  */
 export function Workbench({ children }: { children: ReactNode }) {
@@ -152,7 +152,7 @@ function SidePane() {
   // a big monitor can never squeeze the chat on a smaller one.
   const [room, setRoom] = useState<number | null>(null)
 
-  // 840–1199px: the sidebar steps down to its rail while the pane is open.
+  // 1025–1199px: the sidebar steps down to its rail while the pane is open.
   useEffect(() => {
     setRail?.(true)
     return () => setRail?.(false)

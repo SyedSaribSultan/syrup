@@ -13,7 +13,7 @@ export type WindowClass = "compact" | "medium" | "expanded" | "large"
 
 const QUERIES = {
   medium: "(min-width: 37.5rem)",
-  expanded: "(min-width: 52.5rem)",
+  expanded: "(min-width: 64.0625rem)",
   large: "(min-width: 75rem)",
   coarse: "(pointer: coarse)",
 } as const

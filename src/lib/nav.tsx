@@ -13,7 +13,7 @@ import { useWorkspaces } from "./workspaces"
 
 const KEY = "syrup.sidebar"
 /** Matches the `expanded:` breakpoint in globals.css: from here the sidebar is part of the layout, not a drawer. */
-const EXPANDED_QUERY = "(min-width: 52.5rem)"
+const EXPANDED_QUERY = "(min-width: 64.0625rem)"
 
 let cache: boolean | null = null
 const subs = new Set<() => void>()
@@ -61,7 +61,7 @@ type Nav = {
   /** The one "sidebar" action: opens/closes the drawer on phones and tablets, collapses/expands it on desktop. */
   toggle(): void
   /**
-   * Set while the side panel is open. Between the expanded and large breakpoints (840–1199px) the
+   * Set while the side panel is open. Between the expanded and large breakpoints (1025–1199px) the
    * sidebar then shows as the rail, so the chat keeps room next to the panel; it comes back on close.
    */
   railForced: boolean

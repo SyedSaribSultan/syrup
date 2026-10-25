@@ -1165,7 +1165,7 @@ const TAB_LABEL = { changes: "Changes", files: "Files", preview: "Preview" }
 async function openPanel(page, { tab = "files", file }) {
   const root = page.locator('[aria-label="Workspace panel"]')
   if (!(await root.count())) {
-    await page.locator('button[title^="Show changes, files & preview"]').filter({ visible: true }).first().click()
+    await page.locator('button:is([title^="Show changes, files & preview"], [data-s-tip^="Show changes, files & preview"])').filter({ visible: true }).first().click()
     await root.first().waitFor({ state: "visible" })
   }
   const tabButton = (label) => root.locator("button").filter({ hasText: new RegExp(`^${label}`) }).first()

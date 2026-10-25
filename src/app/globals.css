@@ -12,18 +12,19 @@
 @import "../sarib/icons.css";
 
 /*
- * Window size classes (Material 3), replacing Tailwind's defaults so there is one system.
+ * Window size classes (Material 3, with the drawer/sidebar switch moved to sarib-design's desktop breakpoint, 1025),
+ * replacing Tailwind's defaults so there is one system.
  * Unprefixed classes are the phone layout; see docs/RESPONSIVE.md §3.
  *   compact  < 600px   phones                 (no prefix)
- *   medium   600–839   tablets in portrait     medium:
- *   expanded 840–1199  tablets in landscape    expanded:
+ *   medium   600–1024  tablets in portrait     medium:
+ *   expanded 1025–1199 small laptops           expanded:  (the sidebar is a column from here: sarib-design desktop)
  *   large    ≥ 1200    laptops and desktops    large:
  * Touch vs mouse is separate from width: use pointer-coarse: / pointer-fine:.
  */
 @theme {
   --breakpoint-*: initial;
   --breakpoint-medium: 37.5rem;
-  --breakpoint-expanded: 52.5rem;
+  --breakpoint-expanded: 64.0625rem; /* 1025px: the library's desktop breakpoint (--s-breakpoint-desktop) */
   --breakpoint-large: 75rem;
 }
 
@@ -66,41 +67,11 @@
   /* Floating layers only (menus, popovers, sheets, toasts, the selected segment). Cards have no shadow. */
   --shadow: var(--s-elevation-md);
   --shadow-sm: var(--s-elevation-sm);
-  /* Workspace colors, one per workspace (src/lib/workspace-limits.ts caps workspaces at this count). Data, not chrome. */
-  --ws-0: #3b73c4;
-  --ws-1: #3f9a5a;
-  --ws-2: #d19a1f;
-  --ws-3: #8a5bc9;
-  --ws-4: #6f7f2a;
-  --ws-5: #1f9a9a;
-  --ws-6: #cf4f95;
-  --ws-7: #9a6a3f;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --ws-0: #6d9ee8;
-    --ws-1: #6cc487;
-    --ws-2: #e6b84f;
-    --ws-3: #b08ae8;
-    --ws-4: #b3c25e;
-    --ws-5: #4cc4c4;
-    --ws-6: #e87bb8;
-    --ws-7: #c49467;
-  }
-}
-
-/* Dark chosen in the app (lib/theme.ts), whatever the OS says. Same values as the block above. */
+/* Dark chosen in the app (lib/theme.ts), whatever the OS says. Colours follow the --s-* dark blocks in tokens.css. */
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --ws-0: #6d9ee8;
-  --ws-1: #6cc487;
-  --ws-2: #e6b84f;
-  --ws-3: #b08ae8;
-  --ws-4: #b3c25e;
-  --ws-5: #4cc4c4;
-  --ws-6: #e87bb8;
-  --ws-7: #c49467;
 }
 
 @theme inline {
@@ -132,7 +103,9 @@
   --color-brand-tone: var(--s-color-fill-brand-secondary);
   --color-line-brand: var(--s-color-border-brand);
   --color-ink-disabled: var(--s-color-content-primary-disabled);
-  /* Sarib layout sizes (DESIGN.md §11.2) as spacing keys: w-sidebar, w-rail, w-drawer. */
+  /* Sarib layout sizes (DESIGN.md §11.2) as spacing keys: w-sidebar, w-rail, and the drawer width. The drawer's class
+     reads --spacing-drawer*, never var(--s-…) inline: any class containing "s-" matches the library's reduced-motion
+     [class*="s-"] rule and would change the drawer's transitions (motion-reduced scenario). */
   --spacing-sidebar: var(--s-sidebar-w);
   --spacing-rail: var(--s-rail-w);
   --spacing-drawer: var(--s-drawer-w-menu);
@@ -189,7 +162,7 @@ body {
   overscroll-behavior: none;
   background: var(--s-color-background);
   color: var(--s-color-content-primary);
-  font-family: var(--font-sans);
+  font-family: var(--s-font-family-body);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -272,7 +245,7 @@ body {
 .md h2,
 .md h3,
 .md h4 {
-  font-family: var(--font-sans);
+  font-family: var(--s-font-family-body);
   font-weight: 500;
   line-height: 1.3;
   letter-spacing: 0;
@@ -293,14 +266,14 @@ body {
 .md p code,
 .md li code,
 .md td code {
-  font-family: var(--font-mono);
+  font-family: var(--s-font-family-code);
   font-size: var(--s-font-size-body-sm);
   background: var(--s-color-fill-secondary);
   border-radius: var(--s-radius-4);
   padding: 0.1em 0.35em;
 }
 .md pre {
-  font-family: var(--font-mono);
+  font-family: var(--s-font-family-code);
   font-size: var(--s-font-size-body-sm);
   line-height: 1.55;
   background: var(--s-color-fill-secondary);
@@ -375,9 +348,9 @@ body {
   --motion-base: 250ms; /* popovers, menus, dialogs, expand/collapse, notices */
   --motion-slow: 420ms; /* sheets, drawer, workspace panel, sidebar ↔ rail */
   --motion-shift: 4px; /* how far popovers and notices travel */
-  --ease-arrive: cubic-bezier(0.4, 0, 0.2, 1); /* entering: fast start, soft landing */
-  --ease-leave: cubic-bezier(0.4, 0, 1, 1); /* leaving: gets out of the way */
-  --ease-move: cubic-bezier(0.4, 0, 0.2, 1); /* changing size or place on screen */
+  --ease-arrive: var(--s-motion-easing-standard); /* entering: fast start, soft landing */
+  --ease-leave: var(--s-motion-easing-exit); /* leaving: gets out of the way */
+  --ease-move: var(--s-motion-easing-standard); /* changing size or place on screen */
 }
 
 /*
@@ -761,7 +734,7 @@ figure.rich {
   margin-bottom: 0.25rem;
 }
 .rich-kind {
-  font-family: var(--font-mono);
+  font-family: var(--s-font-family-code);
   font-size: var(--s-font-size-body-xs);
   color: var(--s-color-content-tertiary);
 }
@@ -829,7 +802,7 @@ figure.rich {
 .rich-err {
   display: block;
   margin-top: 0.15rem;
-  font-family: var(--font-mono);
+  font-family: var(--s-font-family-code);
   font-size: var(--s-font-size-body-xs);
   overflow-wrap: anywhere;
 }
@@ -838,6 +811,7 @@ figure.rich {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+/* A 44px target on touch: .rich-link is syrup's own, not an s- component, so the library floor does not reach it. */
 @media (pointer: coarse) {
   .rich-link {
     display: inline-block;
@@ -920,7 +894,7 @@ figure[data-rich-state="pending"] .rich-src > summary {
   contain: paint;
 }
 .rich-tex-raw {
-  font-family: var(--font-mono);
+  font-family: var(--s-font-family-code);
   font-size: var(--s-font-size-body-sm);
   overflow-wrap: anywhere;
 }
@@ -936,7 +910,7 @@ figure[data-rich-state="pending"] .rich-src > summary {
   white-space: pre-wrap;
 }
 .rich-tex-src {
-  font-family: var(--font-mono);
+  font-family: var(--s-font-family-code);
   font-size: var(--s-font-size-body-sm);
   color: var(--s-color-content-tertiary);
 }

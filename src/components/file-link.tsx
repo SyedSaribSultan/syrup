@@ -12,7 +12,7 @@ import { useNarrow } from "@/lib/use-window-class"
 import { useReadOnly } from "./read-only"
 import { confirmDialog } from "./ui/dialog"
 import { Notice, useNotices } from "./ui/notice"
-import { Icon } from "./ui/s"
+import { Icon, IconButton } from "./ui/s"
 import { MenuList, Sheet } from "./ui/sheet"
 
 /**
@@ -44,13 +44,7 @@ function LiveFileLink({ path, children, className = "" }: { path: string; childr
   )
 }
 
-type Anchor = { left: number; top: number; bottom: number }
-const anchorOf = (el: HTMLElement): Anchor => {
-  const r = el.getBoundingClientRect()
-  return { left: r.left, top: r.top, bottom: r.bottom }
-}
-
-type Toast = { text: string; tone?: "warn"; anchor: Anchor | null }
+type Toast = { text: string; tone?: "warn" }
 /** `handoff`: choosing it hands over to something that is not one of our overlays, so the menu skips its exit (docs/MOTION.md §4.3). */
 export type MenuItem = { label: string; hint?: string; run(): void; handoff?: boolean } | "sep"
 type Item = MenuItem
@@ -67,18 +61,10 @@ export function useFileMenu(path: string) {
   // Kept (open: false) while the menu plays its exit, dropped once it has gone.
   const [menu, setMenu] = useState<{ x: number; y: number; open: boolean } | null>(null)
   const toasts = useNotices<Toast>()
-  // The mention (or row) that was used: a toast shows next to it.
+  // The mention (or row) that was used: focus returns to it when the menu closes.
   const trigger = useRef<HTMLElement | null>(null)
   const { show: showToast, hide: hideToast, drop: dropToast, current: toast } = toasts
-  // Measured when the toast shows, not when the mention was clicked: the click's own handler shows some toasts before
-  // a re-render, and the page may have scrolled since.
-  const flash = useCallback(
-    (text: string, tone?: "warn") => {
-      const el = trigger.current
-      showToast({ text, tone, anchor: el?.isConnected ? anchorOf(el) : null })
-    },
-    [showToast],
-  )
+  const flash = useCallback((text: string, tone?: "warn") => showToast({ text, tone }), [showToast])
 
   const closeMenu = useCallback((refocus = true) => {
     setMenu((m) => (m?.open ? { ...m, open: false } : m))
@@ -86,19 +72,13 @@ export function useFileMenu(path: string) {
   }, [])
   const menuGone = useCallback(() => setMenu((m) => (m && !m.open ? null : m)), [])
 
-  // The open toast hides after a moment, or as soon as the page scrolls: it is anchored to where the mention was.
+  // The open toast hides after a moment (the library's 4s), or now with its close button.
   const toastId = toast?.id
-  const toastTone = toast?.tone
   useEffect(() => {
     if (toastId === undefined) return
-    const hide = () => hideToast(toastId)
-    const t = setTimeout(hide, toastTone ? 3500 : 1800)
-    window.addEventListener("scroll", hide, true)
-    return () => {
-      clearTimeout(t)
-      window.removeEventListener("scroll", hide, true)
-    }
-  }, [toastId, toastTone, hideToast])
+    const t = setTimeout(() => hideToast(toastId), 4000)
+    return () => clearTimeout(t)
+  }, [toastId, hideToast])
 
   const missing = useCallback((f: WorkspaceFile) => flash(`${f.rel} doesn't exist yet`, "warn"), [flash])
 
@@ -186,37 +166,26 @@ export function useFileMenu(path: string) {
     ui = createPortal(
       <div className="contents" onClick={stop} onContextMenu={stop}>
         {menu && <Menu open={menu.open} at={menu} title={file.rel} items={items} onClose={closeMenu} onExited={menuGone} />}
-        {toasts.items.map((t) => (
-          <Notice
-            key={t.id}
-            open={t.open}
-            onExited={() => dropToast(t.id)}
-            place={t.anchor ? (el) => placeToast(el, t.anchor!) : undefined}
-            // Toast (03 B15): P3 raised r16 + elevation-md, p 12/16, body-sm ink, never inverse. Only the icon takes the tone.
-            className={`s-raised s-raised--md fixed z-toast flex max-w-[90vw] items-center gap-3 ${t.anchor ? "" : "bottom-[calc(env(safe-area-inset-bottom)+96px)] left-1/2 -translate-x-1/2 expanded:bottom-6"} px-4 py-3 text-sm text-ink`}
-          >
-            {t.tone === "warn" && <Icon name="triangle-alert" size={20} className="text-warn" />}
-            <span className="min-w-0 truncate">{t.text}</span>
-          </Notice>
-        ))}
+        {/* The canonical toast (seam rule 2, library B15): s-toasts region bottom centre 24 up (on phones also above the
+            composer and the home indicator, via --s-toast-offset), max-content up to 420, tone icon, body-sm ink text, and
+            always a ghost sm close. Notice adds syrup's motion-notice exit, so a new toast crossfades the old one. */}
+        {toasts.items.length > 0 && (
+          <div className="s-toasts [--s-toast-offset:calc(env(safe-area-inset-bottom)+72px)] expanded:[--s-toast-offset:0px]">
+            {toasts.items.map((t) => (
+              <Notice key={t.id} open={t.open} onExited={() => dropToast(t.id)} className={`s-toast ${t.tone === "warn" ? "s-toast--warning" : ""}`}>
+                {t.tone === "warn" && <Icon name="triangle-alert" size={20} />}
+                <span className="s-toast__text">{t.text}</span>
+                <IconButton icon="close" label="Dismiss" onClick={() => hideToast(t.id)} />
+              </Notice>
+            ))}
+          </div>
+        )}
       </div>,
       document.body,
     )
   }
 
   return { file, cloud, bind, press, openAt, ui }
-}
-
-/**
- * A toast next to the mention that was used: under it, or above it when there is no room below. It drops in under the
- * mention and rises above it. With no anchor it sits bottom centre (on phones above the composer and the home indicator).
- */
-function placeToast(el: HTMLElement, anchor: Anchor): "up" | "down" {
-  const r = el.getBoundingClientRect()
-  const above = anchor.bottom + 6 + r.height > window.innerHeight - 8
-  el.style.left = `${Math.max(8, Math.min(anchor.left, window.innerWidth - r.width - 8))}px`
-  el.style.top = `${above ? anchor.top - 6 - r.height : anchor.bottom + 6}px`
-  return above ? "up" : "down"
 }
 
 /** The file actions: an anchored menu at the pointer on desktop, an action sheet (big rows) on phones and tablets. */
@@ -320,7 +289,7 @@ function PointerMenu({ open, at, title, items, onClose, onExited }: { open: bool
               it.run()
             }}
             // 44px rows on touch screens: a touch-target size, the one change to the shared item.
-            className="s-menu__item pointer-coarse:min-h-11"
+            className="s-menu__item"
           >
             <span className="s-menu__text truncate">{it.label}</span>
             {it.hint && <span className="s-menu__shortcut">{it.hint}</span>}

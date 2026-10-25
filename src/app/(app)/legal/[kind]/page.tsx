@@ -7,9 +7,6 @@ export function generateStaticParams() {
   return Object.keys(LEGAL).map((kind) => ({ kind }))
 }
 
-/** Nav links: 24 tall, but a 44px target on touch screens (a touch-target size, not a restyle). */
-const CRUMB = "pointer-coarse:min-h-11"
-
 export default async function LegalPage({ params }: PageProps<"/legal/[kind]">) {
   const { kind } = await params
   if (!(kind in LEGAL)) notFound()
@@ -20,11 +17,11 @@ export default async function LegalPage({ params }: PageProps<"/legal/[kind]">) 
       <article className="mx-auto w-full max-w-[720px] px-4 pt-[max(3rem,env(safe-area-inset-top))] pb-[max(3rem,env(safe-area-inset-bottom))] medium:px-6">
         {/* Nav links (s-btn--link-neutral, DESIGN.md §11.2): the page you are on turns brand through aria-current. */}
         <nav aria-label="Legal" className="mb-6 flex flex-wrap items-center gap-x-5 gap-y-1">
-          <Link href="/" className={`s-btn s-btn--link-neutral s-btn--sm ${CRUMB}`}>
+          <Link href="/" className="s-btn s-btn--link-neutral s-btn--sm">
             syrup
           </Link>
           {(Object.keys(LEGAL) as LegalKind[]).map((k) => (
-            <Link key={k} href={`/legal/${k}`} aria-current={k === kind ? "page" : undefined} className={`s-btn s-btn--link-neutral s-btn--sm ${CRUMB}`}>
+            <Link key={k} href={`/legal/${k}`} aria-current={k === kind ? "page" : undefined} className="s-btn s-btn--link-neutral s-btn--sm">
               {LEGAL[k].title}
             </Link>
           ))}

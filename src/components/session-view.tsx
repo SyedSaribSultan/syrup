@@ -280,6 +280,7 @@ export function SessionView({ id }: { id: string }) {
 
       <div className="pointer-events-none absolute inset-x-0 bottom-0 canvas-fade pt-10 pb-[max(0.75rem,env(safe-area-inset-bottom))] medium:pb-5">
         <div className="mx-auto w-full max-w-[720px] px-3 medium:px-6">
+          {/* Not an s- button: its pointer-coarse 44 stays (no library floor). */}
           {scrolledUp && (
             <button
               type="button"
@@ -334,7 +335,7 @@ function ChatMenu({ id, title, totals, onShare }: { id: string; title: string; t
       label: "Delete chat",
       danger: true,
       onSelect: async () => {
-        if (!(await confirmDialog({ title: `Delete "${title}"?`, body: "This cannot be undone.", confirmLabel: "Delete", danger: true }))) return
+        if (!(await confirmDialog({ title: `Delete “${title}”?`, body: "You can't undo this.", confirmLabel: "Delete", danger: true }))) return
         await deleteSession(id)
         router.push(w.newChatHref ?? "/")
       },

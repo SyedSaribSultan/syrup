@@ -297,7 +297,7 @@ export function SharedLinks({ variant = "card" }: { variant?: "card" | "compact"
       setRows((rs) => rs?.map((r) => (r.id === s.id ? { ...j.share, stats: undefined } : r)) ?? null)
     })
   const stop = async (s: ShareInfo) => {
-    if (!(await confirmDialog({ title: `Stop sharing "${s.title || "Untitled"}"?`, body: "The link stops working right away.", confirmLabel: "Stop sharing", danger: true }))) return
+    if (!(await confirmDialog({ title: `Stop sharing “${s.title || "Untitled"}”?`, body: "The link stops working right away.", confirmLabel: "Stop sharing", danger: true }))) return
     void act(s.id, async () => {
       await api(`/api/shares/${s.id}`, { method: "DELETE" })
       setRows((rs) => rs?.filter((r) => r.id !== s.id) ?? null)

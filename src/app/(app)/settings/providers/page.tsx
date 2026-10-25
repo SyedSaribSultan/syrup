@@ -336,7 +336,7 @@ function ProviderCard({
 
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
             {c && (
-              <a href={c.keyUrl} target="_blank" rel="noreferrer" className="s-btn s-btn--link-brand s-btn--sm pointer-coarse:min-h-11">
+              <a href={c.keyUrl} target="_blank" rel="noreferrer" className="s-btn s-btn--link-brand s-btn--sm">
                 <span className="s-btn__label">Get a key</span>
                 <Icon name="arrow-up-right" />
               </a>

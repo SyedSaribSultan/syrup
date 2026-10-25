@@ -12,7 +12,11 @@ const ERRORS: Record<string, string> = {
   Configuration: "Sign-in is misconfigured on the server. This is our fault, not yours.",
 }
 
-/** The Sarib sign-in pattern (sarib-design 03 B20): a P2 card on the canvas, no shadow; brand, headline, lede, one outline OAuth button. */
+/**
+ * The Sarib sign-in pattern (sarib-design 03 B20, seam rule 5): a P2 card on the canvas, no shadow; 32 logo + name
+ * (Flex 500), hero-sm with one accent word, body lede, md block buttons (Google is syrup's only method: outline), and a
+ * link-neutral sm foot link.
+ */
 export default async function SignInPage({ searchParams }: PageProps<"/signin">) {
   if (!env.isCloud) redirect("/")
   const sp = await searchParams
@@ -35,9 +39,16 @@ export default async function SignInPage({ searchParams }: PageProps<"/signin">)
       <div className="s-auth min-h-full pt-[max(4rem,env(safe-area-inset-top))] pb-[max(4rem,env(safe-area-inset-bottom))]">
         <div className="flex w-full max-w-[400px] flex-col items-center gap-6">
           <div className="s-auth__card">
-            <span className="s-auth__brand">syrup</span>
+            <span className="s-auth__brand">
+              {/* syrup's mark (app/icon.svg, the favicon and home-screen icon) at 32. */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/icon.svg" alt="" width={32} height={32} className="s-auth__logo size-8" />
+              syrup
+            </span>
             <div className="flex flex-col gap-2">
-              <h1 className="s-auth__title">Sign in</h1>
+              <h1 className="s-auth__title">
+                Sign <em>in</em>
+              </h1>
               <p className="s-auth__lede">A coding agent powered by your own API keys.</p>
             </div>
 
@@ -69,15 +80,13 @@ export default async function SignInPage({ searchParams }: PageProps<"/signin">)
               </Link>
               .
             </p>
-          </div>
 
-          <p className="s-help text-center">
-            Prefer to run it yourself?{" "}
-            <a href="https://github.com/SyedSaribSultan/syrup" className="s-link" target="_blank" rel="noreferrer">
-              syrup is open source
-            </a>
-            .
-          </p>
+            <div className="s-auth__foot">
+              <a href="https://github.com/SyedSaribSultan/syrup" className="s-btn s-btn--link-neutral s-btn--sm" target="_blank" rel="noreferrer">
+                <span className="s-btn__label">Run it yourself: syrup is open source</span>
+              </a>
+            </div>
+          </div>
         </div>
       </div>
     </div>

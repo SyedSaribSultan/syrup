@@ -79,7 +79,7 @@ export function shareDate(ms: number): string {
 }
 
 /** Markdown / JSON links: Sarib nav links (link-neutral sm), 44px tall on touch screens (a touch-target size). */
-const FORMAT_LINK = "s-btn s-btn--link-neutral s-btn--sm pointer-coarse:min-h-11"
+const FORMAT_LINK = "s-btn s-btn--link-neutral s-btn--sm"
 
 /**
  * Header, messages and footer of a shared chat. `id` adds the Markdown/JSON links; `homeHref` the "Try syrup" link.

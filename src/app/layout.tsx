@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next"
 import { Google_Sans_Code, Google_Sans_Flex } from "next/font/google"
 import { DialogHost } from "@/components/ui/dialog"
+import { Tips } from "@/components/ui/tips"
 import { ViewportSync } from "@/components/ui/viewport-sync"
 import { THEME_SCRIPT } from "@/lib/theme-script"
 import "./globals.css"
@@ -51,6 +52,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {children}
         <DialogHost />
         <ViewportSync />
+        <Tips />
       </body>
     </html>
   )

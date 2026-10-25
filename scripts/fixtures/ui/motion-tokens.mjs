@@ -11,11 +11,11 @@ const MOVE = "cubic-bezier(0.4, 0, 0.2, 1)"
 const LEAVE = "cubic-bezier(0.4, 0, 1, 1)"
 const DRAWER = 'div[aria-label="Navigation"]'
 /** A sidebar chat row's Rename / Delete buttons (only on chats of the open workspace). */
-const ACTIONS = 'div:has(> button[title="Rename"])'
+const ACTIONS = 'div:has(> button[data-s-tip="Rename"])'
 const ROW_ACTIONS = `nav li ${ACTIONS}`
-const ROW_TIME = 'nav li:has(button[title="Rename"]) a > span:last-child'
+const ROW_TIME = 'nav li:has(button[data-s-tip="Rename"]) a > span:last-child'
 /** The sidebar rows that have actions, in order (Playwright's `>> nth=` picks one). */
-const ROWS = 'nav li:has(button[title="Rename"])'
+const ROWS = 'nav li:has(button[data-s-tip="Rename"])'
 const SETTINGS = 'button:has-text("Running on this computer")'
 const DARK = '[aria-label="Theme"] button:has-text("Dark")'
 const OPEN_MENU = 'button[aria-label="Open menu"]'
@@ -47,14 +47,14 @@ const scenarios = [
       { style: `nav li:not(:hover) ${ACTIONS}`, prop: "opacity", equals: "0", widths: [1440] },
       { style: ROW_ACTIONS, prop: "display", equals: "flex" },
       // …and invisible, so they are out of the tab order and the accessibility tree (as when they were display: none).
-      { hidden: 'nav li:not(:hover):not(:focus-within) button[title="Rename"]', widths: [1440] },
-      { style: 'nav li:hover:has(button[title="Rename"]) a > span:last-child', prop: "opacity", equals: "0", widths: [1440] },
+      { hidden: 'nav li:not(:hover):not(:focus-within) button[data-s-tip="Rename"]', widths: [1440] },
+      { style: 'nav li:hover:has(button[data-s-tip="Rename"]) a > span:last-child', prop: "opacity", equals: "0", widths: [1440] },
       // Touch screens: the actions are always there, the time is not…
       { style: ROW_ACTIONS, prop: "opacity", equals: "1", widths: [390] },
       { style: ROW_TIME, prop: "display", equals: "none", widths: [390] },
       // …but only as visible as the drawer around them: shown is `inherit`, so the closed drawer's are neither
       // focusable nor announced (motion-drawer-open checks they show once it opens).
-      { hidden: `${DRAWER}[data-open="false"] button[title="Rename"]`, widths: [390] },
+      { hidden: `${DRAWER}[data-open="false"] button[data-s-tip="Rename"]`, widths: [390] },
     ],
   }),
   defineScenario({
@@ -68,9 +68,9 @@ const scenarios = [
     steps: [{ focus: `${ROWS} >> nth=1 >> a` }, { press: "Shift+Tab" }, { press: "Tab" }],
     assert: [
       // With the actions focusable while transparent, Shift+Tab lands on row 1's Delete, and Tab then leaves the row.
-      { focused: `${ROWS} >> nth=0 >> button[title="Rename"]` },
-      { visible: `${ROWS} >> nth=0 >> button[title="Rename"]` },
-      { hidden: 'nav li:not(:hover):not(:focus-within) button[title="Rename"]' },
+      { focused: `${ROWS} >> nth=0 >> button[data-s-tip="Rename"]` },
+      { visible: `${ROWS} >> nth=0 >> button[data-s-tip="Rename"]` },
+      { hidden: 'nav li:not(:hover):not(:focus-within) button[data-s-tip="Rename"]' },
     ],
   }),
   defineScenario({
@@ -102,7 +102,7 @@ const scenarios = [
       { composited: ["translate"] },
       { visible: `${DRAWER}[data-open="true"] nav` },
       // A touch screen: the row actions show without a hover, now that the drawer around them does.
-      { visible: `${DRAWER}[data-open="true"] button[title="Rename"]` },
+      { visible: `${DRAWER}[data-open="true"] button[data-s-tip="Rename"]` },
     ],
   }),
   defineScenario({
@@ -144,7 +144,7 @@ const scenarios = [
       { style: `${DRAWER}[data-open="false"]`, prop: "opacity", equals: "0" },
       { style: `${DRAWER}[data-open="false"]`, prop: "visibility", equals: "hidden" },
       { style: `${DRAWER}[data-open="false"]`, prop: "pointer-events", equals: "none" },
-      { hidden: `${DRAWER}[data-open="false"] button[title="Rename"]` },
+      { hidden: `${DRAWER}[data-open="false"] button[data-s-tip="Rename"]` },
       { style: DRAWER, prop: "transition-duration", equals: FAST },
       // translate is not transitioned: a swipe-close's offset snaps away rather than sliding back against the swipe.
       { style: DRAWER, prop: "transition-property", equals: "opacity, visibility" },

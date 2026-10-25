@@ -99,7 +99,7 @@ type HistoryMark = { syrupPanel?: number }
 
 const URL_EVENT = "syrup:panel-url"
 /** Matches the `expanded:` breakpoint: from here the panel is a side pane and the URL stays clean. */
-const EXPANDED_QUERY = "(min-width: 52.5rem)"
+const EXPANDED_QUERY = "(min-width: 64.0625rem)"
 const isNarrow = () => !window.matchMedia(EXPANDED_QUERY).matches
 
 /** A history.go is in flight: until its popstate lands the URL is stale, so a second tap must not go back again. */

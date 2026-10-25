@@ -10,7 +10,7 @@ import { useModalDialog } from "./sheet"
  * but styled, touch-sized and theme-aware. Built on the native <dialog> (showModal), which gives
  * focus trapping, an inert page behind it, the top layer, and focus returning to the trigger.
  *
- *   if (!(await confirmDialog({ title: "Delete chat?", confirmLabel: "Delete", danger: true }))) return
+ *   if (!(await confirmDialog({ title: `Delete “${name}”?`, body: "You can't undo this.", confirmLabel: "Delete", danger: true }))) return
  *   const name = await promptDialog({ title: "Rename chat", value: current, confirmLabel: "Save" })
  *
  * One dialog shows at a time; later requests wait their turn. <DialogHost /> is mounted once in
@@ -146,8 +146,9 @@ function DialogBox({
       aria-labelledby={`dlg-${req.id}-title`}
       // A press on the backdrop (the dialog element itself, outside the card) cancels.
       onClick={(e) => e.target === e.currentTarget && finish(false)}
-      // P3 raised dialog (03 B14): elevated surface, hairline, r20, elevation-lg, ink 30% scrim.
-      className="m-auto w-[min(440px,calc(100vw-32px))] max-w-none rounded-xl border border-line bg-elevated p-0 text-ink shadow-panel motion-dialog backdrop:bg-ink/30 max-medium:mt-[15dvh]"
+      // P3 raised dialog (03 B14): elevated surface, hairline, r20, elevation-lg, ink 30% scrim. Centred on every width
+      // (seam rule 1): m-auto, no top offset on phones.
+      className="m-auto w-[min(440px,calc(100vw-32px))] max-w-none rounded-xl border border-line bg-elevated p-0 text-ink shadow-panel motion-dialog backdrop:bg-ink/30"
     >
       <form
         method="dialog"

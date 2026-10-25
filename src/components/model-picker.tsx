@@ -405,7 +405,7 @@ function Row({ item, active, current, favorites, status, tiers, nowFor, onPick, 
         type="button"
         tabIndex={-1}
         aria-label={fav ? "Remove from favorites" : "Add to favorites"}
-        title={fav ? "Remove from favorites" : `Add to favorites (up to ${MAX_FAVORITES})`}
+        data-s-tip={fav ? "Remove from favorites" : `Add to favorites (up to ${MAX_FAVORITES})`}
         onClick={(e) => {
           e.stopPropagation()
           onStar(key)

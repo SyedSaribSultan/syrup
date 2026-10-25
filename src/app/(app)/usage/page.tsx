@@ -358,7 +358,7 @@ function RowCard({ c }: { c: Card }) {
       <dl className="mt-1.5 grid grid-cols-3 gap-x-3 gap-y-1.5">{c.fields.map(cell)}</dl>
       {c.more && (
         <details className="group mt-1">
-          <summary className="s-btn s-btn--link-neutral s-btn--sm list-none pointer-coarse:min-h-11 [&::-webkit-details-marker]:hidden">
+          <summary className="s-btn s-btn--link-neutral s-btn--sm list-none [&::-webkit-details-marker]:hidden">
             <span className="group-open:hidden">More</span>
             <span className="hidden group-open:inline">Less</span>
           </summary>

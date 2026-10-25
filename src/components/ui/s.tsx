@@ -25,9 +25,8 @@ export type ButtonSize = "sm" | "md" | "lg" | "xl"
 type Look = { variant?: ButtonVariant; size?: ButtonSize; pill?: boolean; block?: boolean; className?: string }
 
 export function btnClass({ variant = "primary", size = "md", pill, block, className }: Look & { icon?: boolean }, icon = false): string {
-  // Icon-only buttons grow to 44 on touch screens: a touch-target size (docs/RESPONSIVE.md §2), not a restyle.
-  const touch = icon && size !== "lg" && size !== "xl" && "pointer-coarse:h-11 pointer-coarse:w-11"
-  return ["s-btn", variant !== "primary" && `s-btn--${variant}`, size !== "md" && `s-btn--${size}`, pill && "s-btn--pill", block && "s-btn--block", icon && "s-btn--icon", touch, className].filter(Boolean).join(" ")
+  // Touch screens: the library gives every s-btn (icon ones included) its 44px floor (sarib-design v2.1).
+  return ["s-btn", variant !== "primary" && `s-btn--${variant}`, size !== "md" && `s-btn--${size}`, pill && "s-btn--pill", block && "s-btn--block", icon && "s-btn--icon", className].filter(Boolean).join(" ")
 }
 
 type ButtonProps = Look & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className"> & { icon?: IconName; iconEnd?: IconName; busy?: boolean }
@@ -46,10 +45,11 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
 
 type IconButtonProps = Omit<Look, "block"> & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className" | "aria-label"> & { icon: IconName; label: string; children?: ReactNode }
 
-/** Icon-only `s-btn--icon`: a square 36 / 40 / 44 with its label for assistive tech (and as the tooltip title). */
+/** Icon-only `s-btn--icon`: a square 36 / 40 / 44 with its label for assistive tech. `title` (default: the label) is the
+ * library label tip (`data-s-tip`, ui/tips.tsx), not a native title tooltip. */
 export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(function IconButton({ variant = "ghost", size = "sm", pill, className, icon, label, title, children, type = "button", ...rest }, ref) {
   return (
-    <button ref={ref} type={type} aria-label={label} title={title ?? label} className={btnClass({ variant, size, pill, className }, true)} {...rest}>
+    <button ref={ref} type={type} aria-label={label} data-s-tip={title ?? label} className={btnClass({ variant, size, pill, className }, true)} {...rest}>
       <Icon name={icon} />
       {children}
     </button>
@@ -62,7 +62,7 @@ type LinkButtonProps = Look & Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "cla
 export function LinkButton({ variant, size, pill, block, className, icon, label, children, href, prefetch, ...rest }: LinkButtonProps) {
   const iconOnly = !children && !!label
   return (
-    <Link href={href} prefetch={prefetch} aria-label={iconOnly ? label : undefined} title={iconOnly ? label : undefined} className={btnClass({ variant, size, pill, block, className }, iconOnly)} {...rest}>
+    <Link href={href} prefetch={prefetch} aria-label={iconOnly ? label : undefined} data-s-tip={iconOnly ? label : undefined} className={btnClass({ variant, size, pill, block, className }, iconOnly)} {...rest}>
       {icon && <Icon name={icon} />}
       {children && <span className="s-btn__label">{children}</span>}
     </Link>

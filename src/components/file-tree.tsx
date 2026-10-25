@@ -401,7 +401,7 @@ function Row({
       className="[-webkit-touch-callout:none] pointer-coarse:select-none"
     >
       {/* 44px rows on touch screens: a touch-target size, the one change to the shared row. */}
-      <div className="s-tree__row pointer-coarse:min-h-11" data-drop={dropping || undefined}>
+      <div className="s-tree__row" data-drop={dropping || undefined}>
         {dir ? <Icon name="chevron-right" className="s-tree__chevron" /> : <span className="s-tree__spacer" />}
         <Icon name={dir ? (open ? "folder-open" : "folder") : "file-text"} className="s-tree__icon" />
         <span className={`s-tree__name ${entry.ignored ? "text-muted" : ""}`}>{entry.name}</span>

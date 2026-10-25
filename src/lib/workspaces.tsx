@@ -78,7 +78,8 @@ export function useAllChats(): ChatItem[] {
 /** Soft tinted background for a workspace tile. */
 export const wsTint = (color: number, pct = 16) => `color-mix(in srgb, ${wsColor(color)} ${pct}%, transparent)`
 
-export const wsColor = (color: number) => `var(--ws-${((color % MAX_WORKSPACES) + MAX_WORKSPACES) % MAX_WORKSPACES})`
+/** Workspace i takes the design system's identity colour category-(i+1) (--s-color-category-1 … 8). */
+export const wsColor = (color: number) => `var(--s-color-category-${(((color % MAX_WORKSPACES) + MAX_WORKSPACES) % MAX_WORKSPACES) + 1})`
 
 /** Folder paths compare case-insensitively on Windows and ignore slash style. */
 export function samePath(a: string, b: string): boolean {

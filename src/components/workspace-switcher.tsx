@@ -13,7 +13,7 @@ import { baseName, useAllChats, useWorkspaces, wsColor, type WorkspaceItem } fro
 
 type Browse = { path: string; exists: boolean; git?: boolean; parent: string | null; dirs: { name: string; path: string; git: boolean }[]; home?: string }
 
-/** The workspace's colour key: an 8px dot on chat rows and in the switcher. Data colours (--ws-*), never brand red. */
+/** The workspace's colour key: an 8px dot on chat rows and in the switcher. Identity colours (--s-color-category-*), never brand red. */
 export function WorkspaceDot({ color, className = "" }: { color: number; className?: string }) {
   return <span aria-hidden="true" className={`h-2 w-2 shrink-0 rounded-full ${className}`} style={{ background: wsColor(color) }} />
 }
@@ -74,10 +74,10 @@ function Menu({ onDone }: { onDone(): void }) {
   async function onRemove(w: WorkspaceItem) {
     const ok = await confirmDialog(
       mode === "cloud"
-        ? { title: `Delete "${w.name}"?`, body: "This destroys its sandbox and every file in it. It cannot be undone. Its chats leave the list (the history stays in your account).", confirmLabel: "Delete", danger: true }
+        ? { title: `Delete “${w.name}”?`, body: "This deletes its sandbox and every file in it. Its chats leave the list, and the history stays in your account. You can't undo this.", confirmLabel: "Delete", danger: true }
         : w.missing
-          ? { title: `Remove "${w.name}" from syrup?`, body: `${w.detail} is not on disk any more. Its chats come back if you add the folder again.`, confirmLabel: "Remove" }
-          : { title: `Remove "${w.name}" from syrup?`, body: "The folder and its files stay on disk. Its chats leave the list and come back if you add the folder again.", confirmLabel: "Remove" },
+          ? { title: `Remove “${w.name}” from syrup?`, body: `${w.detail} is not on disk any more. Its chats come back if you add the folder again.`, confirmLabel: "Remove" }
+          : { title: `Remove “${w.name}” from syrup?`, body: "The folder and its files stay on disk. Its chats leave the list and come back if you add the folder again.", confirmLabel: "Remove" },
     )
     if (ok) await remove(w.id)
   }

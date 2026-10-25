@@ -21,6 +21,8 @@ const CHAT_MENU = 'button[aria-label="Chat options"]'
 const CHAT_POPOVER = `div:has(> ${CHAT_MENU}) > [role="dialog"]`
 const SHEET = "dialog.motion-sheet"
 const DIALOG = "dialog.motion-dialog"
+const TOAST = '[role="status"].motion-notice'
+const TOAST_CLOSE = `${TOAST} button[aria-label="Dismiss"]`
 const ITEM = (label) => `[role="menuitem"]:has-text("${label}")`
 const FILE_LINK = ".chat-log button:has(code:text-is('src/cart.ts'))"
 const POINTER_MENU = '[role="menu"][data-layer]'
@@ -72,18 +74,20 @@ const scenarios = [
   defineScenario({
     ...base,
     name: "motion-pointer-menu",
-    description: "M1: right-click on a file link: PointerMenu drops from the pointer (flips up near the bottom); Copy path plays its exit and a toast drops in under the link; Open in panel hands off.",
+    description: "M1: right-click on a file link: PointerMenu drops from the pointer (flips up near the bottom); Copy path plays its exit and the toast rises in at the bottom centre (seam rule 2) and leaves with its close button; Open in panel hands off.",
     widths: [1440],
     steps: [
       { presence: { name: "pointer-menu", open: { contextMenu: FILE_LINK }, target: POINTER_MENU, close: { click: ITEM("Copy path") } } },
-      // The toast the copy showed: it hides by itself after 1.8 s.
-      { presence: { name: "toast", open: [], target: '[role="status"].motion-notice', close: { wait: 2000 }, timeout: 2_500 } },
+      // The toast the copy showed: closed with its close button (it would hide by itself after 4 s).
+      { presence: { name: "toast", open: [], target: '[role="status"].motion-notice', close: { click: TOAST_CLOSE } } },
       { presence: { name: "pointer-menu-up", open: { contextMenu: [FILE_LINK, { x: 640, y: 880 }] }, target: POINTER_MENU, close: ESC } },
       { presence: { name: "open-in-panel", open: { contextMenu: FILE_LINK }, target: POINTER_MENU, close: { click: ITEM("Open in panel") } } },
     ],
     assert: [
       { presence: "pointer-menu", side: "down", entered: ["opacity", "transform"], exitMs: FAST },
-      { presence: "toast", side: "down", entered: ["opacity", "transform"], exitMs: FAST },
+      // The canonical toast (.s-toast) enters with the library's own s-message-in keyframe (opacity + rise), not a
+      // transition, so only its exit (motion-notice) is a recorded transition.
+      { presence: "toast", side: "up", entered: [], exitMs: FAST },
       { presence: "pointer-menu-up", side: "up", entered: ["opacity", "transform"], exitMs: FAST },
       { presence: "open-in-panel", skipped: true },
       { visible: '[aria-label="Workspace panel"]' },
@@ -218,9 +222,6 @@ const scenarios = [
 const SLOW_DIALOG_EXITS = `<style>dialog[data-state="closed"], dialog[data-state="closed"]::backdrop { transition-duration: 1500ms !important }</style>`
 const MENU_BUTTON = 'button[aria-label="Open menu"]'
 const DRAWER_OPEN = 'div[aria-label="Navigation"][data-open="true"]'
-const TOAST = '[role="status"].motion-notice'
-/** The toast shown with no anchor: bottom centre. */
-const UNANCHORED_TOAST = `${TOAST}[class*="left-1/2"]`
 
 // A chat long enough to scroll, with the file mention in the middle of the screen.
 const long = chat("Cart rounding, step by step", { ago: HOUR })
@@ -376,23 +377,23 @@ scenarios.push(
   }),
   defineScenario({
     ...longBase,
-    name: "motion-toast-anchor",
-    description: "M1 review, local: a click on a mention whose file is missing shows its toast next to the mention, on the first click and again after the chat scrolled (not bottom centre, not where the mention used to be).",
+    name: "motion-toast-bottom",
+    description: "Seam rule 2, local: a click on a mention whose file is missing shows the canonical toast in the bottom-centre s-toasts region, with a close button, on the first click and again after the chat scrolled.",
     widths: [1440],
     expectConsole: [{ match: /^Failed to load resource: the server responded with a status of 404/, why: "the { respond } step answers /api/workspace/reveal with 404 on purpose (the file is missing)" }],
     steps: [
       { respond: { path: "/api/workspace/reveal", status: 404, body: { error: "not found" } } },
       { click: FILE_LINK },
       { wait: 150 },
-      { checkpoint: { name: "first-click-anchored", assert: { count: UNANCHORED_TOAST, equals: 0 } } },
-      { checkpoint: { name: "first-click-next-to-it", assert: { distance: [`${TOAST}[data-state="open"]`, FILE_LINK], max: 12 } } },
+      { checkpoint: { name: "first-click-bottom", assert: { count: `.s-toasts > ${TOAST}[data-state="open"]`, equals: 1 } } },
+      { checkpoint: { name: "first-click-close", assert: { visible: TOAST_CLOSE } } },
       { scrollBy: [FILE_LINK, -200] },
       { wait: 300 },
       { click: FILE_LINK },
       { wait: 150 },
-      { checkpoint: { name: "after-scroll-next-to-it", assert: { distance: [`${TOAST}[data-state="open"]`, FILE_LINK], max: 12 } } },
+      { checkpoint: { name: "after-scroll-bottom", assert: { count: `.s-toasts > ${TOAST}[data-state="open"]`, equals: 1 } } },
     ],
-    assert: [{ checkpoint: "first-click-anchored" }, { checkpoint: "first-click-next-to-it" }, { checkpoint: "after-scroll-next-to-it" }],
+    assert: [{ checkpoint: "first-click-bottom" }, { checkpoint: "first-click-close" }, { checkpoint: "after-scroll-bottom" }],
   }),
 )
 
@@ -416,9 +417,9 @@ scenarios.push(
   shot("motion-open-menu", "M1 screenshot: the chat ⋯ menu open (popover on desktop, sheet on phones).", [{ click: CHAT_MENU }], `${CHAT_POPOVER}, ${SHEET}`),
   shot("motion-open-confirm", "M1 screenshot: the Delete chat confirm open over its backdrop.", [{ click: CHAT_MENU }, { click: ITEM("Delete chat") }], DIALOG),
   shot("motion-open-pointer-menu", "M1 screenshot: right-click on a file link: the menu at the pointer.", [{ contextMenu: FILE_LINK }], POINTER_MENU, { widths: [1440] }),
-  // The toast hides by itself 1.8 s after it shows (real time), and WebKit's slower settle before the screenshot outlasts
-  // that. motion-pointer-menu checks the toast in both engines; this one is for the picture.
-  shot("motion-open-toast", "M1 screenshot: Copy path from the file menu: the toast under the link.", [{ contextMenu: FILE_LINK }, { click: ITEM("Copy path") }], '[role="status"].motion-notice', { widths: [1440], browsers: ["chromium"], wait: 200 }),
+  // The toast hides by itself 4 s after it shows (real time); motion-pointer-menu checks it in both engines, this one is
+  // for the picture.
+  shot("motion-open-toast", "M1 screenshot: Copy path from the file menu: the toast at the bottom centre.", [{ contextMenu: FILE_LINK }, { click: ITEM("Copy path") }], '[role="status"].motion-notice', { widths: [1440], browsers: ["chromium"], wait: 200 }),
   shot("motion-open-model-picker", "M1 screenshot: the model picker open (upward from the composer on desktop, a full sheet on phones).", [{ click: 'button[aria-haspopup="listbox"] >> visible=true' }], '[role="dialog"][aria-label="Choose a model"], dialog[aria-label="Choose a model"]'),
   shot(
     "motion-open-logs",

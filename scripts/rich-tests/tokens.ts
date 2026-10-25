@@ -29,6 +29,10 @@ export default function run(check: Check) {
     const got = (LIGHT_TOKENS as unknown as Record<string, string>)[key]
     check(want === got.toLowerCase(), `LIGHT_TOKENS.${key} = ${name}`, `${got} vs ${want}`)
   }
-  LIGHT_TOKENS.series.forEach((c, i) => check(vars.get(`--ws-${i}`) === c.toLowerCase(), `LIGHT_TOKENS.series[${i}] = --ws-${i}`, `${c} vs ${vars.get(`--ws-${i}`)}`))
+  LIGHT_TOKENS.series.forEach((c, i) => {
+    const name = `--s-color-category-${i + 1}`
+    const want = resolve(saribVars.get(name) ?? "").toLowerCase()
+    check(want === c.toLowerCase(), `LIGHT_TOKENS.series[${i}] = ${name}`, `${c} vs ${want}`)
+  })
   check(LIGHT_TOKENS.scheme === "light", "LIGHT_TOKENS are the light scheme")
 }

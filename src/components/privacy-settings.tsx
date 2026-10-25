@@ -48,7 +48,7 @@ export function PrivacySettings() {
   async function request(type: "export" | "delete") {
     const ok = await confirmDialog(
       type === "delete"
-        ? { title: "Delete your account and all data?", body: "Your account is deactivated immediately and everything is erased within 30 days. This cannot be undone.", confirmLabel: "Delete account", danger: true }
+        ? { title: "Delete your account and all data?", body: "Your account is deactivated immediately and everything is erased within 30 days. You can't undo this.", confirmLabel: "Delete account", danger: true }
         : { title: "Request a full export of your data?", body: "You'll get a download link by email.", confirmLabel: "Request export" },
     )
     if (!ok) return

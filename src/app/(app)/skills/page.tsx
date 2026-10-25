@@ -288,7 +288,7 @@ function SaribCard() {
       {st.error && <p className="s-error-line">{st.error}</p>}
       {st.log && (
         <div>
-          <Button variant="link-neutral" size="sm" onClick={() => setShowLog((v) => !v)} className="pointer-coarse:min-h-11">
+          <Button variant="link-neutral" size="sm" onClick={() => setShowLog((v) => !v)}>
             {showLog ? "Hide install log" : "Show install log"}
           </Button>
           {showLog && <pre className="s-codeblock mt-2 max-h-[240px] overflow-auto whitespace-pre-wrap">{st.log}</pre>}

@@ -104,11 +104,13 @@ References came from Mobbin (Gemini iOS app plus Gemini desktop web). Links are 
 
 We use Material 3's window size classes. They are based on real device data and match Gemini's behaviour.
 
+**Changed 2026-10-25 (sarib-design Phase 6):** the drawer ↔ sidebar switch (`expanded`) moved from 840px to **1025px**, the design system's one desktop breakpoint (`--s-breakpoint-desktop`; phone < 768, desktop ≥ 1025). Every `expanded:` rule, `useNarrow()`, the side panel (side pane vs full-screen) and the nav store move with it, so they still agree. Effect: 840–1024px windows (iPad landscape 1024, small split screens) now get the drawer and a full-screen panel, like `medium`. The forced rail still works between 1025 and 1199px.
+
 | Class | Width | Typical devices | Nav | Panes |
 |---|---|---|---|---|
 | **compact** | < 600px | all phones, portrait | modal drawer | 1 |
-| **medium** | 600–839px | iPad mini/Air portrait, big phones in landscape, split screen | modal drawer (same as Gemini on iPad mini) | 1 (panel goes full-screen) |
-| **expanded** | 840–1199px | iPad landscape, small laptops, half-screen desktop | persistent sidebar, collapsible to rail | 2 (sidebar auto-collapses to rail when the panel opens) |
+| **medium** | 600–1024px | iPad portrait and landscape, big phones in landscape, split screen | modal drawer (same as Gemini on iPad mini) | 1 (panel goes full-screen) |
+| **expanded** | 1025–1199px | iPad Pro landscape, small laptops, half-screen desktop | persistent sidebar, collapsible to rail | 2 (sidebar auto-collapses to rail when the panel opens) |
 | **large** | ≥ 1200px | laptops, desktops | persistent sidebar, collapsible to rail | 2–3 (today's layout) |
 
 **Height matters too.** A phone in landscape is under 480px tall. There we hide the greeting, shrink headers to 44px, and cap the composer at 3 lines.
@@ -116,7 +118,7 @@ We use Material 3's window size classes. They are based on real device data and 
 **In Tailwind** (`globals.css`, `@theme`):
 ```css
 --breakpoint-medium: 37.5rem;   /* 600px  → medium:   */
---breakpoint-expanded: 52.5rem; /* 840px  → expanded: */
+--breakpoint-expanded: 64.0625rem; /* 1025px → expanded: (sarib-design desktop) */
 --breakpoint-large: 75rem;      /* 1200px → large:    */
 ```
 - Mobile-first: unprefixed classes are the phone layout.
@@ -461,7 +463,7 @@ Each phase ships on its own and leaves the app better than before. **Phases 0–
 
 ### As built (where it differs from the plan above)
 
-- **Model picker on phones:** the list already opens on a short set (Auto, Fast, favourites, recents, recommended), with everything else behind "All models". So below 840px the same panel opens as a full-height sheet, not as a separate short dropdown plus a second picker. The search box doesn't autofocus on touch.
+- **Model picker on phones:** the list already opens on a short set (Auto, Fast, favourites, recents, recommended), with everything else behind "All models". So below 1025px the same panel opens as a full-height sheet, not as a separate short dropdown plus a second picker. The search box doesn't autofocus on touch.
 - **Composer:** one rounded box on every size, text on top, `+` and send below (the Gemini app's multi-line state). No single-line pill mode.
 - **Chats section:** not collapsible. It gets a search box once there are more than 6 chats.
 - **Workspace controls:** the sandbox status line stays under the switcher. Network and Stop moved into the switcher's menu, under "This workspace".

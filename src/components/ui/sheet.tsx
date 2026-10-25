@@ -309,7 +309,7 @@ export type MenuItem =
 export function MenuList({ items, onDone }: { items: MenuItem[]; onDone(): void }) {
   const overlay = useOverlay()
   // Touch heights are the one size change on the shared item: a functional reason (44/48px targets), not a restyle.
-  const row = "s-menu__item gap-3 pointer-coarse:min-h-11 max-expanded:min-h-12"
+  const row = "s-menu__item gap-3 max-expanded:min-h-12"
   return (
     <div role="menu" className="flex flex-col p-1 max-expanded:px-2 max-expanded:pb-3">
       {items.map((it, i) => {

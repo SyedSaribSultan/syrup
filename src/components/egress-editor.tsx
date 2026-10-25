@@ -53,7 +53,7 @@ export function EgressEditor({ workspaceId, initial }: { workspaceId: string; in
               {listed.map((h) => (
                 <li key={h} className="s-badge gap-1 font-mono">
                   {h}
-                  <button type="button" disabled={busy} onClick={() => void save(hosts.filter((x) => x !== h))} aria-label={`Remove ${h}`} title="Remove" className="inline-flex text-muted hover:text-ink">
+                  <button type="button" disabled={busy} onClick={() => void save(hosts.filter((x) => x !== h))} aria-label={`Remove ${h}`} data-s-tip="Remove" className="inline-flex text-muted hover:text-ink">
                     <Icon name="x" size={12} />
                   </button>
                 </li>

@@ -22,7 +22,8 @@ export const LIGHT_TOKENS: Readonly<ThemeTokens> = Object.freeze({
   ok: "#006429",
   warn: "#8c5500",
   err: "#9c0325",
-  series: ["#3b73c4", "#3f9a5a", "#d19a1f", "#8a5bc9", "#6f7f2a", "#1f9a9a", "#cf4f95", "#9a6a3f"],
+  /* Fallbacks only: readTokens() reads --s-color-category-1 … 8 (the workspace colours). */
+  series: ["#3b73c4", "#3f9a5a", "#a97b0f", "#8a5bc9", "#6f7f2a", "#1f9a9a", "#cf4f95", "#9a6a3f"],
 })
 
 /** The tokens and the CSS custom property each one reads. */
@@ -46,7 +47,7 @@ export function readTokens(scheme: "light" | "dark"): ThemeTokens {
   if (typeof document === "undefined") return { ...LIGHT_TOKENS, scheme }
   const cs = getComputedStyle(document.documentElement)
   const v = (name: string, fallback: string) => cs.getPropertyValue(name).trim() || fallback
-  const out = { ...LIGHT_TOKENS, scheme, series: LIGHT_TOKENS.series.map((c, i) => v(`--ws-${i}`, c)) } as ThemeTokens
+  const out = { ...LIGHT_TOKENS, scheme, series: LIGHT_TOKENS.series.map((c, i) => v(`--s-color-category-${i + 1}`, c)) } as ThemeTokens
   for (const [k, name] of Object.entries(TOKEN_VARS)) (out as unknown as Record<string, string>)[k] = v(name, (LIGHT_TOKENS as unknown as Record<string, string>)[k])
   out.font = getComputedStyle(document.body).fontFamily || LIGHT_TOKENS.font
   return out
