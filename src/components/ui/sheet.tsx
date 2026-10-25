@@ -65,7 +65,7 @@ function SheetView({
       aria-label={label ?? (typeof title === "string" ? title : undefined)}
       onClick={(e) => e.target === e.currentTarget && onClose()}
       style={drag ? { translate: `0 ${drag}px`, transition: "none" } : undefined}
-      className={`mx-auto mt-auto mb-0 w-full max-w-none overflow-hidden rounded-t-xl border border-b-0 border-line bg-elevated p-0 text-ink shadow-panel motion-sheet backdrop:bg-ink/30 medium:max-w-[560px] ${height} ${wide}`}
+      className={`s-raised-scope mx-auto mt-auto mb-0 w-full max-w-none overflow-hidden rounded-t-xl border border-b-0 border-line bg-elevated p-0 text-ink shadow-panel motion-sheet backdrop:bg-ink/30 medium:max-w-[560px] ${height} ${wide}`}
     >
       <div className={`flex flex-col pb-[env(safe-area-inset-bottom)] ${size === "full" ? "h-full" : "max-h-[92dvh]"}`}>
         <div

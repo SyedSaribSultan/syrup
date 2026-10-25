@@ -148,7 +148,7 @@ function DialogBox({
       onClick={(e) => e.target === e.currentTarget && finish(false)}
       // P3 raised dialog (03 B14): elevated surface, hairline, r20, elevation-lg, ink 30% scrim. Centred on every width
       // (seam rule 1): m-auto, no top offset on phones.
-      className="m-auto w-[min(440px,calc(100vw-32px))] max-w-none rounded-xl border border-line bg-elevated p-0 text-ink shadow-panel motion-dialog backdrop:bg-ink/30"
+      className="s-raised-scope m-auto w-[min(440px,calc(100vw-32px))] max-w-none rounded-xl border border-line bg-elevated p-0 text-ink shadow-panel motion-dialog backdrop:bg-ink/30"
     >
       <form
         method="dialog"
