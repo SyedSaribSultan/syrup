@@ -196,7 +196,7 @@ const scenarios = [
   defineScenario({
     ...base,
     name: "motion-overlays-reduced",
-    description: "M1, reduced motion (page.emulateMedia): the phone sheet and the confirm fade in place; their exit is the fast duration (150 ms).",
+    description: "M1, reduced motion (page.emulateMedia): the chat ⋯ menu (desktop popover or phone sheet) and the confirm fade in place, nothing travels or scales; their exit is the fast duration (150 ms).",
     steps: [
       { media: { reducedMotion: "reduce" } },
       { presence: { name: "menu", open: { click: CHAT_MENU }, target: `${CHAT_POPOVER}, ${SHEET}`, close: ESC } },
@@ -206,10 +206,10 @@ const scenarios = [
     assert: [
       // Fast exit, nothing travels: a phone sheet fades (no translate); a confirm fades without its scale.
       // `exitMs` is the fast duration itself, read from the CSS; the wall-clock bound is the usual 300 ms (Chromium).
-      // The desktop chat menu is a Sarib raised surface (s-raised): the design system's reduced-motion rule stops every
-      // transition on s- elements, so it neither fades nor travels (sarib-design DESIGN.md §11.0, "Motion").
-      { presence: "menu", entered: [], notEntered: ["opacity", "translate", "transform"], exitMs: 0, widths: [1440] },
-      { presence: "menu", entered: ["opacity"], notEntered: ["translate", "transform"], exitMs: FAST, widths: [390] },
+      // The desktop chat menu is a Sarib raised surface (s-raised). Since sarib-design v2.1 reduced motion keeps opacity
+      // fades (they are not motion) at --s-motion-duration-fade and stops only movement and scale, so it fades in place
+      // like the phone sheet (sarib-design DESIGN.md "Motion", CHANGELOG v2.1.0).
+      { presence: "menu", entered: ["opacity"], notEntered: ["translate", "transform", "scale"], exitMs: FAST },
       { presence: "menu-again", skipped: true },
       { presence: "confirm", entered: ["opacity"], notEntered: ["scale"], exitMs: FAST },
     ],

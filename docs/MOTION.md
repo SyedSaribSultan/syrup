@@ -381,6 +381,7 @@ Defined once. Components use names, never numbers. The values are the Sarib desi
 
 ## 8. Reduced motion and performance
 
+- **Reduced motion stops movement, not fades** (sarib-design v2.1): `transform`, `translate`, `scale` and loops stop; opacity and colour fades stay, at the fast/fade duration (150 ms). Library surfaces (`s-raised`, `s-dialog`, `s-sheet`) follow the same rule.
 - **Reduced motion is not "one token":** Tailwind's `transition` uses one duration for every property.
   - `--motion-shift` → 0 and `--motion-slow` / `--motion-base` → `--motion-fast`, inside the named utilities only.
   - **Things whose closed state is off-screen** (drawer, sheet, phone panel) get a reduced-motion closed state: opacity 0 in place, not a slide.
@@ -463,7 +464,7 @@ Each phase ends usable and deployable.
     - `motion-confirm` (both widths), `motion-handoff`, `motion-sheet-handoff`: menu → confirm, prompt and Logs, from a desktop popover and a phone sheet. The menu never shows a closed frame.
     - `motion-sheet`: the phone sheet rises with its backdrop and exits on base. `close()` comes after the exit, and focus goes back to ⋯.
     - `motion-drawer-scrim`, `motion-drawer-scrim-close`: the scrim fades with the drawer, on the compositor.
-    - `motion-overlays-reduced`: `page.emulateMedia({ reducedMotion: "reduce" })`. The sheet and the confirm fade without travel or scale, and their exit is the fast duration (120 ms, read from the CSS). Measured, they go 125–160 ms after closing in Chromium. Wall-clock bounds are checked in Chromium only: Playwright's WebKit on Windows paints in software and ends the same exit 150–550 ms after closing.
+    - `motion-overlays-reduced`: `page.emulateMedia({ reducedMotion: "reduce" })`. The desktop popover, the sheet and the confirm fade without travel or scale, and their exit is the fast duration (150 ms, read from the CSS). Measured, they go 125–160 ms after closing in Chromium. Wall-clock bounds are checked in Chromium only: Playwright's WebKit on Windows paints in software and ends the same exit 150–550 ms after closing.
     - `motion-open-*`: each overlay settled open, for the screenshots.
   - **Fixed after the M1 review (2026-10-08),** each with a scenario that fails without the fix:
     - `motion-close-mid-entrance`: closing during the entrance plays the exit instead of vanishing (§4.1).
