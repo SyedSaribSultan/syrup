@@ -64,7 +64,7 @@ export function PrivacySettings() {
   const research = me.consents.research
   return (
     <>
-      <section className="mt-6 rounded-xl border border-line bg-surface p-4 shadow-card">
+      <section className="mt-6 rounded-xl border border-line bg-surface p-4">
         <h2 className="text-sm font-medium text-ink">Account</h2>
         {/* Label above value on phones, side by side from medium up. */}
         <dl className="mt-2 grid grid-cols-1 text-[13px] medium:grid-cols-[120px_1fr] medium:gap-y-1">
@@ -105,7 +105,7 @@ export function PrivacySettings() {
         .{research.granted && research.at && <span className="text-muted"> Granted {new Date(research.at).toLocaleDateString()}.</span>}
       </Toggle>
 
-      <section className="mt-6 rounded-xl border border-line bg-surface p-4 shadow-card">
+      <section className="mt-6 rounded-xl border border-line bg-surface p-4">
         <h2 className="text-sm font-medium text-ink">Your data</h2>
         <p className="mt-1 text-[13px] text-ink-2">Export everything we hold about you, or delete your account. Requests are recorded with a timestamp and handled within the times published in the Privacy Policy.</p>
         <div className="mt-3 flex flex-col gap-2 medium:flex-row">
@@ -121,7 +121,7 @@ export function PrivacySettings() {
           <ul className="mt-3 divide-y divide-line text-[12px]">
             {me.requests.map((r) => (
               <li key={r.id} className="flex flex-wrap gap-x-3 gap-y-0.5 py-1.5">
-                <span className="rounded bg-surface-2 px-1.5 text-[10px] uppercase text-ink-2">{r.type}</span>
+                <span className="rounded bg-surface-2 px-1.5 text-[10px] font-mono text-ink-2">{r.type}</span>
                 <span className="text-ink-2">{r.status}</span>
                 <span className="text-muted">{new Date(r.requestedAt).toLocaleString()}</span>
               </li>
@@ -135,7 +135,7 @@ export function PrivacySettings() {
 
 /** The account card and two switch cards, at their real heights. */
 function PrivacySkeleton() {
-  const card = "mt-6 rounded-xl border border-line bg-surface p-4 shadow-card"
+  const card = "mt-6 rounded-xl border border-line bg-surface p-4"
   return (
     <div aria-busy className="skel-in">
       <section className={card}>
@@ -168,7 +168,7 @@ function PrivacySkeleton() {
 
 function Toggle({ title, on, busy, onChange, onLabel, offLabel, children }: { title: string; on: boolean; busy: boolean; onChange(v: boolean): void; onLabel: string; offLabel: string; children: React.ReactNode }) {
   return (
-    <section className="mt-6 rounded-xl border border-line bg-surface p-4 shadow-card">
+    <section className="mt-6 rounded-xl border border-line bg-surface p-4">
       <div className="flex items-start gap-4">
         <div className="min-w-0 flex-1">
           <h2 className="text-sm font-medium text-ink">{title}</h2>
@@ -180,7 +180,7 @@ function Toggle({ title, on, busy, onChange, onLabel, offLabel, children }: { ti
           aria-checked={on}
           disabled={busy}
           onClick={() => onChange(!on)}
-          className={`relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition disabled:opacity-50 pointer-coarse:after:absolute pointer-coarse:after:-inset-2.5 ${on ? "bg-accent" : "bg-line-2"}`}
+          className={`relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition disabled:opacity-50 pointer-coarse:after:absolute pointer-coarse:after:-inset-2.5 ${on ? "bg-accent-fill" : "bg-line-2"}`}
           title={on ? onLabel : offLabel}
         >
           <span className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition ${on ? "translate-x-5" : "translate-x-0"}`} />

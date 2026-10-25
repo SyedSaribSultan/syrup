@@ -311,7 +311,7 @@ function Block({ title, text, tone }: { title: string; text: string; tone?: "err
   const clipped = text.length > 6000 ? text.slice(0, 6000) + "\n… (truncated)" : text
   return (
     <div>
-      <div className="mb-1 text-[11px] font-medium uppercase tracking-wider text-muted">{title}</div>
+      <div className="mb-1 text-[11px] font-mono text-muted">{title}</div>
       <pre className={`max-h-[320px] overflow-auto rounded-lg bg-code-bg p-2.5 font-mono text-[12px] leading-relaxed whitespace-pre-wrap ${tone === "err" ? "text-err" : "text-ink-2"}`}>
         {clipped}
       </pre>
@@ -322,7 +322,7 @@ function Block({ title, text, tone }: { title: string; text: string; tone?: "err
 function Chevron({ open, className = "" }: { open: boolean; className?: string }) {
   return (
     <svg width="10" height="10" viewBox="0 0 10 10" className={`shrink-0 opacity-60 transition ${open ? "rotate-180" : ""} ${className}`}>
-      <path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
     </svg>
   )
 }

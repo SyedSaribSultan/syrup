@@ -33,11 +33,11 @@ export default async function SignInPage({ searchParams }: PageProps<"/signin">)
       <div className="flex min-h-full flex-col items-center justify-center px-4 pt-[max(4rem,env(safe-area-inset-top))] pb-[max(4rem,env(safe-area-inset-bottom))] medium:px-6">
         <div className="w-full max-w-[400px]">
           <div className="mb-8 text-center">
-            <h1 className="font-serif text-[2.2rem] font-semibold tracking-tight text-ink">syrup</h1>
+            <h1 className="font-sans text-[2.2rem] font-medium text-ink">syrup</h1>
             <p className="mt-2 text-[15px] text-ink-2">A coding agent powered by your own API keys.</p>
           </div>
 
-          <div className="rounded-2xl border border-line bg-surface p-6 shadow-card">
+          <div className="rounded-2xl border border-line bg-surface p-6">
             <form action={google}>
               <button type="submit" className="flex w-full items-center justify-center gap-3 rounded-xl border border-line-2 bg-bg px-4 py-3 text-sm font-medium text-ink transition hover:border-ink/30" data-ph="signin-google">
                 <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden>

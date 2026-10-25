@@ -90,12 +90,12 @@ export default function SkillsPage() {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto w-full max-w-[880px] px-4 py-8 medium:px-6">
-        <h1 className="font-serif text-[1.75rem] font-medium tracking-tight text-ink">Skills</h1>
+        <h1 className="font-display text-[1.75rem] font-normal text-ink">Skills</h1>
         <p className="mt-1 max-w-[640px] text-sm text-muted">
           Skills are folders with a <code className="rounded bg-code-bg px-1 font-mono text-[12px]">SKILL.md</code> that teach the agent a repeatable task. It loads them on demand. Installed skills work in every project.
         </p>
 
-        <div className="@container mt-6 rounded-xl border border-line bg-surface p-4 shadow-card">
+        <div className="@container mt-6 rounded-xl border border-line bg-surface p-4">
           <div className="mb-3 flex gap-1 text-xs">
             {(["git", "paste"] as const).map((m) => (
               <button key={m} type="button" onClick={() => setMode(m)} className={`rounded-md px-2.5 py-1 transition pointer-coarse:min-h-10 ${mode === m ? "bg-surface-2 text-ink" : "text-muted hover:text-ink"}`}>
@@ -113,7 +113,7 @@ export default function SkillsPage() {
                 placeholder="owner/repo, owner/repo/path/to/skill, or a full URL"
                 className="min-w-0 flex-1 rounded-lg border border-line bg-bg px-3 py-2 font-mono text-[13px] outline-none placeholder:font-sans placeholder:text-muted focus:border-line-2 pointer-coarse:min-h-11"
               />
-              <button type="button" onClick={() => void install()} disabled={busy || source.trim().length < 3} className={`rounded-lg bg-accent px-3 py-2 text-xs font-medium text-accent-ink pointer-coarse:min-h-11 ${busy ? "" : "disabled:opacity-40"}`}>
+              <button type="button" onClick={() => void install()} disabled={busy || source.trim().length < 3} className={`rounded-lg bg-accent-fill px-3 py-2 text-xs font-medium text-accent-ink pointer-coarse:min-h-11 ${busy ? "" : "disabled:opacity-40"}`}>
                 {busy ? <Brew label="Installing" tone="inherit" /> : "Install"}
               </button>
             </div>
@@ -127,7 +127,7 @@ export default function SkillsPage() {
                 className="w-full resize-y rounded-lg border border-line bg-bg px-3 py-2 font-mono text-[12.5px] leading-relaxed outline-none placeholder:text-muted focus:border-line-2"
               />
               <div className="mt-2 flex justify-end">
-                <button type="button" onClick={() => void install()} disabled={busy || content.trim().length < 10} className={`w-full rounded-lg bg-accent px-3 py-2 text-xs font-medium text-accent-ink pointer-coarse:min-h-11 @[480px]:w-auto ${busy ? "" : "disabled:opacity-40"}`}>
+                <button type="button" onClick={() => void install()} disabled={busy || content.trim().length < 10} className={`w-full rounded-lg bg-accent-fill px-3 py-2 text-xs font-medium text-accent-ink pointer-coarse:min-h-11 @[480px]:w-auto ${busy ? "" : "disabled:opacity-40"}`}>
                   {busy ? <Brew mood="save" tone="inherit" timerAfter={0} /> : "Create skill"}
                 </button>
               </div>
@@ -255,7 +255,7 @@ function SaribCard() {
   const installed = !!st?.command
   if (!st) return null
   return (
-    <div className="mt-6 rounded-xl border border-line bg-surface p-4 shadow-card">
+    <div className="mt-6 rounded-xl border border-line bg-surface p-4">
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
@@ -271,7 +271,7 @@ function SaribCard() {
           </div>
         </div>
         {st && !installed && (
-          <button type="button" onClick={() => void install()} disabled={st.installing || !st.python} className={`shrink-0 rounded-lg bg-accent px-3 py-2 text-xs font-medium text-accent-ink pointer-coarse:min-h-11 ${st.installing ? "" : "disabled:opacity-40"}`}>
+          <button type="button" onClick={() => void install()} disabled={st.installing || !st.python} className={`shrink-0 rounded-lg bg-accent-fill px-3 py-2 text-xs font-medium text-accent-ink pointer-coarse:min-h-11 ${st.installing ? "" : "disabled:opacity-40"}`}>
             {st.installing ? <Brew label="Installing" tone="inherit" /> : "Enable"}
           </button>
         )}
@@ -302,7 +302,7 @@ function SkillCard({ s, onChange, onToggle }: { s: Skill; onChange(): Promise<vo
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   return (
-    <li className="rounded-xl border border-line bg-surface shadow-card transition-colors hover:border-line-2">
+    <li className="rounded-xl border border-line bg-surface transition-colors hover:border-line-2">
       <div className="flex items-start gap-3 pr-4">
         <button type="button" onClick={() => setOpen((v) => !v)} className="flex min-w-0 flex-1 items-start gap-3 py-3 pl-4 text-left">
           <div className="min-w-0 flex-1">
@@ -318,7 +318,7 @@ function SkillCard({ s, onChange, onToggle }: { s: Skill; onChange(): Promise<vo
             <div className={`mt-0.5 line-clamp-2 text-[13px] ${s.enabled ? "text-ink-2" : "text-muted"}`}>{s.description || "No description"}</div>
           </div>
           <svg width="10" height="10" viewBox="0 0 10 10" className={`mt-1.5 shrink-0 opacity-60 transition ${open ? "rotate-180" : ""}`}>
-            <path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" strokeWidth="1.3" />
+            <path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
           </svg>
         </button>
         <button
@@ -327,7 +327,7 @@ function SkillCard({ s, onChange, onToggle }: { s: Skill; onChange(): Promise<vo
           aria-checked={s.enabled}
           aria-label={`${s.enabled ? "Turn off" : "Turn on"} ${s.name}`}
           onClick={() => onToggle(!s.enabled)}
-          className={`relative mt-3 h-5 w-9 shrink-0 rounded-full transition pointer-coarse:after:absolute pointer-coarse:after:-inset-3 ${s.enabled ? "bg-accent" : "bg-line-2"}`}
+          className={`relative mt-3 h-5 w-9 shrink-0 rounded-full transition pointer-coarse:after:absolute pointer-coarse:after:-inset-3 ${s.enabled ? "bg-accent-fill" : "bg-line-2"}`}
         >
           <span className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow transition ${s.enabled ? "translate-x-4" : "translate-x-0"}`} />
         </button>
@@ -383,7 +383,7 @@ function SkillsSkeleton() {
         </div>
         <ul className="space-y-2">
           {["w-28", "w-40", "w-24", "w-36"].map((w) => (
-            <li key={w} className="flex items-start gap-3 rounded-xl border border-line bg-surface py-3 pr-4 pl-4 shadow-card">
+            <li key={w} className="flex items-start gap-3 rounded-xl border border-line bg-surface py-3 pr-4 pl-4">
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <Skel className={`h-3.5 ${w}`} />

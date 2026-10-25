@@ -42,7 +42,7 @@ export function Connections() {
   }
 
   return (
-    <section className="mt-6 rounded-xl border border-line bg-surface p-4 shadow-card">
+    <section className="mt-6 rounded-xl border border-line bg-surface p-4">
       <h2 className="text-sm font-medium text-ink">Connections</h2>
       <p className="mt-1 text-[13px] leading-relaxed text-ink-2">
         A GitHub token lets you create workspaces from <em>private</em> repositories. Use a{" "}
@@ -63,7 +63,7 @@ export function Connections() {
         // Phones: Save goes full width under the field.
         <div className="mt-3 flex flex-col gap-2 medium:flex-row">
           <input value={token} onChange={(e) => setToken(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void save()} placeholder="github_pat_… or ghp_…" type="password" autoComplete="off" className="min-w-0 flex-1 rounded-lg border border-line bg-bg px-3 py-2 font-mono text-[13px] outline-none placeholder:font-sans placeholder:text-muted focus:border-line-2 pointer-coarse:min-h-11" />
-          <button type="button" onClick={() => void save()} disabled={busy || token.trim().length < 20} className="rounded-lg bg-accent px-3 py-2 text-xs font-medium text-accent-ink disabled:opacity-40 pointer-coarse:min-h-11">
+          <button type="button" onClick={() => void save()} disabled={busy || token.trim().length < 20} className="rounded-lg bg-accent-fill px-3 py-2 text-xs font-medium text-accent-ink disabled:opacity-40 pointer-coarse:min-h-11">
             {busy ? "Checking…" : "Save"}
           </button>
         </div>

@@ -45,21 +45,21 @@ export default function AdminPage() {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto w-full max-w-[960px] px-4 py-8 medium:px-6">
-        <h1 className="font-serif text-[1.75rem] font-medium tracking-tight text-ink">Admin</h1>
+        <h1 className="font-display text-[1.75rem] font-normal text-ink">Admin</h1>
         <p className="mt-1 text-sm text-muted">
           Anyone with a verified Google account can sign in. Admins: <span className="font-mono text-ink-2">{admins.join(", ") || "—"}</span>
         </p>
 
         <Insights />
 
-        <section className="mt-6 rounded-xl border border-line bg-surface p-4 shadow-card">
+        <section className="mt-6 rounded-xl border border-line bg-surface p-4">
           <h2 className="text-sm font-medium text-ink">
             Users <span className="font-normal text-muted">· {users.length}</span>
           </h2>
           {/* Tables scroll sideways inside their card on narrow screens instead of widening the page. */}
           <div className="mt-3 overflow-x-auto">
             <table className={TABLE}>
-              <thead className="text-left text-[11px] uppercase tracking-wider text-muted">
+              <thead className="text-left text-[11px] font-mono text-muted">
                 <tr>
                   <th className="py-1 font-medium">Email</th>
                   <th className="py-1 font-medium">Joined</th>
@@ -99,14 +99,14 @@ export default function AdminPage() {
           </div>
         </section>
 
-        <section className="mt-6 rounded-xl border border-line bg-surface p-4 shadow-card">
+        <section className="mt-6 rounded-xl border border-line bg-surface p-4">
           <h2 className="text-sm font-medium text-ink">
             Sandboxes <span className="font-normal text-muted">· {pool ? `${pool.running} running · ${(pool.totalCpuMs / 60_000).toFixed(1)} CPU-min used of ${pool.cpuBudgetMs / 60_000} this plan · ${Math.round(pool.totalSessionSeconds / 60)} session-min` : "…"}</span>
           </h2>
           <p className="mt-1 text-xs text-muted">Free plan: 5 active-CPU hours per month, 10 concurrent. Informational; nothing is enforced. Vercel&apos;s own dashboard has the authoritative monthly numbers.</p>
           <div className="mt-3 overflow-x-auto">
             <table className={TABLE}>
-              <thead className="text-left text-[11px] uppercase tracking-wider text-muted">
+              <thead className="text-left text-[11px] font-mono text-muted">
                 <tr>
                   <th className="py-1 font-medium">Workspace</th>
                   <th className="py-1 font-medium">User</th>
@@ -132,7 +132,7 @@ export default function AdminPage() {
           </div>
         </section>
 
-        <section className="mt-6 rounded-xl border border-line bg-surface p-4 shadow-card">
+        <section className="mt-6 rounded-xl border border-line bg-surface p-4">
           <h2 className="text-sm font-medium text-ink">
             Open data requests <span className="font-normal text-muted">· {requests.length}</span>
           </h2>
@@ -143,7 +143,7 @@ export default function AdminPage() {
               const u = users.find((x) => x.id === r.user_id)
               return (
                 <li key={r.id} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 py-2 text-[13px]">
-                  <span className="rounded bg-surface-2 px-1.5 text-[10px] uppercase text-ink-2">{r.type}</span>
+                  <span className="rounded bg-surface-2 px-1.5 text-[10px] font-mono text-ink-2">{r.type}</span>
                   <span className="min-w-0 flex-1 truncate font-mono text-ink">{u?.email ?? r.user_id}</span>
                   <span className="text-muted">{fmt(r.requested_at)}</span>
                 </li>

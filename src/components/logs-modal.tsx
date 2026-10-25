@@ -182,7 +182,7 @@ export function LogsModal({ sessionID, onClose, presence }: { sessionID?: string
         placeholder="Search events and data…"
         className={`rounded-lg border border-line bg-surface outline-none placeholder:text-muted focus:border-line-2 ${sheet ? "min-h-11 w-full px-3 py-2" : "w-64 px-2.5 py-1.5"}`}
       />
-      {sheet && <div className="mt-4 mb-1.5 text-[11px] font-medium tracking-wider text-muted uppercase">Level</div>}
+      {sheet && <div className="mt-4 mb-1.5 text-[11px] font-mono text-muted">Level</div>}
       <div className={`flex rounded-lg border border-line bg-surface p-0.5 ${sheet ? "w-full" : ""}`}>
         {(["debug", "info", "warn"] as const).map((l) => (
           <button
@@ -195,7 +195,7 @@ export function LogsModal({ sessionID, onClose, presence }: { sessionID?: string
           </button>
         ))}
       </div>
-      {sheet && <div className="mt-4 mb-1.5 text-[11px] font-medium tracking-wider text-muted uppercase">Sources</div>}
+      {sheet && <div className="mt-4 mb-1.5 text-[11px] font-mono text-muted">Sources</div>}
       <div className={`flex flex-wrap ${sheet ? "gap-1.5" : "gap-1"}`}>
         {SOURCES.map((s) => {
           const on = sources.has(s)
@@ -239,7 +239,7 @@ export function LogsModal({ sessionID, onClose, presence }: { sessionID?: string
       aria-label="Logs"
     >
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line bg-surface px-4 py-3 medium:px-5">
-        <h2 className="order-1 font-serif text-[1.2rem] font-medium text-ink medium:order-none">Logs</h2>
+        <h2 className="order-1 font-sans text-[1.2rem] font-medium text-ink medium:order-none">Logs</h2>
         <span className="order-3 flex basis-full flex-wrap items-center gap-x-1 text-xs text-muted medium:order-none medium:basis-auto">
           {onlySession && sessionID ? "this chat" : "whole app"} · last 24h ·{" "}
           {loaded ? (
@@ -374,7 +374,7 @@ function CopyBtn({ children, onClick, done, primary }: { children: React.ReactNo
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-lg px-3 py-1.5 text-xs font-medium transition pointer-coarse:min-h-11 ${primary ? "bg-accent text-accent-ink" : "border border-line text-ink-2 hover:border-line-2 hover:text-ink"}`}
+      className={`rounded-lg px-3 py-1.5 text-xs font-medium transition pointer-coarse:min-h-11 ${primary ? "bg-accent-fill text-accent-ink" : "border border-line text-ink-2 hover:border-line-2 hover:text-ink"}`}
     >
       {done ? "Copied ✓" : children}
     </button>

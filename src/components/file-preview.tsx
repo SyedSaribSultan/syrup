@@ -148,7 +148,7 @@ export function FilePreview({ target, rel }: { target: Target; rel: string }) {
       content = (
         <div className="checker flex min-h-full items-center justify-center overflow-auto p-6">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={url} alt={name} className="max-h-full max-w-full object-contain shadow-card" />
+          <img src={url} alt={name} className="max-h-full max-w-full object-contain" />
         </div>
       )
     else if (kind === "pdf" && url) content = <iframe src={url} title={name} className="h-full w-full border-0 bg-surface" />
@@ -167,7 +167,7 @@ export function FilePreview({ target, rel }: { target: Target; rel: string }) {
   }
 
   const icon = (d: ReactNode) => (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       {d}
     </svg>
   )
@@ -472,7 +472,7 @@ function Center({ children }: { children: ReactNode }) {
 
 function PrimaryButton({ onClick, children }: { onClick(): void; children: ReactNode }) {
   return (
-    <button type="button" onClick={onClick} className="rounded-lg bg-accent px-2.5 py-1 text-xs font-medium text-accent-ink transition hover:opacity-90 pointer-coarse:min-h-11 pointer-coarse:px-4 pointer-coarse:text-[13px]">
+    <button type="button" onClick={onClick} className="rounded-lg bg-accent-fill px-2.5 py-1 text-xs font-medium text-accent-ink transition hover:opacity-90 pointer-coarse:min-h-11 pointer-coarse:px-4 pointer-coarse:text-[13px]">
       {children}
     </button>
   )

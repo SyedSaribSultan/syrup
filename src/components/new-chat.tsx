@@ -104,7 +104,9 @@ export function NewChat({ hrefFor, noKeys, error, onRetry }: Props) {
               </div>
             ) : (
               <>
-                <h1 className="text-center font-serif text-[1.75rem] font-medium tracking-tight text-ink medium:text-[2rem] expanded:mb-6 [@media(max-height:480px)]:text-[1.25rem]">What are we building?</h1>
+                <h1 className="text-center font-display text-[1.75rem] font-normal text-ink medium:text-[2rem] expanded:mb-6 [@media(max-height:480px)]:text-[1.25rem]">
+                  What are we <em className="text-accent not-italic">building</em>?
+                </h1>
                 <div className="mt-2 flex justify-center text-xs text-muted expanded:hidden [@media(max-height:480px)]:hidden">{where}</div>
               </>
             )}
@@ -136,7 +138,7 @@ export function NewChat({ hrefFor, noKeys, error, onRetry }: Props) {
               <div className="mx-auto max-w-[560px] rounded-xl border border-err/30 bg-err/5 px-4 py-3 text-[13px] leading-relaxed text-ink-2 expanded:mt-6">
                 <span className="font-medium text-err">Your workspace didn&apos;t start.</span> {error}
                 {onRetry && (
-                  <button type="button" onClick={onRetry} className="ml-2 rounded-lg bg-accent px-2.5 py-1 text-xs font-medium text-accent-ink pointer-coarse:px-3.5 pointer-coarse:py-2">
+                  <button type="button" onClick={onRetry} className="ml-2 rounded-lg bg-accent-fill px-2.5 py-1 text-xs font-medium text-accent-ink pointer-coarse:px-3.5 pointer-coarse:py-2">
                     Try again
                   </button>
                 )}

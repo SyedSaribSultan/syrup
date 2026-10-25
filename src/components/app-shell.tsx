@@ -29,7 +29,7 @@ export function AppShell({ sidebar, pageBar, children }: { sidebar: ReactNode; p
     // header and composer included, grows wider than a phone screen.
     <div className="flex h-full min-h-0 min-w-0 flex-1">
       {/* The scrim fades with the drawer (motion-layer: in slow + arrive, out base + leave) and takes no taps while closed. */}
-      <div aria-hidden data-open={open} onClick={nav?.closeDrawer} className="invisible fixed inset-0 z-40 bg-black/40 opacity-0 max-expanded:motion-layer data-[open=true]:visible data-[open=true]:opacity-100 expanded:hidden" />
+      <div aria-hidden data-open={open} onClick={nav?.closeDrawer} className="invisible fixed inset-0 z-40 bg-ink/30 opacity-0 max-expanded:motion-layer data-[open=true]:visible data-[open=true]:opacity-100 expanded:hidden" />
       <div
         ref={drawer}
         tabIndex={-1}
@@ -85,7 +85,7 @@ export function MenuButton({ className = "" }: { className?: string }) {
       title={`Menu (${SIDEBAR_SHORTCUT})`}
       className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 transition hover:bg-surface-2 hover:text-ink pointer-coarse:h-11 pointer-coarse:w-11 expanded:hidden ${className}`}
     >
-      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
         <path d="M3 5.5h12M3 12.5h12" />
       </svg>
     </button>
@@ -99,7 +99,7 @@ function PageBar() {
     <div className="flex shrink-0 items-center gap-1 border-b border-line px-2 pt-[env(safe-area-inset-top)] expanded:hidden">
       <div className="flex h-12 flex-1 items-center gap-1 pointer-coarse:h-14">
         <MenuButton />
-        <Link href="/" className="px-1 font-serif text-[1.2rem] font-semibold tracking-tight text-ink">
+        <Link href="/" className="px-1 font-sans text-[1.2rem] font-medium text-ink">
           syrup
         </Link>
         <span className="flex-1" />

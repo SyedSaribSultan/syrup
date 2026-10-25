@@ -126,7 +126,7 @@ export function Composer({ onSend, onStop, busy, autoFocus, placeholder }: Props
   const empty = !text.trim() && files.length === 0
 
   return (
-    <div className="rounded-3xl border border-line bg-surface shadow-card transition focus-within:border-line-2 expanded:rounded-2xl">
+    <div className="rounded-3xl border border-line bg-bg transition focus-within:border-line-2">
       {files.length > 0 && (
         <div className="flex gap-1.5 overflow-x-auto px-3 pt-3">
           {files.map((f, i) => (
@@ -175,7 +175,7 @@ export function Composer({ onSend, onStop, busy, autoFocus, placeholder }: Props
             onClick={() => void submit()}
             disabled={empty || sending}
             aria-label="Send"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent text-accent-ink transition disabled:opacity-30 pointer-coarse:h-11 pointer-coarse:w-11 pointer-coarse:rounded-full"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-fill text-accent-ink transition disabled:opacity-30 pointer-coarse:h-11 pointer-coarse:w-11 pointer-coarse:rounded-full"
           >
             <svg width="14" height="14" viewBox="0 0 14 14">
               <path d="M7 12V2M3 6l4-4 4 4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
@@ -258,7 +258,7 @@ function Tile({ label, onClick, children }: { label: string; onClick(): void; ch
       }}
       className="flex flex-1 flex-col items-center gap-1.5 rounded-2xl bg-surface-2 px-2 py-3.5 text-[12px] text-ink-2 transition hover:text-ink max-expanded:py-5 max-expanded:text-[14px]"
     >
-      <svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
         {children}
       </svg>
       {label}

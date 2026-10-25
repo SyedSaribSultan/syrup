@@ -146,7 +146,7 @@ function DialogBox({
       aria-labelledby={`dlg-${req.id}-title`}
       // A press on the backdrop (the dialog element itself, outside the card) cancels.
       onClick={(e) => e.target === e.currentTarget && finish(false)}
-      className="m-auto w-[min(400px,calc(100vw-32px))] max-w-none rounded-2xl border border-line bg-surface p-0 text-ink shadow-card motion-dialog backdrop:bg-black/40 max-medium:mt-[15dvh]"
+      className="m-auto w-[min(400px,calc(100vw-32px))] max-w-none rounded-2xl border border-line bg-surface p-0 text-ink shadow-card motion-dialog backdrop:bg-ink/30 max-medium:mt-[15dvh]"
     >
       <form
         method="dialog"
@@ -180,7 +180,7 @@ function DialogBox({
             type="submit"
             autoFocus={!isPrompt && !req.danger}
             disabled={!canConfirm}
-            className={`${btn} disabled:opacity-40 ${req.danger ? "bg-err text-white hover:opacity-90" : "bg-accent text-accent-ink hover:opacity-90"}`}
+            className={`${btn} disabled:opacity-40 ${req.danger ? "bg-err-fill text-accent-ink hover:opacity-90" : "bg-accent-fill text-accent-ink hover:opacity-90"}`}
           >
             {req.confirmLabel ?? "OK"}
           </button>

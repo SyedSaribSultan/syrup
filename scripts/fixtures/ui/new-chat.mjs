@@ -11,7 +11,8 @@ export default defineScenario({
   chats: backgroundChats(),
   files: WORKSPACE_FILES,
   assert: [
-    { visible: "h1:text-is('What are we building?')" },
+    // The headline's accent word sits in its own <em> (the Sarib system's one accent word), so match the whole text.
+    { visible: "h1:has-text('What are we building?')" },
     { visible: 'textarea[placeholder^="Ask syrup"]' },
     { visible: 'button[aria-label="Send"]' },
     { text: `Working in ${WORKSPACE}` },

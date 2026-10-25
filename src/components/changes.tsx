@@ -153,7 +153,7 @@ function ChangesView({ sessionID }: { sessionID: string }) {
         {diffs && diffs.length === 0 && touched.length === 0 && <div className="px-3 py-3 text-[13px] text-muted">No file changes in this chat yet.</div>}
         {diffs && diffs.length === 0 && touched.length > 0 && (
           <>
-            <div className="px-3 pt-2 pb-1 text-[10px] font-medium tracking-wider text-muted uppercase">Files touched</div>
+            <div className="px-3 pt-2 pb-1 text-[10px] font-mono text-muted">Files touched</div>
             {touched.map((f) => (
               <div key={f} className="flex items-center truncate px-3 py-1 font-mono text-xs text-ink-2 pointer-coarse:min-h-11">
                 <FileLink path={f} className="max-w-full truncate">

@@ -112,7 +112,7 @@ export function ModelPicker({ variant = "composer" }: { variant?: "composer" | "
         )}
         {badge && <span className="shrink-0 rounded bg-accent-soft px-1 text-[10px] font-medium text-accent">{badge}</span>}
         <svg width="10" height="10" viewBox="0 0 10 10" className="shrink-0 opacity-60">
-          <path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" strokeWidth="1.3" />
+          <path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
         </svg>
       </button>
       {/* A full-height sheet below the expanded breakpoint. On desktop: fixed height, positioned by its top edge, so
@@ -220,7 +220,7 @@ function Panel({ onClose, sessionId }: { onClose(): void; sessionId?: string }) 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-center gap-2 border-b border-line px-3.5">
-        <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" className="shrink-0 text-muted">
+        <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="shrink-0 text-muted">
           <circle cx="6" cy="6" r="4.2" />
           <path d="m9.2 9.2 3 3" />
         </svg>
@@ -337,7 +337,7 @@ function Row({ item, active, current, favorites, status, tiers, nowFor, onPick, 
   const check = (
     <span className="w-3.5 shrink-0 text-accent">
       {selected && (
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
           <path d="m2.5 6.2 2.3 2.3 4.7-5" />
         </svg>
       )}

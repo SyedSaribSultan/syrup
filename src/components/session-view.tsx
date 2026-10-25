@@ -290,7 +290,7 @@ export function SessionView({ id }: { id: string }) {
               aria-label="Scroll to the latest message"
               className="pointer-events-auto mx-auto mb-2 flex h-9 w-9 items-center justify-center rounded-full border border-line bg-surface text-ink-2 shadow-card transition hover:text-ink pointer-coarse:h-11 pointer-coarse:w-11"
             >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M7 2.5v9M3 7.5l4 4 4-4" />
               </svg>
             </button>

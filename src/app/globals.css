@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./sarib-tokens.css";
 
 /*
  * Window size classes (Material 3), replacing Tailwind's defaults so there is one system.
@@ -16,27 +17,40 @@
   --breakpoint-large: 75rem;
 }
 
-/* Warm, paper-like palette. Light is the default; dark follows the OS. */
+/*
+ * Colour, type and shape come from the Sarib design system (syedsarib.com), vendored in sarib-tokens.css as --s-*
+ * custom properties. syrup's own roles below only point at them, so components keep using bg-surface, text-muted,
+ * border-line ... and dark mode re-resolves through the --s-* blocks: it follows the OS, unless lib/theme.ts sets
+ * data-theme="light" | "dark" on <html>. Never put a hex value in a component.
+ *   --bg         page                       --surface    cards, panels, menus (warm panel fill)
+ *   --surface-2  muted fill: hover, chips   --ink / --ink-2 / --muted: primary / secondary / tertiary text
+ *   --accent     brand text: links, focus   --accent-fill: solid brand button (white label: --accent-ink)
+ */
 :root {
   /* Native controls, scrollbars and form widgets follow the theme too. */
   color-scheme: light dark;
-  --bg: #f3f1ea;
-  --surface: #fbfaf6;
-  --surface-2: #eceae1;
-  --ink: #23211d;
-  --ink-2: #4f4c45;
-  --muted: #8a867c;
-  --line: #e3e0d6;
-  --line-2: #d3cfc3;
-  --accent: #c8623f;
-  --accent-ink: #ffffff;
-  --accent-soft: #f6e3da;
-  --ok: #3f8f5c;
-  --warn: #c99a2e;
-  --err: #c2453b;
-  --code-bg: #f0eee6;
-  --shadow: 0 1px 2px rgba(35, 33, 29, 0.05), 0 8px 24px -12px rgba(35, 33, 29, 0.18);
-  /* Workspace colors, one per workspace (src/lib/workspace-limits.ts caps workspaces at this count). */
+  --bg: var(--s-color-background);
+  --surface: var(--s-color-fill-secondary-variant);
+  --surface-2: var(--s-color-fill-secondary);
+  --ink: var(--s-color-content-primary);
+  --ink-2: var(--s-color-content-secondary);
+  --muted: var(--s-color-content-tertiary);
+  --line: var(--s-color-border-primary);
+  --line-2: var(--s-color-border-secondary);
+  --accent: var(--s-color-content-brand);
+  --accent-fill: var(--s-color-fill-brand);
+  --accent-fill-hover: var(--s-color-fill-brand-hover);
+  --accent-ink: var(--s-color-content-fixed-inverse);
+  --accent-soft: var(--s-color-surface-brand);
+  --ok: var(--s-color-content-success);
+  --warn: var(--s-color-content-warning);
+  --err: var(--s-color-content-critical);
+  --code-bg: var(--s-color-fill-secondary);
+  --elevated: var(--s-color-surface-elevated);
+  /* Floating layers only (menus, popovers, sheets, toasts, the selected segment). Cards have no shadow. */
+  --shadow: var(--s-elevation-md);
+  --shadow-sm: var(--s-elevation-sm);
+  /* Workspace colors, one per workspace (src/lib/workspace-limits.ts caps workspaces at this count). Data, not chrome. */
   --ws-0: #3b73c4;
   --ws-1: #3f9a5a;
   --ws-2: #d19a1f;
@@ -49,22 +63,6 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #1b1a17;
-    --surface: #23221e;
-    --surface-2: #2b2a25;
-    --ink: #ece9e1;
-    --ink-2: #c9c5ba;
-    --muted: #8f8b80;
-    --line: #34322c;
-    --line-2: #44413a;
-    --accent: #d8785a;
-    --accent-ink: #1b1a17;
-    --accent-soft: #3a2a23;
-    --ok: #6cbf87;
-    --warn: #d9b25a;
-    --err: #e2685f;
-    --code-bg: #1f1e1a;
-    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px -12px rgba(0, 0, 0, 0.6);
     --ws-0: #6d9ee8;
     --ws-1: #6cc487;
     --ws-2: #e6b84f;
@@ -79,22 +77,6 @@
 /* Dark chosen in the app (lib/theme.ts), whatever the OS says. Same values as the block above. */
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #1b1a17;
-  --surface: #23221e;
-  --surface-2: #2b2a25;
-  --ink: #ece9e1;
-  --ink-2: #c9c5ba;
-  --muted: #8f8b80;
-  --line: #34322c;
-  --line-2: #44413a;
-  --accent: #d8785a;
-  --accent-ink: #1b1a17;
-  --accent-soft: #3a2a23;
-  --ok: #6cbf87;
-  --warn: #d9b25a;
-  --err: #e2685f;
-  --code-bg: #1f1e1a;
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px -12px rgba(0, 0, 0, 0.6);
   --ws-0: #6d9ee8;
   --ws-1: #6cc487;
   --ws-2: #e6b84f;
@@ -109,22 +91,34 @@
   --color-bg: var(--bg);
   --color-surface: var(--surface);
   --color-surface-2: var(--surface-2);
+  --color-elevated: var(--elevated);
   --color-ink: var(--ink);
   --color-ink-2: var(--ink-2);
   --color-muted: var(--muted);
   --color-line: var(--line);
   --color-line-2: var(--line-2);
   --color-accent: var(--accent);
+  --color-accent-fill: var(--accent-fill);
+  --color-accent-fill-hover: var(--accent-fill-hover);
   --color-accent-ink: var(--accent-ink);
   --color-accent-soft: var(--accent-soft);
   --color-ok: var(--ok);
   --color-warn: var(--warn);
   --color-err: var(--err);
+  --color-err-fill: var(--s-color-fill-critical);
   --color-code-bg: var(--code-bg);
-  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
-  --font-serif: var(--font-lora), Georgia, serif;
-  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  /* Google Sans Flex for everything you read and click; Google Sans Code for headlines, numbers, meta and code. */
+  --font-sans: var(--font-google-sans-flex), system-ui, sans-serif;
+  --font-display: var(--font-google-sans-code), ui-monospace, monospace;
+  --font-mono: var(--font-google-sans-code), ui-monospace, monospace;
   --shadow-card: var(--shadow);
+  --shadow-raised: var(--shadow-sm);
+  /* Very rounded UI (DESIGN.md 4.2): small controls 10, sm buttons and fields 14, cards and menus 20, sheets 24, composer 28. */
+  --radius-md: var(--s-radius-5);
+  --radius-lg: var(--s-radius-7);
+  --radius-xl: var(--s-radius-10);
+  --radius-2xl: var(--s-radius-11);
+  --radius-3xl: var(--site-composer-radius);
 }
 
 html,
@@ -167,8 +161,11 @@ body {
   }
   /* Keyboard focus only; mouse clicks stay ring-free. Text fields keep their own focus styles. */
   :where(a, button, summary, [role="button"], select, input[type="checkbox"], input[type="radio"]):focus-visible {
-    outline: 2px solid var(--accent);
+    outline: 2px solid var(--s-color-border-focus);
     outline-offset: 2px;
+  }
+  ::selection {
+    background-color: var(--s-color-fill-text-selection);
   }
 }
 
@@ -213,8 +210,9 @@ body {
 }
 
 .md {
-  line-height: 1.65;
-  font-size: 0.975rem;
+  line-height: 1.6;
+  font-size: 1rem;
+  letter-spacing: 0.005em;
 }
 .md > * + * {
   margin-top: 0.75em;
@@ -223,9 +221,10 @@ body {
 .md h2,
 .md h3,
 .md h4 {
-  font-family: var(--font-serif);
-  font-weight: 600;
-  line-height: 1.25;
+  font-family: var(--font-sans);
+  font-weight: 500;
+  line-height: 1.3;
+  letter-spacing: 0;
   margin-top: 1.4em;
 }
 .md h1 {
@@ -237,24 +236,25 @@ body {
 .md h3 {
   font-size: 1.1rem;
 }
+.md :is(strong, b) {
+  font-weight: 500;
+}
 .md p code,
 .md li code,
 .md td code {
   font-family: var(--font-mono);
-  font-size: 0.85em;
+  font-size: 0.9em;
   background: var(--code-bg);
-  border: 1px solid var(--line);
-  border-radius: 5px;
+  border-radius: var(--s-radius-4);
   padding: 0.1em 0.35em;
 }
 .md pre {
   font-family: var(--font-mono);
-  font-size: 0.8rem;
+  font-size: 0.8125rem;
   line-height: 1.55;
   background: var(--code-bg);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 0.85rem 1rem;
+  border-radius: var(--s-radius-10);
+  padding: 1rem;
   overflow-x: auto;
 }
 .md ul,
@@ -267,6 +267,9 @@ body {
 .md ol {
   list-style: decimal;
 }
+.md li::marker {
+  color: var(--muted);
+}
 .md li + li {
   margin-top: 0.25em;
 }
@@ -275,9 +278,13 @@ body {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+.md a:hover {
+  color: var(--s-color-content-brand-hover);
+}
 .md blockquote {
-  border-left: 3px solid var(--line-2);
-  padding-left: 0.9em;
+  border-radius: var(--s-radius-10);
+  background: var(--surface-2);
+  padding: 0.75rem 1rem;
   color: var(--ink-2);
 }
 .md .md-table {
@@ -290,12 +297,13 @@ body {
 }
 .md th,
 .md td {
-  border: 1px solid var(--line);
-  padding: 0.4em 0.6em;
+  border-bottom: 1px solid var(--line);
+  padding: 0.6em 1em 0.6em 0;
   text-align: left;
 }
 .md th {
-  background: var(--surface-2);
+  font-weight: 500;
+  color: var(--ink);
 }
 .md hr {
   border: 0;
@@ -702,10 +710,8 @@ figure.rich {
   margin-bottom: 0.25rem;
 }
 .rich-kind {
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-family: var(--font-mono);
+  font-size: 12px;
   color: var(--muted);
 }
 .rich-cap {
@@ -721,7 +727,7 @@ figure.rich {
   position: relative;
   isolation: isolate;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--s-radius-10);
   background: var(--surface);
   padding: 0.75rem;
   cursor: zoom-in;
@@ -737,8 +743,8 @@ figure.rich {
 }
 .rich-paper {
   /* The light theme's surface, whatever the page's theme: dark-on-transparent drawings stay visible. */
-  background: #fbfaf6;
-  border-color: #e3e0d6;
+  background: #f7f7f4;
+  border-color: #e4e4e1;
   color-scheme: light;
 }
 .rich-host {
@@ -759,7 +765,7 @@ figure.rich {
   pointer-events: none;
 }
 .rich-paper .rich-fade {
-  background: linear-gradient(to bottom, transparent, #fbfaf6);
+  background: linear-gradient(to bottom, transparent, #f7f7f4);
 }
 .rich-stage {
   overflow: auto;
@@ -818,14 +824,14 @@ figure[data-rich-state="pending"] .rich-src > summary {
   gap: 0.75rem;
   align-content: center;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: var(--s-radius-10);
   background: var(--surface);
   padding: 1rem;
 }
 .rich-skel i {
   display: block;
   height: 1.75rem;
-  border-radius: 6px;
+  border-radius: var(--s-radius-4);
 }
 .rich-skel[data-shape="diagram"] {
   justify-items: center;

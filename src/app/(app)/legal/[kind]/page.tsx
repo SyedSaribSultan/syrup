@@ -29,7 +29,7 @@ export default async function LegalPage({ params }: PageProps<"/legal/[kind]">) 
             </Link>
           ))}
         </div>
-        <h1 className="font-serif text-[1.75rem] font-medium tracking-tight text-ink medium:text-[2rem]">{doc.title}</h1>
+        <h1 className="font-display text-[1.75rem] font-normal text-ink medium:text-[2rem]">{doc.title}</h1>
         <div className="mt-1 mb-8 text-[12px] text-muted">Version {doc.version}</div>
         {/* Long links wrap instead of widening the page; Markdown already scrolls wide tables and code inside themselves. */}
         <div className="prose-legal text-[15px] leading-relaxed break-words text-ink-2">

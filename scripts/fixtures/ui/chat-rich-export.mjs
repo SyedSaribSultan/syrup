@@ -17,9 +17,9 @@ export const EXPORT_STEPS = [
   { download: "button:text-is('HTML')", save: "export.html" },
 ]
 
-// LIGHT_TOKENS.surface2 (#eceae1) and the dark --surface-2 (#2b2a25), as the browser writes them in the picture's CSS.
-const LIGHT_SURFACE_2 = "fill: rgb(236, 234, 225)"
-const DARK_SURFACE_2 = "rgb(43, 42, 37)"
+// LIGHT_TOKENS.surface2 (#ecebe8) and the dark --surface-2 (#22221f, the Sarib system's fill-secondary), as the browser writes them in the picture's CSS.
+const LIGHT_SURFACE_2 = "fill: rgb(236, 235, 232)"
+const DARK_SURFACE_2 = "rgb(34, 34, 31)"
 
 function make(name, dark) {
   return defineScenario({

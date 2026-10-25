@@ -345,7 +345,7 @@ function Row({
         <span className="flex w-3 shrink-0 justify-center text-muted">
           {dir && (
             <svg width="8" height="8" viewBox="0 0 8 8" className={`transition-transform ${open ? "rotate-90" : ""}`}>
-              <path d="M2.5 1.2 5.6 4 2.5 6.8" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M2.5 1.2 5.6 4 2.5 6.8" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           )}
         </span>
@@ -384,7 +384,7 @@ function IconButton({ label, pressed, onClick, children }: { label: string; pres
       aria-pressed={pressed}
       className={`flex items-center justify-center rounded-lg p-1.5 transition pointer-coarse:h-11 pointer-coarse:w-11 ${pressed ? "bg-surface-2 text-ink" : "text-muted hover:bg-surface-2 hover:text-ink"}`}
     >
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
         {children}
       </svg>
     </button>
@@ -393,7 +393,7 @@ function IconButton({ label, pressed, onClick, children }: { label: string; pres
 
 function FolderIcon({ open }: { open: boolean }) {
   return (
-    <svg width="14" height="14" viewBox="0 0 14 14" className="shrink-0 text-accent/80" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round">
+    <svg width="14" height="14" viewBox="0 0 14 14" className="shrink-0 text-accent/80" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round">
       {open ? <path d="M1.8 11.2V3.4c0-.4.3-.7.7-.7h2.8l1.2 1.3h4.3c.4 0 .7.3.7.7v1.2M1.8 11.2l1.6-4.6c.1-.3.4-.5.7-.5h7.9c.4 0 .7.4.6.8l-1.3 4.3H1.8Z" /> : <path d="M1.8 11.2V3.4c0-.4.3-.7.7-.7h2.8l1.2 1.3h4.9c.4 0 .7.3.7.7v5.8c0 .4-.3.7-.7.7H2.5c-.4 0-.7-.3-.7-.7Z" />}
     </svg>
   )
@@ -401,7 +401,7 @@ function FolderIcon({ open }: { open: boolean }) {
 
 function FileIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 14 14" className="shrink-0 text-muted" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round">
+    <svg width="14" height="14" viewBox="0 0 14 14" className="shrink-0 text-muted" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round">
       <path d="M3.2 1.8h4.6l3 3v7c0 .4-.3.7-.7.7H3.2c-.4 0-.7-.3-.7-.7V2.5c0-.4.3-.7.7-.7Z M7.6 1.9v3h3" />
     </svg>
   )

@@ -65,7 +65,7 @@ export default function UsagePage() {
         {/* On phones the range control sits under the title. */}
         <div className="mb-6 flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
           <div className="w-full medium:w-auto medium:min-w-0 medium:flex-1">
-            <h1 className="font-serif text-[1.75rem] font-medium tracking-tight text-ink">Usage & cost</h1>
+            <h1 className="font-display text-[1.75rem] font-normal text-ink">Usage & cost</h1>
             <p className="mt-1 text-sm text-muted">Every token the agent used, as reported by the engine. Free-tier usage is shown separately from paid spend.</p>
           </div>
           <div className="flex rounded-lg border border-line bg-surface p-0.5 text-xs">
@@ -115,7 +115,7 @@ export default function UsagePage() {
                     onClick={() => setPicked(on ? null : d.day)}
                     className="group relative flex h-full min-w-0 flex-1 items-end"
                   >
-                    <div className={`w-full rounded-t-sm transition group-hover:bg-accent ${on ? "bg-accent" : "bg-accent/70"}`} style={{ height: `${Math.max(3, (v / maxDay) * 100)}%` }} />
+                    <div className={`w-full rounded-t-sm transition group-hover:bg-accent-fill ${on ? "bg-accent-fill" : "bg-ink-2/35"}`} style={{ height: `${Math.max(3, (v / maxDay) * 100)}%` }} />
                     <div className={`pointer-events-none absolute bottom-full mb-1 hidden rounded bg-ink px-1.5 py-0.5 text-[10px] whitespace-nowrap text-bg opacity-0 transition pointer-fine:block pointer-fine:group-hover:opacity-100 ${edge}`}>
                       {d.day} · {fmtTokens(v)} · {fmtCost(d.cost)}
                     </div>
@@ -254,8 +254,8 @@ function fmtSeconds(ms: number): string {
 
 function Stat({ label, value, hint, accent, loading }: { label: string; value: string; hint?: string; accent?: boolean; loading?: boolean }) {
   return (
-    <div className="rounded-xl border border-line bg-surface p-4 shadow-card">
-      <div className="text-[11px] font-medium uppercase tracking-wider text-muted">{label}</div>
+    <div className="rounded-xl border border-line bg-surface p-4">
+      <div className="text-[11px] font-mono text-muted">{label}</div>
       {loading ? (
         <div aria-busy className="skel-in">
           <div className="mt-1 flex h-[2.4rem] items-center">
@@ -265,7 +265,7 @@ function Stat({ label, value, hint, accent, loading }: { label: string; value: s
         </div>
       ) : (
         <>
-          <div className={`mt-1 font-serif text-[1.6rem] font-medium tracking-tight ${accent ? "text-accent" : "text-ink"}`}>{value}</div>
+          <div className={`mt-1 font-display text-[1.6rem] font-normal ${accent ? "text-accent" : "text-ink"}`}>{value}</div>
           {hint && <div className="mt-0.5 text-xs text-muted">{hint}</div>}
         </>
       )}
@@ -306,7 +306,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
     <section className="mt-8">
       <h2 className="mb-3 text-sm font-medium text-ink">{title}</h2>
       {/* A container, so the tables can switch to cards by the card's own width (the sidebar changes it too). */}
-      <div className="@container rounded-xl border border-line bg-surface p-4 shadow-card">{children}</div>
+      <div className="@container rounded-xl border border-line bg-surface p-4">{children}</div>
     </section>
   )
 }
@@ -370,7 +370,7 @@ function TableView({ head, rows }: { head: string[]; rows: ReactNode[][] }) {
   return (
     <table className="w-full text-sm">
       <thead>
-        <tr className="text-left text-[11px] font-medium uppercase tracking-wider text-muted">
+        <tr className="text-left text-[11px] font-mono text-muted">
           {head.map((h) => (
             <th key={h}className="pb-2 pr-3 font-medium whitespace-nowrap last:pr-0">
               {h}

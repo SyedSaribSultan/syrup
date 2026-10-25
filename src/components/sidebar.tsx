@@ -51,11 +51,11 @@ export function Sidebar({ status, footer }: { status?: ReactNode; footer?: React
   }
 
   return (
-    <aside className="flex h-full w-full flex-col border-r border-line bg-surface-2/60 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
+    <aside className="flex h-full w-full flex-col border-r border-line bg-surface pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
       {(rail || forced) && <Rail className={rail ? "hidden expanded:flex" : "hidden expanded:max-large:flex"} />}
       <div className={`flex min-h-0 flex-1 flex-col ${rail ? "expanded:hidden" : forced ? "expanded:max-large:hidden" : ""}`}>
       <div className="flex items-center justify-between gap-2 pt-4 pr-2 pb-1 pl-4 pointer-coarse:pt-3">
-        <Link href="/" className="font-serif text-[1.35rem] font-semibold tracking-tight text-ink">
+        <Link href="/" className="font-sans text-[1.35rem] font-medium text-ink">
           syrup
         </Link>
         <div className="flex items-center gap-2">
@@ -79,7 +79,7 @@ export function Sidebar({ status, footer }: { status?: ReactNode; footer?: React
 
       <div className="px-3 pb-2">
         {w.newChatHref ? (
-          <Link href={w.newChatHref} className="flex w-full items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-sm font-medium text-ink shadow-card transition hover:border-line-2">
+          <Link href={w.newChatHref} className="flex w-full items-center gap-2 rounded-xl border border-line bg-bg px-3 py-2 text-sm font-medium text-ink transition hover:border-line-2">
             <span className="text-accent">+</span> New chat
           </Link>
         ) : (
@@ -88,7 +88,7 @@ export function Sidebar({ status, footer }: { status?: ReactNode; footer?: React
       </div>
 
       <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-        <div className="px-2 pt-2 pb-1 text-[11px] font-medium uppercase tracking-wider text-muted">Chats</div>
+        <div className="px-2 pt-2 pb-1 text-[11px] font-mono text-muted">Chats</div>
         {chats.length > 6 && (
           <input
             type="search"
@@ -113,11 +113,11 @@ export function Sidebar({ status, footer }: { status?: ReactNode; footer?: React
                   href={w.chatHref(c)}
                   onClick={() => c.workspaceId !== w.activeId && w.select(c.workspaceId)}
                   title={names.get(c.workspaceId)}
-                  className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition pointer-coarse:py-2.5 ${mine ? "pr-14 pointer-coarse:pr-20" : ""} ${active ? "bg-surface text-ink shadow-card" : "text-ink-2 hover:bg-surface/70 hover:text-ink"}`}
+                  className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition pointer-coarse:py-2.5 ${mine ? "pr-14 pointer-coarse:pr-20" : ""} ${active ? "bg-surface-2 text-ink" : "text-ink-2 hover:bg-surface-2/60 hover:text-ink"}`}
                 >
                   <WorkspaceDot color={colors.get(c.workspaceId) ?? 0} />
                   <span className="min-w-0 flex-1 truncate">{c.title || "Untitled"}</span>
-                  {busy ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent pulse" /> : <span className={`shrink-0 text-[11px] text-muted ${mine ? "transition group-focus-within:opacity-0 group-hover:opacity-0 pointer-coarse:hidden" : ""}`}>{fmtRelative(c.updated)}</span>}
+                  {busy ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent-fill pulse" /> : <span className={`shrink-0 text-[11px] text-muted ${mine ? "transition group-focus-within:opacity-0 group-hover:opacity-0 pointer-coarse:hidden" : ""}`}>{fmtRelative(c.updated)}</span>}
                 </Link>
                 {mine && (
                   <div className="absolute top-1/2 right-1.5 flex -translate-y-1/2 items-center gap-0.5 motion-reveal">
@@ -145,7 +145,7 @@ export function Sidebar({ status, footer }: { status?: ReactNode; footer?: React
 function SideBtn({ label, onClick, className, children }: { label: string; onClick(): void; className: string; children: ReactNode }) {
   return (
     <button type="button" onClick={onClick} aria-label={label} title={label} className={`h-8 w-8 items-center justify-center rounded-lg text-muted transition hover:bg-surface hover:text-ink pointer-coarse:h-11 pointer-coarse:w-11 ${className}`}>
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
         {children}
       </svg>
     </button>
@@ -162,7 +162,7 @@ function Rail({ className = "" }: { className?: string }) {
   return (
     <div className={`h-full flex-col items-center gap-1 py-3 ${className}`}>
       <button type="button" onClick={nav?.toggleCollapsed} aria-label={expand} title={expand} className={item}>
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
           <path d="M5.5 2.5v11M2.5 4a1.5 1.5 0 0 1 1.5-1.5h8A1.5 1.5 0 0 1 13.5 4v8a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 12V4Z" />
         </svg>
       </button>
@@ -206,7 +206,7 @@ function AccountRow() {
               <span className="block truncate text-[13px] font-medium text-ink">{user?.name ?? (mode === "local" ? "syrup" : "Signed in")}</span>
               <span className="block truncate text-[11px] text-muted">{user?.email ?? "Running on this computer"}</span>
             </span>
-            <svg width="16" height="16" viewBox="0 0 14 14" className="shrink-0 text-muted" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-label="Settings">
+            <svg width="16" height="16" viewBox="0 0 14 14" className="shrink-0 text-muted" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-label="Settings">
               {ICONS.settings}
             </svg>
           </button>
@@ -223,7 +223,7 @@ function Avatar({ size }: { size: number }) {
     return <img src={user.image} alt="" width={size} height={size} className="shrink-0 rounded-full" referrerPolicy="no-referrer" />
   const initial = user ? (user.name ?? user.email ?? "?").slice(0, 1).toUpperCase() : "s"
   return (
-    <span style={{ width: size, height: size }} className={`flex shrink-0 items-center justify-center rounded-full bg-surface text-xs text-ink-2 shadow-card ${user ? "font-mono" : "font-serif font-semibold text-accent"}`}>
+    <span style={{ width: size, height: size }} className={`flex shrink-0 items-center justify-center rounded-full bg-surface text-xs text-ink-2 ${user ? "font-mono" : "font-sans font-medium text-accent"}`}>
       {initial}
     </span>
   )
@@ -247,7 +247,7 @@ function SettingsMenu({ open, onClose, side, className }: { open: boolean; onClo
   const { mode, user } = useWorkspaces()
   const { open: openLogs } = useLogs()
   const icon = (name: keyof typeof ICONS) => (
-    <svg width="15" height="15" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+    <svg width="15" height="15" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       {ICONS[name]}
     </svg>
   )
@@ -307,7 +307,7 @@ function ThemeRow() {
             role="radio"
             aria-checked={theme === value}
             onClick={() => setTheme(value)}
-            className={`rounded-md px-2.5 py-1 text-[12px] transition pointer-coarse:px-3 pointer-coarse:py-2 ${theme === value ? "bg-surface text-ink shadow-card" : "text-ink-2 hover:text-ink"}`}
+            className={`rounded-md px-2.5 py-1 text-[12px] transition pointer-coarse:px-3 pointer-coarse:py-2 ${theme === value ? "bg-elevated text-ink shadow-raised" : "text-ink-2 hover:text-ink"}`}
           >
             {label}
           </button>
@@ -328,7 +328,7 @@ function IconBtn({ title, onClick, danger, children }: { title: string; onClick(
       }}
       className={`rounded p-1 text-muted transition hover:bg-surface-2 pointer-coarse:p-2 ${danger ? "hover:text-err" : "hover:text-ink"}`}
     >
-      <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+      <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
         {children}
       </svg>
     </button>

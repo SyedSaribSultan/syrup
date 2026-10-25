@@ -85,7 +85,7 @@ export default function ProvidersPage() {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto w-full max-w-[880px] px-4 py-8 medium:px-6">
-        <h1 className="font-serif text-[1.75rem] font-medium tracking-tight text-ink">Providers</h1>
+        <h1 className="font-display text-[1.75rem] font-normal text-ink">Providers</h1>
         <p className="mt-1 max-w-[640px] text-sm text-muted">
           Add API keys from any provider. Keys are encrypted at rest and only ever used for requests you start. You can keep several keys per provider; the active one is what the agent uses.
         </p>
@@ -169,7 +169,7 @@ function Section({ title, hint, right, children }: { title: string; hint?: strin
 
 function BuiltInCard({ name, badge, note, waiting }: { name: string; badge: string; note: string; waiting?: string }) {
   return (
-    <div className="rounded-xl border border-line bg-surface px-4 py-3 shadow-card">
+    <div className="rounded-xl border border-line bg-surface px-4 py-3">
       <div className="flex items-center gap-2">
         <span className={`h-2 w-2 shrink-0 rounded-full ${waiting ? "bg-line-2" : "bg-ok"}`} />
         <span className="truncate text-sm font-medium text-ink">{name}</span>
@@ -235,7 +235,7 @@ function ProviderCard({
   const c = p.curated
 
   return (
-    <div className={`rounded-xl border bg-surface shadow-card transition ${authFailed ? "border-err/40" : p.connected ? "border-ok/40" : "border-line"}`}>
+    <div className={`rounded-xl border bg-surface transition ${authFailed ? "border-err/40" : p.connected ? "border-ok/40" : "border-line"}`}>
       <button type="button" onClick={() => setOpen((v) => !v)} className="flex w-full items-center gap-3 px-4 py-3 text-left">
         <span className={`h-2 w-2 shrink-0 rounded-full ${authFailed ? "bg-err" : p.connected ? "bg-ok" : "bg-line-2"}`} />
         <div className="min-w-0 flex-1">
@@ -253,7 +253,7 @@ function ProviderCard({
           )}
         </div>
         <svg width="10" height="10" viewBox="0 0 10 10" className={`shrink-0 opacity-60 transition ${open ? "rotate-180" : ""}`}>
-          <path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" strokeWidth="1.3" />
+          <path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
         </svg>
       </button>
 
@@ -330,7 +330,7 @@ function ProviderCard({
               type="button"
               onClick={() => void add()}
               disabled={!key.trim() || !!busy}
-              className={`rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-accent-ink transition pointer-coarse:min-h-11 ${busy === "add" ? "" : "disabled:opacity-40"}`}
+              className={`rounded-lg bg-accent-fill px-3 py-1.5 text-xs font-medium text-accent-ink transition pointer-coarse:min-h-11 ${busy === "add" ? "" : "disabled:opacity-40"}`}
             >
               {busy === "add" ? <Brew mood="save" tone="inherit" timerAfter={0} /> : "Add key"}
             </button>
@@ -363,7 +363,7 @@ function CatalogSkeleton() {
       </div>
       <div className="space-y-2">
         {["w-24", "w-32", "w-20"].map((w) => (
-          <div key={w} className="flex items-center gap-3 rounded-xl border border-line bg-surface px-4 py-3 shadow-card">
+          <div key={w} className="flex items-center gap-3 rounded-xl border border-line bg-surface px-4 py-3">
             <Skel className="h-2 w-2 shrink-0 rounded-full" />
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">

@@ -275,7 +275,7 @@ function Line({ title, id }: { title: string; id: string }) {
   )
 }
 
-const svg = { width: 12, height: 12, viewBox: "0 0 12 12", fill: "none", stroke: "currentColor", strokeWidth: 1.2, strokeLinecap: "round", strokeLinejoin: "round" } as const
+const svg = { width: 12, height: 12, viewBox: "0 0 12 12", fill: "none", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round" } as const
 
 export function Glyphs({ m }: { m: PickerModel }) {
   return (
@@ -301,7 +301,7 @@ export function Glyphs({ m }: { m: PickerModel }) {
 
 export function Star({ filled }: { filled: boolean }) {
   return (
-    <svg width="13" height="13" viewBox="0 0 12 12" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round">
+    <svg width="13" height="13" viewBox="0 0 12 12" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round">
       <path d="m6 1.2 1.45 3 3.3.4-2.43 2.27.62 3.26L6 8.53 3.06 10.13l.62-3.26L1.25 4.6l3.3-.4Z" />
     </svg>
   )
@@ -310,7 +310,7 @@ export function Star({ filled }: { filled: boolean }) {
 export function Chevron({ open }: { open: boolean }) {
   return (
     <svg width="10" height="10" viewBox="0 0 10 10" className={`shrink-0 transition ${open ? "rotate-90" : ""}`}>
-      <path d="M3.5 2 6.5 5 3.5 8" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M3.5 2 6.5 5 3.5 8" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }
@@ -318,7 +318,7 @@ export function Chevron({ open }: { open: boolean }) {
 export function AliasIcon({ id }: { id: string }) {
   return (
     <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-accent">
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" strokeLinecap="round">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round">
         {id === "fast" ? <path d="M8 1.5 3 8h4l-1 4.5L11 6H7l1-4.5Z" /> : <path d="M7 1.5v2.2M7 10.3v2.2M1.5 7h2.2M10.3 7h2.2M3.1 3.1l1.5 1.5M9.4 9.4l1.5 1.5M3.1 10.9l1.5-1.5M9.4 4.6l1.5-1.5" />}
       </svg>
     </span>

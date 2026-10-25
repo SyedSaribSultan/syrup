@@ -20,7 +20,7 @@ export function WorkspaceDot({ color, className = "" }: { color: number; classNa
 export function WorkspaceTile({ name, color, size = 28 }: { name: string; color: number; size?: number }) {
   return (
     <span
-      className="flex shrink-0 items-center justify-center rounded-lg font-semibold"
+      className="flex shrink-0 items-center justify-center rounded-lg font-medium"
       style={{ width: size, height: size, fontSize: Math.round(size * 0.46), background: wsTint(color), color: wsColor(color), boxShadow: `inset 0 0 0 1px ${wsTint(color, 32)}` }}
     >
       {name.slice(0, 1).toUpperCase()}
@@ -52,14 +52,14 @@ export function WorkspaceSwitcher({ controls }: { controls?: ReactNode }) {
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         title={active?.detail}
-        className={`flex w-full items-center gap-2.5 rounded-xl border bg-surface px-2.5 py-2 text-left shadow-card transition hover:border-line-2 ${open ? "border-line-2" : "border-line"}`}
+        className={`flex w-full items-center gap-2.5 rounded-xl border bg-bg px-2.5 py-2 text-left transition hover:border-line-2 ${open ? "border-line-2" : "border-line"}`}
       >
         {active ? <WorkspaceTile name={active.name} color={active.color} /> : <span className="h-7 w-7 shrink-0 rounded-lg border border-dashed border-line-2" />}
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[13px] font-medium text-ink">{active ? active.name : workspaces ? "Choose a workspace" : <Skel className="h-3 w-20" />}</span>
           <span className="block truncate text-[11px] text-muted">{active ? shortDetail(active.detail) : "No workspace open"}</span>
         </span>
-        <svg width="12" height="12" viewBox="0 0 12 12" className="shrink-0 text-muted" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="12" height="12" viewBox="0 0 12 12" className="shrink-0 text-muted" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
           <path d="M3.5 4.5 6 2l2.5 2.5M3.5 7.5 6 10l2.5-2.5" />
         </svg>
       </button>
@@ -68,7 +68,7 @@ export function WorkspaceSwitcher({ controls }: { controls?: ReactNode }) {
         <Menu onDone={close} />
         {controls && (
           <div className="border-t border-line">
-            <div className="px-3.5 pt-2.5 pb-1 text-[11px] font-medium uppercase tracking-wider text-muted">This workspace</div>
+            <div className="px-3.5 pt-2.5 pb-1 text-[11px] font-mono text-muted">This workspace</div>
             {controls}
           </div>
         )}
@@ -154,7 +154,7 @@ function Menu({ onDone }: { onDone(): void }) {
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-1.5">
                     <span className={`truncate text-[13px] font-medium ${w.missing ? "text-ink-2 line-through decoration-warn/60" : "text-ink"}`}>{w.name}</span>
-                    {isActive && <span className="shrink-0 rounded bg-surface px-1 py-px text-[10px] font-medium text-ink-2 shadow-card">Current</span>}
+                    {isActive && <span className="shrink-0 rounded bg-surface px-1 py-px text-[10px] font-medium text-ink-2">Current</span>}
                     {w.missing && <span className="shrink-0 rounded bg-warn/15 px-1 py-px text-[10px] font-medium text-warn">Folder not found</span>}
                   </span>
                   <span className="block truncate text-[11px] text-muted">{shortDetail(w.detail)}</span>
@@ -167,14 +167,14 @@ function Menu({ onDone }: { onDone(): void }) {
                 <span className="absolute top-1/2 right-2 flex -translate-y-1/2 items-center gap-0.5 motion-reveal">
                   {mode === "local" && (
                     <button type="button" title={`Open folder in ${folderApp}`} aria-label="Open folder" onClick={() => void onReveal(w)} className="rounded-md p-1.5 text-muted transition hover:bg-surface hover:text-ink pointer-coarse:p-2.5">
-                      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round">
+                      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round">
                         <path d="M1.75 4.25c0-.55.45-1 1-1h3.1l1.5 1.5h5.9c.55 0 1 .45 1 1v6.5c0 .55-.45 1-1 1H2.75c-.55 0-1-.45-1-1v-8Z" />
                       </svg>
                     </button>
                   )}
                   {!isActive && !w.home && (
                     <button type="button" title={mode === "cloud" ? "Delete workspace" : "Remove from list"} onClick={() => void onRemove(w)} className="rounded-md p-1.5 text-muted transition hover:bg-surface hover:text-err pointer-coarse:p-2.5">
-                      <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
+                      <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
                         <path d="M3.5 3.5l7 7M10.5 3.5l-7 7" />
                       </svg>
                     </button>
@@ -295,7 +295,7 @@ function FolderBrowser({ onBack, onChoose }: { onBack(): void; onChoose(path: st
         <button type="button" onClick={onBack} className="rounded-lg px-2 py-1 text-[12px] text-muted hover:text-ink">
           Back
         </button>
-        <button type="button" disabled={!data?.exists} onClick={() => data && onChoose(data.path)} className="rounded-lg bg-accent px-3 py-1 text-[12px] font-medium text-accent-ink disabled:opacity-40">
+        <button type="button" disabled={!data?.exists} onClick={() => data && onChoose(data.path)} className="rounded-lg bg-accent-fill px-3 py-1 text-[12px] font-medium text-accent-ink disabled:opacity-40">
           Use {data ? baseName(data.path) : ""}
         </button>
       </div>
@@ -332,7 +332,7 @@ export function CloudAddForm({ compact, onDone }: { compact?: boolean; onDone?()
         className={`w-full rounded-lg border border-line bg-bg px-2.5 font-mono outline-none placeholder:font-sans placeholder:text-muted focus:border-line-2 ${compact ? "py-1.5 text-[12px]" : "py-2 text-[13px]"}`}
       />
       <div className="flex gap-1.5">
-        <button type="button" onClick={() => void create(false)} disabled={busy || repo.trim().length < 3} className="flex-1 rounded-lg bg-accent px-2.5 py-1.5 text-[12px] font-medium text-accent-ink disabled:opacity-40">
+        <button type="button" onClick={() => void create(false)} disabled={busy || repo.trim().length < 3} className="flex-1 rounded-lg bg-accent-fill px-2.5 py-1.5 text-[12px] font-medium text-accent-ink disabled:opacity-40">
           {busy ? "Creating…" : "Add from repo"}
         </button>
         <button type="button" onClick={() => void create(true)} disabled={busy} className="rounded-lg border border-line bg-bg px-2.5 py-1.5 text-[12px] font-medium text-ink disabled:opacity-40">

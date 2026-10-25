@@ -35,7 +35,7 @@ export function EgressEditor({ workspaceId, initial }: { workspaceId: string; in
 
   return (
     <div className="border-t border-line px-3 py-2">
-      <button type="button" onClick={() => setOpen((v) => !v)} className="flex w-full items-center justify-between text-[11px] font-medium uppercase tracking-wider text-muted hover:text-ink">
+      <button type="button" onClick={() => setOpen((v) => !v)} className="flex w-full items-center justify-between text-[11px] font-mono text-muted hover:text-ink">
         <span>Network</span>
         <span>{openNet ? "open" : listed.length ? `strict · ${listed.length}` : "strict"}</span>
       </button>

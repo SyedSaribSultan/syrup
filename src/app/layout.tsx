@@ -1,13 +1,13 @@
 import type { Metadata, Viewport } from "next"
-import { Geist, Geist_Mono, Lora } from "next/font/google"
+import { Google_Sans_Code, Google_Sans_Flex } from "next/font/google"
 import { DialogHost } from "@/components/ui/dialog"
 import { ViewportSync } from "@/components/ui/viewport-sync"
 import { THEME_SCRIPT } from "@/lib/theme-script"
 import "./globals.css"
 
-const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] })
-const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] })
-const lora = Lora({ variable: "--font-lora", subsets: ["latin"], weight: ["400", "500", "600"] })
+// The Sarib design system's two faces (globals.css maps them to font-sans and font-display / font-mono).
+const googleSansFlex = Google_Sans_Flex({ variable: "--font-google-sans-flex", subsets: ["latin"], display: "swap" })
+const googleSansCode = Google_Sans_Code({ variable: "--font-google-sans-code", subsets: ["latin"], style: ["normal", "italic"], display: "swap" })
 
 export const metadata: Metadata = {
   title: "syrup",
@@ -29,8 +29,8 @@ export const viewport: Viewport = {
   viewportFit: "cover",
   interactiveWidget: "resizes-content",
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f3f1ea" },
-    { media: "(prefers-color-scheme: dark)", color: "#1b1a17" },
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+    { media: "(prefers-color-scheme: dark)", color: "#0f0e0c" },
   ],
 }
 
@@ -42,7 +42,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     // data-theme may be set by THEME_SCRIPT before React hydrates.
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} ${lora.variable} h-full antialiased`} suppressHydrationWarning>
+    <html lang="en" className={`${googleSansFlex.variable} ${googleSansCode.variable} h-full antialiased`} suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
       </head>

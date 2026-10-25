@@ -117,7 +117,7 @@ export function PanelToggle({ className = "", compact = false }: { className?: s
       >
         <PanelIcon size={17} />
         {c.files > 0 && (
-          <span aria-hidden className="absolute top-0.5 right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] leading-none font-medium text-accent-ink tabular-nums pointer-coarse:top-1.5 pointer-coarse:right-1.5">
+          <span aria-hidden className="absolute top-0.5 right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent-fill px-1 text-[10px] leading-none font-medium text-accent-ink tabular-nums pointer-coarse:top-1.5 pointer-coarse:right-1.5">
             {c.files > 99 ? "99+" : c.files}
           </span>
         )}
@@ -335,7 +335,7 @@ function Tab({ active, onClick, children }: { active: boolean; onClick(): void; 
 
 function PanelIcon({ size = 13 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3">
+    <svg width={size} height={size} viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
       <rect x="1.5" y="2" width="11" height="10" rx="2" />
       <path d="M8.5 2v10" />
     </svg>
@@ -344,7 +344,7 @@ function PanelIcon({ size = 13 }: { size?: number }) {
 
 function CloseIcon({ size }: { size: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 12 12" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
+    <svg width={size} height={size} viewBox="0 0 12 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
       <path d="M2.5 2.5l7 7M9.5 2.5l-7 7" />
     </svg>
   )

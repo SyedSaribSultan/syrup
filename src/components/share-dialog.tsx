@@ -185,21 +185,21 @@ function SharePanel({ sessionId }: { sessionId: string }) {
         </div>
       ) : share === null ? (
         <>
-          <h2 className="font-serif text-[1.05rem] font-medium text-ink">Share this chat</h2>
+          <h2 className="font-sans text-[1.05rem] font-medium text-ink">Share this chat</h2>
           <p className="mt-1 text-[13px] leading-relaxed text-ink-2">Anyone with the link can read this chat as it is right now: every message, tool step and attachment. They can&apos;t reply, and nothing you send later shows up.</p>
           <ul className="mt-2.5 space-y-1 text-[12px] text-muted">
             <li>Keys and tokens are redacted. File paths are shortened.</li>
             <li>Hidden from search engines. Stop sharing any time.</li>
           </ul>
           {local && <LocalNote />}
-          <button type="button" onClick={() => void create()} disabled={!!busy} className="mt-3.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-accent-ink transition hover:opacity-90 disabled:opacity-70">
+          <button type="button" onClick={() => void create()} disabled={!!busy} className="mt-3.5 rounded-lg bg-accent-fill px-3 py-1.5 text-xs font-medium text-accent-ink transition hover:opacity-90 disabled:opacity-70">
             {busy === "create" ? <Brew mood="save" tone="inherit" timerAfter={0} /> : "Create link"}
           </button>
         </>
       ) : (
         <>
           <div className="flex items-baseline justify-between gap-2">
-            <h2 className="font-serif text-[1.05rem] font-medium text-ink">Shared</h2>
+            <h2 className="font-sans text-[1.05rem] font-medium text-ink">Shared</h2>
             <span className="text-[11px] text-muted">{plural(share.views, "view")}</span>
           </div>
           <div className="mt-2 flex items-center gap-1.5">
@@ -207,7 +207,7 @@ function SharePanel({ sessionId }: { sessionId: string }) {
             <button
               type="button"
               onClick={() => void copyText(share.url).then(() => flash("link"))}
-              className="shrink-0 rounded-lg bg-accent px-2.5 py-1.5 text-xs font-medium text-accent-ink transition hover:opacity-90 pointer-coarse:px-3.5 pointer-coarse:py-2.5"
+              className="shrink-0 rounded-lg bg-accent-fill px-2.5 py-1.5 text-xs font-medium text-accent-ink transition hover:opacity-90 pointer-coarse:px-3.5 pointer-coarse:py-2.5"
             >
               {copied === "link" ? "Copied" : "Copy"}
             </button>
@@ -255,7 +255,7 @@ function SharePanel({ sessionId }: { sessionId: string }) {
         <summary className="flex cursor-pointer list-none items-center justify-between text-[12px] text-muted transition hover:text-ink [&::-webkit-details-marker]:hidden">
           All shared links
           <svg width="10" height="10" viewBox="0 0 10 10" className="shrink-0 opacity-60 transition group-open/links:rotate-180">
-            <path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" strokeWidth="1.3" />
+            <path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
           </svg>
         </summary>
         {links && <SharedLinks variant="compact" key={share?.id ?? "none"} />}
@@ -359,7 +359,7 @@ export function SharedLinks({ variant = "card" }: { variant?: "card" | "compact"
       </div>
     )
   return (
-    <section className="mt-6 rounded-xl border border-line bg-surface p-4 shadow-card">
+    <section className="mt-6 rounded-xl border border-line bg-surface p-4">
       <h2 className="text-sm font-medium text-ink">Shared links</h2>
       <p className="mt-1 text-[13px] text-ink-2">Chats you&apos;ve shared. Anyone with a link can read that snapshot; search engines are told not to index them. Stopping a link takes it down right away.</p>
       {list}

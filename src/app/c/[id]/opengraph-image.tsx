@@ -2,7 +2,7 @@ import { ImageResponse } from "next/og"
 import { firstUserLine } from "@/lib/transcript"
 import { getPublicShare } from "@/server/shares"
 
-/** Link preview for a shared chat: the title and the first thing the user asked, in syrup's warm paper style. */
+/** Link preview for a shared chat: the title and the first thing the user asked, in the Sarib design system syrup uses. */
 
 export const alt = "A chat shared from syrup"
 export const size = { width: 1200, height: 630 }
@@ -13,8 +13,8 @@ export async function generateStaticParams() {
   return []
 }
 
-// syrup's light palette (src/app/globals.css).
-const C = { bg: "#f3f1ea", ink: "#23211d", ink2: "#4f4c45", muted: "#8a867c", line: "#e3e0d6", accent: "#c8623f", accentSoft: "#f6e3da", bubble: "#eceae1" }
+// syrup's light palette: the light values of the --s-* roles in src/app/sarib-tokens.css (an image can't read CSS variables).
+const C = { bg: "#ffffff", ink: "#0f0e0c", ink2: "#605f5c", muted: "rgba(15, 14, 12, 0.5)", line: "#e4e4e1", accent: "#a70d00", accentSoft: "rgba(245, 54, 6, 0.15)", bubble: "#ffebe4" }
 
 /**
  * One Google font, subset to exactly the glyphs in `text` (a small TTF from the Google Fonts API).
@@ -43,26 +43,39 @@ export default async function Image({ params }: { params: Promise<{ id: string }
   const asked = clip(firstUserLine(s.transcript, 220), 220)
   const stats = `${s.transcript.stats.messages} messages${s.transcript.models.length ? ` · ${clip(s.transcript.models.slice(0, 2).join(", "), 60)}` : ""}`
   const tagline = "A free-first coding agent"
-  // Headings in Lora, the rest in Geist, like the app. Both or neither: custom fonts replace the default one.
-  const [lora, geist] = await Promise.all([loadFont("Lora", 500, `syrup${title}`), loadFont("Geist", 400, `Shared chat${asked}${stats}${tagline}…`)])
-  const fonts = lora && geist ? [{ name: "Lora", data: lora, weight: 500 as const, style: "normal" as const }, { name: "Geist", data: geist, weight: 400 as const, style: "normal" as const }] : undefined
-  const serif = fonts ? "Lora" : "serif"
-  const sans = fonts ? "Geist" : "sans-serif"
+  // Like the app: the wordmark in Google Sans Flex 500, the headline and numbers in Google Sans Code, the rest in
+  // Google Sans Flex. All or none: custom fonts replace the default one.
+  const [mark, code, flex] = await Promise.all([
+    loadFont("Google+Sans+Flex", 500, "syrup"),
+    loadFont("Google+Sans+Code", 400, `${title}${stats}…`),
+    loadFont("Google+Sans+Flex", 400, `Shared chat${asked}${tagline}…`),
+  ])
+  const fonts =
+    mark && code && flex
+      ? [
+          { name: "Mark", data: mark, weight: 500 as const, style: "normal" as const },
+          { name: "Code", data: code, weight: 400 as const, style: "normal" as const },
+          { name: "Flex", data: flex, weight: 400 as const, style: "normal" as const },
+        ]
+      : undefined
+  const markFace = fonts ? "Mark" : "sans-serif"
+  const display = fonts ? "Code" : "monospace"
+  const sans = fonts ? "Flex" : "sans-serif"
   return new ImageResponse(
     (
       <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", justifyContent: "space-between", background: C.bg, padding: "64px 72px", color: C.ink, fontFamily: sans }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ display: "flex", fontFamily: serif, fontSize: 44, fontWeight: 500, letterSpacing: -1 }}>syrup</div>
+          <div style={{ display: "flex", fontFamily: markFace, fontSize: 44, fontWeight: 500 }}>syrup</div>
           <div style={{ display: "flex", fontSize: 24, color: C.accent, background: C.accentSoft, padding: "8px 18px", borderRadius: 999 }}>Shared chat</div>
         </div>
         <div style={{ display: "flex", flexDirection: "column" }}>
-          <div style={{ display: "flex", fontFamily: serif, fontSize: title.length > 50 ? 60 : 72, fontWeight: 500, lineHeight: 1.1, letterSpacing: -1.5 }}>{title}</div>
+          <div style={{ display: "flex", fontFamily: display, fontSize: title.length > 50 ? 56 : 68, fontWeight: 400, lineHeight: 1.15 }}>{title}</div>
           {asked && (
-            <div style={{ display: "flex", marginTop: 36, alignSelf: "flex-end", maxWidth: 860, background: C.bubble, color: C.ink2, fontSize: 28, lineHeight: 1.4, padding: "20px 28px", borderRadius: 28, borderBottomRightRadius: 8 }}>{asked}</div>
+            <div style={{ display: "flex", marginTop: 36, alignSelf: "flex-end", maxWidth: 860, background: C.bubble, color: C.ink2, fontSize: 28, lineHeight: 1.4, padding: "20px 28px", borderRadius: 20 }}>{asked}</div>
           )}
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 22, color: C.muted, borderTop: `2px solid ${C.line}`, paddingTop: 22 }}>
-          <div style={{ display: "flex" }}>{stats}</div>
+          <div style={{ display: "flex", fontFamily: display }}>{stats}</div>
           <div style={{ display: "flex" }}>{tagline}</div>
         </div>
       </div>

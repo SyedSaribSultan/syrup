@@ -60,7 +60,7 @@ function QuestionCard({ req }: { req: QuestionReq }) {
     <div className="rounded-xl border border-line bg-surface p-3">
       {req.questions.map((q, qi) => (
         <div key={qi} className={qi > 0 ? "mt-3 border-t border-line pt-3" : ""}>
-          <div className="text-[11px] font-medium uppercase tracking-wider text-muted">{q.header}</div>
+          <div className="text-[11px] font-mono text-muted">{q.header}</div>
           <div className="mt-0.5 text-[14px] text-ink">{q.question}</div>
           <div className="mt-2 grid gap-1.5">
             {q.options.map((o) => {
@@ -109,7 +109,7 @@ function Btn({ children, onClick, primary, disabled }: { children: React.ReactNo
       onClick={onClick}
       disabled={disabled}
       className={`rounded-lg px-3 py-1.5 text-xs font-medium transition disabled:opacity-40 pointer-coarse:py-3 pointer-coarse:text-[14px] ${
-        primary ? "bg-accent text-accent-ink" : "border border-line text-ink-2 hover:border-line-2 hover:text-ink"
+        primary ? "bg-accent-fill text-accent-ink" : "border border-line text-ink-2 hover:border-line-2 hover:text-ink"
       }`}
     >
       {children}

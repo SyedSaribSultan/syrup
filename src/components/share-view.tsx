@@ -93,11 +93,11 @@ export function ShareDocument({ transcript: t, id, homeHref }: { transcript: Tra
       <div className="sticky top-0 z-10 bg-surface pt-[env(safe-area-inset-top)]">
         <div className="mx-auto flex h-12 w-full max-w-[720px] items-center justify-between gap-3 px-4 medium:h-16 medium:px-6 medium:pt-2">
           {homeHref ? (
-            <Link href={homeHref} prefetch={false} className="font-serif text-[1.2rem] font-semibold tracking-tight text-ink medium:text-[1.35rem]">
+            <Link href={homeHref} prefetch={false} className="font-sans text-[1.2rem] font-medium text-ink medium:text-[1.35rem]">
               syrup
             </Link>
           ) : (
-            <span className="font-serif text-[1.2rem] font-semibold tracking-tight text-ink medium:text-[1.35rem]">syrup</span>
+            <span className="font-sans text-[1.2rem] font-medium text-ink medium:text-[1.35rem]">syrup</span>
           )}
           {id && (
             <div className="flex items-center gap-1.5 text-[11px] text-muted">
@@ -114,7 +114,7 @@ export function ShareDocument({ transcript: t, id, homeHref }: { transcript: Tra
       </div>
       <header className="border-b border-line bg-surface">
         <div className="mx-auto w-full max-w-[720px] px-4 pt-3 pb-5 medium:px-6 medium:pt-4 medium:pb-7">
-          <h1 className="font-serif text-[1.5rem] leading-tight font-medium tracking-tight break-words text-ink medium:text-[1.9rem]">{t.title}</h1>
+          <h1 className="font-display text-[1.5rem] leading-tight font-normal break-words text-ink medium:text-[1.9rem]">{t.title}</h1>
           <p className="mt-2 text-[13px] text-muted">
             Shared from syrup · {shareDate(t.snapshotAt)} · {n} message{n === 1 ? "" : "s"}
           </p>
@@ -146,7 +146,7 @@ export function ShareDocument({ transcript: t, id, homeHref }: { transcript: Tra
             A snapshot from {shareDate(t.snapshotAt)}. Anything said after it stays private. Secrets are redacted and file paths are shortened.
           </p>
           {homeHref && (
-            <Link href={homeHref} prefetch={false} className="shrink-0 self-start rounded-lg bg-accent px-3.5 py-2 text-xs font-medium text-accent-ink transition hover:opacity-90 pointer-coarse:py-3.5 medium:self-auto">
+            <Link href={homeHref} prefetch={false} className="shrink-0 self-start rounded-lg bg-accent-fill px-3.5 py-2 text-xs font-medium text-accent-ink transition hover:opacity-90 pointer-coarse:py-3.5 medium:self-auto">
               Try syrup
             </Link>
           )}

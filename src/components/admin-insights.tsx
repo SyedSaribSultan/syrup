@@ -39,7 +39,7 @@ export function Insights() {
   }, [load])
 
   return (
-    <section className="mt-6 rounded-xl border border-line bg-surface p-4 shadow-card">
+    <section className="mt-6 rounded-xl border border-line bg-surface p-4">
       <div className="flex flex-wrap items-baseline gap-x-2">
         <h2 className="text-sm font-medium text-ink">Insights</h2>
         {data && <span className="text-xs text-muted">updated {fmtRelative(data.generatedAt)}</span>}
@@ -108,7 +108,7 @@ function Stat({ label, value, sub }: { label: string; value: number; sub?: strin
   return (
     <div className="rounded-lg border border-line bg-bg px-3 py-2">
       <div className="text-[11px] text-muted">{label}</div>
-      <div className="font-serif text-[1.35rem] font-medium tracking-tight text-ink tabular-nums">{value}</div>
+      <div className="font-display text-[1.35rem] font-normal text-ink tabular-nums">{value}</div>
       {sub && <div className="text-[11px] text-muted">{sub}</div>}
     </div>
   )
@@ -134,7 +134,7 @@ function Funnel({ steps }: { steps: Data["funnel"] }) {
         <li key={s.step} className="grid grid-cols-[1fr_auto] items-center gap-x-3 gap-y-1 text-[13px] medium:grid-cols-[170px_1fr_90px] medium:gap-3">
           <span className="min-w-0 text-ink-2">{s.step}</span>
           <span className="order-last col-span-2 h-2 overflow-hidden rounded bg-surface-2 medium:order-none medium:col-span-1">
-            <span className={`block h-full rounded ${i === worst ? "bg-warn" : "bg-accent"}`} style={{ width: top > 0 ? `${(s.users / top) * 100}%` : "0%" }} />
+            <span className={`block h-full rounded ${i === worst ? "bg-warn" : "bg-accent-fill"}`} style={{ width: top > 0 ? `${(s.users / top) * 100}%` : "0%" }} />
           </span>
           <span className="text-right tabular-nums text-ink-2">
             {s.users} <span className="text-muted">{i > 0 ? pct(s.users, top) : ""}</span>
@@ -155,7 +155,7 @@ function Models({ rows }: { rows: ModelRow[] }) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-[13px] whitespace-nowrap [&_td:not(:first-child)]:pl-4 [&_th:not(:first-child)]:pl-4">
-        <thead className="text-left text-[11px] uppercase tracking-wider text-muted">
+        <thead className="text-left text-[11px] font-mono text-muted">
           <tr>
             <th className="py-1 font-medium">Model</th>
             <th className="py-1 text-right font-medium">Requests</th>

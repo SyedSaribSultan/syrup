@@ -142,7 +142,7 @@ function OpenError({ error, onRetry }: { error: string; onRetry(): void }) {
       <span className="min-w-0 flex-1 truncate" title={error}>
         <span className="font-medium text-err">Your workspace didn&apos;t start.</span> {error}
       </span>
-      <button type="button" onClick={onRetry} className="shrink-0 rounded-lg bg-accent px-2.5 py-1 text-xs font-medium text-accent-ink">
+      <button type="button" onClick={onRetry} className="shrink-0 rounded-lg bg-accent-fill px-2.5 py-1 text-xs font-medium text-accent-ink">
         Try again
       </button>
     </div>

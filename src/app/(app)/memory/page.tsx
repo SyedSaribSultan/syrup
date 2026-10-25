@@ -40,12 +40,12 @@ export default function MemoryPage() {
       <div className="mx-auto w-full max-w-[880px] px-4 py-8 medium:px-6">
         <div className="flex items-start justify-between gap-4 medium:items-end">
           <div className="min-w-0">
-            <h1 className="font-serif text-[1.75rem] font-medium tracking-tight text-ink">Memory</h1>
+            <h1 className="font-display text-[1.75rem] font-normal text-ink">Memory</h1>
             <p className="mt-1 max-w-[600px] text-sm text-muted">
               What the agent remembers across sessions. It saves and searches these itself; you can add, correct or delete anything here.
             </p>
           </div>
-          <button type="button" onClick={() => setAdding((v) => !v)} className="shrink-0 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-accent-ink pointer-coarse:min-h-11">
+          <button type="button" onClick={() => setAdding((v) => !v)} className="shrink-0 rounded-lg bg-accent-fill px-3 py-1.5 text-xs font-medium text-accent-ink pointer-coarse:min-h-11">
             {adding ? "Cancel" : "+ Add memory"}
           </button>
         </div>
@@ -89,7 +89,7 @@ function MemoryCard({ m, onChange }: { m: Memory; onChange(): Promise<void> }) {
   if (editing) return <Editor initial={m} onDone={async () => (setEditing(false), await onChange())} onCancel={() => setEditing(false)} />
   const long = m.content.length > 260
   return (
-    <li className="rounded-xl border border-line bg-surface p-4 shadow-card transition-colors hover:border-line-2">
+    <li className="rounded-xl border border-line bg-surface p-4 transition-colors hover:border-line-2">
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5">
@@ -160,7 +160,7 @@ function Editor({ initial, onDone, onCancel }: { initial?: Memory; onDone(): Pro
   }
 
   return (
-    <div className="mt-4 rounded-xl border border-line-2 bg-surface p-4 shadow-card">
+    <div className="mt-4 rounded-xl border border-line-2 bg-surface p-4">
       {/* Phones: every field on its own line, and Cancel/Save in a bar pinned to the bottom of the screen while the editor is in view. */}
       <div className="flex flex-col gap-2 medium:flex-row">
         <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" className="min-w-0 flex-1 rounded-lg border border-line bg-bg px-3 py-1.5 text-sm outline-none focus:border-line-2 pointer-coarse:min-h-11" />
@@ -190,7 +190,7 @@ function Editor({ initial, onDone, onCancel }: { initial?: Memory; onDone(): Pro
             type="button"
             onClick={() => void save()}
             disabled={busy || !title.trim() || !content.trim()}
-            className={`flex min-w-[64px] flex-1 items-center justify-center rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-accent-ink pointer-coarse:min-h-11 medium:flex-none ${busy ? "" : "disabled:opacity-40"}`}
+            className={`flex min-w-[64px] flex-1 items-center justify-center rounded-lg bg-accent-fill px-3 py-1.5 text-xs font-medium text-accent-ink pointer-coarse:min-h-11 medium:flex-none ${busy ? "" : "disabled:opacity-40"}`}
           >
             {busy ? <Brew mood="save" tone="inherit" timerAfter={0} /> : initial ? "Save" : "Add"}
           </button>
@@ -205,7 +205,7 @@ function MemorySkeleton() {
   return (
     <ul aria-busy className="skel-in mt-4 space-y-2">
       {["w-40", "w-56", "w-32"].map((w) => (
-        <li key={w} className="rounded-xl border border-line bg-surface p-4 shadow-card">
+        <li key={w} className="rounded-xl border border-line bg-surface p-4">
           <div className="flex items-center gap-1.5">
             <Skel className={`h-4 ${w}`} />
             <Skel className="h-3.5 w-12" />
