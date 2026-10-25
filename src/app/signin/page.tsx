@@ -46,14 +46,16 @@ export default async function SignInPage({ searchParams }: PageProps<"/signin">)
               syrup
             </span>
             <div className="flex flex-col gap-2">
+              {/* Sign-in pattern (sarib-design v2.4): the tagline is the headline, one accent word. */}
               <h1 className="s-auth__title">
-                Sign <em>in</em>
+                A coding agent powered by your <em>own</em> API keys.
               </h1>
-              <p className="s-auth__lede">A coding agent powered by your own API keys.</p>
+              <p className="s-auth__lede">Sign in with Google to continue.</p>
             </div>
 
             <form action={google}>
-              <button type="submit" className={btnClass({ variant: "outline", block: true })} data-ph="signin-google">
+              {/* The only method, so it is the primary (ink) button; the label stays honest. */}
+              <button type="submit" className={btnClass({ variant: "primary", block: true })} data-ph="signin-google">
                 {/* Google's own mark, in its own colours (public/google.svg). */}
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src="/google.svg" alt="" width={16} height={16} />
