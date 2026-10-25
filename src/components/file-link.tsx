@@ -12,6 +12,7 @@ import { useNarrow } from "@/lib/use-window-class"
 import { useReadOnly } from "./read-only"
 import { confirmDialog } from "./ui/dialog"
 import { Notice, useNotices } from "./ui/notice"
+import { Icon } from "./ui/s"
 import { MenuList, Sheet } from "./ui/sheet"
 
 /**
@@ -34,7 +35,7 @@ function LiveFileLink({ path, children, className = "" }: { path: string; childr
         type="button"
         {...fm.bind}
         title={`${fm.file.abs}\n${fm.cloud ? "Click to open in the panel" : "Click to show in folder"} · right-click for more`}
-        className={`cursor-pointer text-left underline decoration-muted/40 decoration-dotted underline-offset-[3px] transition [-webkit-touch-callout:none] hover:text-accent hover:decoration-accent focus-visible:rounded-sm focus-visible:outline-1 focus-visible:outline-accent ${className}`}
+        className={`cursor-pointer text-left underline decoration-muted/40 decoration-dotted underline-offset-[3px] transition [-webkit-touch-callout:none] hover:text-accent hover:decoration-accent ${className}`}
       >
         {children ?? (fm.file.rel === "." ? fm.file.name : fm.file.rel)}
       </button>
@@ -191,9 +192,11 @@ export function useFileMenu(path: string) {
             open={t.open}
             onExited={() => dropToast(t.id)}
             place={t.anchor ? (el) => placeToast(el, t.anchor!) : undefined}
-            className={`fixed z-[70] max-w-[90vw] truncate rounded-lg ${t.anchor ? "" : "bottom-[calc(env(safe-area-inset-bottom)+96px)] left-1/2 -translate-x-1/2 expanded:bottom-6"} border border-line bg-surface px-3 py-2 text-[12px] shadow-card ${t.tone === "warn" ? "text-warn" : "text-ink-2"}`}
+            // Toast (03 B15): P3 raised r16 + elevation-md, p 12/16, body-sm ink, never inverse. Only the icon takes the tone.
+            className={`s-raised s-raised--md fixed z-toast flex max-w-[90vw] items-center gap-3 ${t.anchor ? "" : "bottom-[calc(env(safe-area-inset-bottom)+96px)] left-1/2 -translate-x-1/2 expanded:bottom-6"} px-4 py-3 text-sm text-ink`}
           >
-            {t.text}
+            {t.tone === "warn" && <Icon name="triangle-alert" size={20} className="text-warn" />}
+            <span className="min-w-0 truncate">{t.text}</span>
           </Notice>
         ))}
       </div>,
@@ -222,7 +225,7 @@ export function Menu(props: { open: boolean; at: { x: number; y: number }; title
   if (!narrow) return <PointerMenu {...props} />
   const done = () => props.onClose(false)
   return (
-    <Sheet open={props.open} onClose={done} onExited={props.onExited} title={<span className="block truncate font-mono text-[13px] font-normal text-ink-2">{props.title.split(/[\\/]/).pop() || props.title}</span>} label={props.title}>
+    <Sheet open={props.open} onClose={done} onExited={props.onExited} title={<span className="block truncate font-mono text-sm font-normal text-ink-2">{props.title.split(/[\\/]/).pop() || props.title}</span>} label={props.title}>
       <MenuList items={props.items.map((it) => (it === "sep" ? ("divider" as const) : { label: it.label, hint: it.hint, onSelect: it.run, handoff: it.handoff }))} onDone={done} />
     </Sheet>
   )
@@ -298,14 +301,14 @@ function PointerMenu({ open, at, title, items, onClose, onExited }: { open: bool
       onKeyDown={onKeyDown}
       onContextMenu={(e) => e.preventDefault()}
       style={{ left: at.x, top: at.y }}
-      className="fixed z-[60] w-[232px] overflow-hidden rounded-xl border border-line bg-surface p-1 shadow-card motion-pop"
+      className="s-raised s-raised--md fixed z-popover flex w-[232px] flex-col overflow-hidden p-1 motion-pop"
     >
-      <div className="truncate px-2.5 pt-1 pb-1.5 font-mono text-[11px] text-muted" title={title}>
+      <div className="s-menu__label truncate" title={title}>
         {title}
       </div>
       {items.map((it, i) =>
         it === "sep" ? (
-          <div key={i} role="separator" className="my-1 border-t border-line" />
+          <hr key={i} role="separator" className="s-menu__sep" />
         ) : (
           <button
             key={it.label}
@@ -316,10 +319,11 @@ function PointerMenu({ open, at, title, items, onClose, onExited }: { open: bool
               onClose()
               it.run()
             }}
-            className="flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left text-[13px] text-ink outline-none transition hover:bg-surface-2 focus-visible:bg-surface-2 pointer-coarse:py-3"
+            // 44px rows on touch screens: a touch-target size, the one change to the shared item.
+            className="s-menu__item pointer-coarse:min-h-11"
           >
-            {it.label}
-            {it.hint && <span className="text-[11px] text-muted">{it.hint}</span>}
+            <span className="s-menu__text truncate">{it.label}</span>
+            {it.hint && <span className="s-menu__shortcut">{it.hint}</span>}
           </button>
         ),
       )}

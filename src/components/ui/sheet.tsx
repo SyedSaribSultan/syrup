@@ -65,7 +65,7 @@ function SheetView({
       aria-label={label ?? (typeof title === "string" ? title : undefined)}
       onClick={(e) => e.target === e.currentTarget && onClose()}
       style={drag ? { translate: `0 ${drag}px`, transition: "none" } : undefined}
-      className={`mx-auto mt-auto mb-0 w-full max-w-none overflow-hidden rounded-t-2xl border border-b-0 border-line bg-surface p-0 text-ink shadow-card motion-sheet backdrop:bg-ink/30 medium:max-w-[560px] ${height} ${wide}`}
+      className={`mx-auto mt-auto mb-0 w-full max-w-none overflow-hidden rounded-t-xl border border-b-0 border-line bg-elevated p-0 text-ink shadow-panel motion-sheet backdrop:bg-ink/30 medium:max-w-[560px] ${height} ${wide}`}
     >
       <div className={`flex flex-col pb-[env(safe-area-inset-bottom)] ${size === "full" ? "h-full" : "max-h-[92dvh]"}`}>
         <div
@@ -89,7 +89,7 @@ function SheetView({
         >
           <span className="h-1 w-10 rounded-full bg-line-2" />
         </div>
-        {title && <div className="shrink-0 px-5 pt-1 pb-2 text-[15px] font-medium text-ink">{title}</div>}
+        {title && <div className="shrink-0 px-6 pt-1 pb-2 text-base font-medium text-ink">{title}</div>}
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">{children}</div>
       </div>
     </dialog>
@@ -302,25 +302,26 @@ export type MenuItem =
   | "divider"
 
 /**
- * Rows for a menu: compact in a desktop popover, 48px touch rows in a sheet or on a touch screen.
+ * Rows for a menu: the Sarib menu item (`s-menu__item`, 36 tall, r12, hover fill-secondary) in a desktop popover;
+ * 48px rows in a phone sheet and 44px on any touch screen (touch targets, docs/RESPONSIVE.md §2).
  * `onDone` runs after a row is chosen (close the menu).
  */
 export function MenuList({ items, onDone }: { items: MenuItem[]; onDone(): void }) {
   const overlay = useOverlay()
-  const row =
-    "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-[13px] transition hover:bg-surface-2 disabled:opacity-40 max-expanded:px-4 max-expanded:py-3 max-expanded:text-[15px] pointer-coarse:py-3"
+  // Touch heights are the one size change on the shared item: a functional reason (44/48px targets), not a restyle.
+  const row = "s-menu__item gap-3 pointer-coarse:min-h-11 max-expanded:min-h-12"
   return (
-    <div role="menu" className="p-1.5 max-expanded:px-2 max-expanded:pb-3">
+    <div role="menu" className="flex flex-col p-1 max-expanded:px-2 max-expanded:pb-3">
       {items.map((it, i) => {
-        if (it === "divider") return <div key={`d${i}`} role="separator" className="mx-2 my-1 border-t border-line" />
+        if (it === "divider") return <hr key={`d${i}`} role="separator" className="s-menu__sep" />
         const body = (
           <>
-            {it.icon && <span className="flex w-4 shrink-0 justify-center text-muted">{it.icon}</span>}
-            <span className="min-w-0 flex-1 truncate">{it.label}</span>
-            {it.hint && <span className="shrink-0 text-[11px] text-muted">{it.hint}</span>}
+            {it.icon}
+            <span className="s-menu__text truncate">{it.label}</span>
+            {it.hint && <span className="s-menu__shortcut">{it.hint}</span>}
           </>
         )
-        const cls = `${row} ${it.danger ? "text-err" : "text-ink"}`
+        const cls = `${row}${it.danger ? " s-menu__item--danger" : ""}`
         if (it.href)
           return (
             <Link

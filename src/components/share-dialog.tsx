@@ -10,6 +10,7 @@ import type { Transcript } from "@/lib/transcript"
 import { useDismiss } from "@/lib/use-dismiss"
 import { useWorkspaces } from "@/lib/workspaces"
 import { Brew, Skel } from "./brew"
+import { btnClass, Button } from "./ui/s"
 import { Popover } from "./ui/sheet"
 import { confirmDialog } from "./ui/dialog"
 
@@ -42,15 +43,11 @@ function includedLine(s: ShareInfo): string {
 }
 
 function Btn({ onClick, disabled, tone, children }: { onClick(): void; disabled?: boolean; tone?: "err"; children: ReactNode }) {
+  // Secondary sm (sarib-design 11.1). A destructive one ("Stop sharing") is the error variant, the system's red for it.
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className={`rounded-lg border border-line bg-bg px-2.5 py-1 text-xs transition hover:border-line-2 disabled:opacity-50 pointer-coarse:px-3.5 pointer-coarse:py-2.5 pointer-coarse:text-[13px] ${tone === "err" ? "text-err" : "text-ink-2 hover:text-ink"}`}
-    >
+    <Button variant={tone === "err" ? "error" : "secondary"} size="sm" onClick={onClick} disabled={disabled}>
       {children}
-    </button>
+    </Button>
   )
 }
 
@@ -68,11 +65,11 @@ export function ShareButton({ sessionId, open: openProp, onOpenChange, trigger =
   return (
     <div ref={ref} className="relative">
       {trigger && (
-        <button type="button" aria-expanded={open} aria-haspopup="dialog" onClick={() => setOpen(!open)} className={`rounded-lg px-2 py-1 text-xs transition ${open ? "bg-surface-2 text-ink" : "text-ink-2 hover:bg-surface-2 hover:text-ink"}`}>
+        <Button variant={open ? "secondary" : "ghost"} size="sm" aria-expanded={open} aria-haspopup="dialog" onClick={() => setOpen(!open)}>
           Share
-        </button>
+        </Button>
       )}
-      <Popover open={open} onClose={close} label="Share chat" side="down" className="absolute top-full right-0 z-30 mt-2 w-[min(440px,92vw)] rounded-xl border border-line bg-surface text-left shadow-card">
+      <Popover open={open} onClose={close} label="Share chat" side="down" className="s-raised s-raised--md absolute top-full right-0 z-dropdown mt-2 w-[min(440px,92vw)] text-left">
         <SharePanel sessionId={sessionId} />
       </Popover>
     </div>
@@ -185,39 +182,37 @@ function SharePanel({ sessionId }: { sessionId: string }) {
         </div>
       ) : share === null ? (
         <>
-          <h2 className="font-sans text-[1.05rem] font-medium text-ink">Share this chat</h2>
-          <p className="mt-1 text-[13px] leading-relaxed text-ink-2">Anyone with the link can read this chat as it is right now: every message, tool step and attachment. They can&apos;t reply, and nothing you send later shows up.</p>
-          <ul className="mt-2.5 space-y-1 text-[12px] text-muted">
+          <h2 className="text-xl text-ink">Share this chat</h2>
+          <p className="mt-1 text-sm leading-relaxed text-ink-2">Anyone with the link can read this chat as it is right now: every message, tool step and attachment. They can&apos;t reply, and nothing you send later shows up.</p>
+          <ul className="mt-2.5 space-y-1 text-xs text-muted">
             <li>Keys and tokens are redacted. File paths are shortened.</li>
             <li>Hidden from search engines. Stop sharing any time.</li>
           </ul>
           {local && <LocalNote />}
-          <button type="button" onClick={() => void create()} disabled={!!busy} className="mt-3.5 rounded-lg bg-accent-fill px-3 py-1.5 text-xs font-medium text-accent-ink transition hover:opacity-90 disabled:opacity-70">
-            {busy === "create" ? <Brew mood="save" tone="inherit" timerAfter={0} /> : "Create link"}
-          </button>
+          <Button variant="brand" size="sm" onClick={() => void create()} busy={busy === "create"} disabled={!!busy} className="mt-4">
+            Create link
+          </Button>
         </>
       ) : (
         <>
           <div className="flex items-baseline justify-between gap-2">
-            <h2 className="font-sans text-[1.05rem] font-medium text-ink">Shared</h2>
-            <span className="text-[11px] text-muted">{plural(share.views, "view")}</span>
+            <h2 className="text-xl text-ink">Shared</h2>
+            <span className="text-2xs text-muted">{plural(share.views, "view")}</span>
           </div>
           <div className="mt-2 flex items-center gap-1.5">
-            <input readOnly value={share.url} onFocus={(e) => e.currentTarget.select()} aria-label="Share link" className="min-w-0 flex-1 rounded-lg border border-line bg-bg px-2.5 py-1.5 font-mono text-[12px] text-ink-2 outline-none focus:border-line-2" />
-            <button
-              type="button"
-              onClick={() => void copyText(share.url).then(() => flash("link"))}
-              className="shrink-0 rounded-lg bg-accent-fill px-2.5 py-1.5 text-xs font-medium text-accent-ink transition hover:opacity-90 pointer-coarse:px-3.5 pointer-coarse:py-2.5"
-            >
+            <div className="s-field s-field--sm min-w-0 flex-1">
+              <input readOnly value={share.url} onFocus={(e) => e.currentTarget.select()} aria-label="Share link" className="s-field__input" />
+            </div>
+            <Button variant="brand" size="sm" onClick={() => void copyText(share.url).then(() => flash("link"))}>
               {copied === "link" ? "Copied" : "Copy"}
-            </button>
-            <a href={share.url} target="_blank" rel="noreferrer" className="shrink-0 rounded-lg border border-line bg-bg px-2.5 py-1.5 text-xs text-ink-2 transition hover:border-line-2 hover:text-ink pointer-coarse:px-3.5 pointer-coarse:py-2.5">
-              Open
+            </Button>
+            <a href={share.url} target="_blank" rel="noreferrer" className={btnClass({ variant: "secondary", size: "sm" })}>
+              <span className="s-btn__label">Open</span>
             </a>
           </div>
-          <p className="mt-2.5 text-[12px] text-ink-2">{includedLine(share)}</p>
-          {share.stats && share.stats.attachmentsDropped > 0 && <p className="mt-0.5 text-[12px] text-muted">{plural(share.stats.attachmentsDropped, "large attachment")} left out.</p>}
-          <p className="mt-0.5 text-[12px] text-muted">Snapshot from {fmtRelative(share.updatedAt)}. New messages stay private until you update the link.</p>
+          <p className="mt-2.5 text-xs text-ink-2">{includedLine(share)}</p>
+          {share.stats && share.stats.attachmentsDropped > 0 && <p className="mt-0.5 text-xs text-muted">{plural(share.stats.attachmentsDropped, "large attachment")} left out.</p>}
+          <p className="mt-0.5 text-xs text-muted">Snapshot from {fmtRelative(share.updatedAt)}. New messages stay private until you update the link.</p>
           {local && <LocalNote />}
           <div className="mt-3 flex flex-wrap gap-1.5">
             <Btn onClick={() => void update()} disabled={!!busy}>
@@ -230,14 +225,14 @@ function SharePanel({ sessionId }: { sessionId: string }) {
               Stop sharing
             </Btn>
           </div>
-          {copied === "debug" && <p className="mt-2 text-[11px] leading-relaxed text-muted">Valid for 24 hours. It adds router events and logs for this chat, so send it only to someone helping you debug.</p>}
+          {copied === "debug" && <p className="mt-2 text-2xs leading-relaxed text-muted">Valid for 24 hours. It adds router events and logs for this chat, so send it only to someone helping you debug.</p>}
         </>
       )}
 
-      {error && <p className="mt-3 text-[12px] text-err">{error}</p>}
+      {error && <p className="mt-3 text-xs text-err">{error}</p>}
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-line pt-3">
-        <span className="text-[12px] text-muted">Export</span>
+        <span className="text-xs text-muted">Export</span>
         <div className="flex flex-wrap gap-1.5">
           <Btn onClick={() => void download("md")} disabled={!!busy}>
             {busy === "md" ? "Saving…" : "Markdown"}
@@ -252,7 +247,7 @@ function SharePanel({ sessionId }: { sessionId: string }) {
       </div>
 
       <details className="group/links mt-3 border-t border-line pt-3" onToggle={(e) => setLinks(e.currentTarget.open)}>
-        <summary className="flex cursor-pointer list-none items-center justify-between text-[12px] text-muted transition hover:text-ink [&::-webkit-details-marker]:hidden">
+        <summary className="flex cursor-pointer list-none items-center justify-between text-xs text-muted transition hover:text-ink [&::-webkit-details-marker]:hidden">
           All shared links
           <svg width="10" height="10" viewBox="0 0 10 10" className="shrink-0 opacity-60 transition group-open/links:rotate-180">
             <path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
@@ -265,7 +260,7 @@ function SharePanel({ sessionId }: { sessionId: string }) {
 }
 
 function LocalNote() {
-  return <p className="mt-2.5 rounded-lg bg-surface-2 px-2.5 py-2 text-[12px] leading-relaxed text-ink-2">syrup runs on this computer, so this link opens only here. To send the chat to someone else, export it below.</p>
+  return <p className="mt-2.5 rounded-lg bg-surface-2 px-2.5 py-2 text-xs leading-relaxed text-ink-2">syrup runs on this computer, so this link opens only here. To send the chat to someone else, export it below.</p>
 }
 
 /** The owner's live links: copy, open, update, stop. Cards in /settings (cloud), a compact list in the Share panel (both modes). */
@@ -322,29 +317,29 @@ export function SharedLinks({ variant = "card" }: { variant?: "card" | "compact"
         <Skel className="h-3.5 w-1/2" />
       </div>
     ) : rows.length === 0 ? (
-      <p className={`py-2 text-[12px] text-muted ${compact ? "" : "mt-2"}`}>No shared links yet. Use Share in a chat&apos;s header to make one.</p>
+      <p className={`py-2 text-xs text-muted ${compact ? "" : "mt-2"}`}>No shared links yet. Use Share in a chat&apos;s header to make one.</p>
     ) : (
       <ul className={`divide-y divide-line ${compact ? "mt-2 max-h-[240px] overflow-y-auto" : "mt-3"}`}>
         {rows.map((s) => (
           <li key={s.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
             <div className="min-w-0 flex-1 basis-48">
-              <a href={s.url} target="_blank" rel="noreferrer" className="block truncate text-[13px] text-ink transition hover:text-accent">
+              <a href={s.url} target="_blank" rel="noreferrer" className="block truncate text-sm text-ink transition hover:text-accent">
                 {s.title || "Untitled"}
               </a>
-              <div className="truncate text-[11px] text-muted">
+              <div className="truncate text-2xs text-muted">
                 {plural(s.messageCount, "message")} · {plural(s.views, "view")} · updated {fmtRelative(s.updatedAt)}
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-1">
-              <button type="button" onClick={() => void copy(s)} className="rounded px-1.5 py-0.5 text-[11px] pointer-coarse:px-2.5 pointer-coarse:py-2 pointer-coarse:text-[13px] text-ink-2 transition hover:bg-surface-2 hover:text-ink">
+              <Button variant="ghost" size="sm" onClick={() => void copy(s)}>
                 {copied === s.id ? "Copied" : "Copy"}
-              </button>
-              <button type="button" onClick={() => void update(s)} disabled={busy === s.id} className="rounded px-1.5 py-0.5 text-[11px] pointer-coarse:px-2.5 pointer-coarse:py-2 pointer-coarse:text-[13px] text-ink-2 transition hover:bg-surface-2 hover:text-ink disabled:opacity-50">
-                {busy === s.id ? "…" : "Update"}
-              </button>
-              <button type="button" onClick={() => stop(s)} disabled={busy === s.id} className="rounded px-1.5 py-0.5 text-[11px] pointer-coarse:px-2.5 pointer-coarse:py-2 pointer-coarse:text-[13px] text-err transition hover:bg-surface-2 disabled:opacity-50">
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => void update(s)} busy={busy === s.id}>
+                Update
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => stop(s)} disabled={busy === s.id}>
                 Stop
-              </button>
+              </Button>
             </div>
           </li>
         ))}
@@ -355,15 +350,15 @@ export function SharedLinks({ variant = "card" }: { variant?: "card" | "compact"
     return (
       <div>
         {list}
-        {error && <p className="mt-1 text-[12px] text-err">{error}</p>}
+        {error && <p className="mt-1 text-xs text-err">{error}</p>}
       </div>
     )
   return (
-    <section className="mt-6 rounded-xl border border-line bg-surface p-4">
+    <section className="mt-6 rounded-xl border border-line p-4">
       <h2 className="text-sm font-medium text-ink">Shared links</h2>
-      <p className="mt-1 text-[13px] text-ink-2">Chats you&apos;ve shared. Anyone with a link can read that snapshot; search engines are told not to index them. Stopping a link takes it down right away.</p>
+      <p className="mt-1 text-sm text-ink-2">Chats you&apos;ve shared. Anyone with a link can read that snapshot; search engines are told not to index them. Stopping a link takes it down right away.</p>
       {list}
-      {error && <p className="mt-2 text-[12px] text-err">{error}</p>}
+      {error && <p className="mt-2 text-xs text-err">{error}</p>}
     </section>
   )
 }

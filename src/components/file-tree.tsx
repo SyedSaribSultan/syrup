@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState, type DragEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react"
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react"
 import { createPortal } from "react-dom"
 import { useEngine } from "@/lib/engine-store"
 import { copyText, hostOS, localFileAction, revealLabel } from "@/lib/file-actions"
@@ -9,8 +9,9 @@ import { usePanel } from "@/lib/panel"
 import { useDismiss } from "@/lib/use-dismiss"
 import { useLongPress } from "@/lib/use-long-press"
 import { absPath, downloadFile, downloadZip, filesFromDrop, list, upload, type Entry, type Target, type Upload } from "@/lib/workspace-fs"
-import { Brew, Skel } from "./brew"
+import { Brew } from "./brew"
 import { Menu, type MenuItem } from "./file-link"
+import { Button, Icon, IconButton } from "./ui/s"
 import { MenuList, Popover } from "./ui/sheet"
 
 /**
@@ -32,6 +33,8 @@ export function FileTree({ target }: { target: Target }) {
   const [dirs, setDirs] = useState<Record<string, Dir>>({})
   const [status, setStatus] = useState<Status | null>(null)
   const [drop, setDrop] = useState<string | null>(null)
+  // Roving focus (role="tree"): the one row in the tab order. Arrow keys move it (onTreeKey).
+  const [focusRel, setFocusRel] = useState<string | null>(null)
   // Kept (open: false) while the menu plays its exit, dropped once it has gone.
   const [menu, setMenu] = useState<{ x: number; y: number; entry: Entry | null; open: boolean } | null>(null)
   const [more, setMore] = useState(false)
@@ -175,7 +178,7 @@ export function FileTree({ target }: { target: Target }) {
     if (!e.dataTransfer.types.includes("Files")) return
     e.preventDefault()
     e.dataTransfer.dropEffect = "copy"
-    setDrop((e.target as HTMLElement).closest("[data-drop]")?.getAttribute("data-drop") ?? "")
+    setDrop((e.target as HTMLElement).closest("[data-drop-dir]")?.getAttribute("data-drop-dir") ?? "")
   }
 
   function onDrop(e: DragEvent) {
@@ -187,70 +190,120 @@ export function FileTree({ target }: { target: Target }) {
     void filesFromDrop(e.dataTransfer, dir).then((items) => send(items, dir))
   }
 
+  /** Arrow keys, Home/End, Right opens or goes in, Left closes or goes to the parent, Enter/Space opens (03 B11). */
+  function onTreeKey(e: KeyboardEvent<HTMLUListElement>) {
+    const cur = e.target as HTMLElement
+    if (cur.getAttribute("role") !== "treeitem") return
+    const items = [...e.currentTarget.querySelectorAll<HTMLElement>('[role="treeitem"]')]
+    const i = items.indexOf(cur)
+    const level = Number(cur.getAttribute("aria-level"))
+    const rel = cur.dataset.rel ?? ""
+    const go = (el: HTMLElement | undefined) => {
+      e.preventDefault()
+      if (!el) return
+      setFocusRel(el.dataset.rel ?? null)
+      el.focus()
+    }
+    const expanded = cur.getAttribute("aria-expanded")
+    if (e.key === "ArrowDown") go(items[i + 1])
+    else if (e.key === "ArrowUp") go(items[i - 1])
+    else if (e.key === "Home") go(items[0])
+    else if (e.key === "End") go(items[items.length - 1])
+    else if (e.key === "ArrowRight") {
+      if (expanded === "false") {
+        e.preventDefault()
+        panel.toggleFolder(rel)
+      } else if (expanded === "true" && Number(items[i + 1]?.getAttribute("aria-level")) > level) go(items[i + 1])
+    } else if (e.key === "ArrowLeft") {
+      if (expanded === "true") {
+        e.preventDefault()
+        panel.toggleFolder(rel)
+      } else go(items.slice(0, i).reverse().find((it) => Number(it.getAttribute("aria-level")) === level - 1))
+    } else if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault()
+      cur.click()
+    }
+  }
+
+  /** Lines that are not rows (loading, error, empty) line up with the row names: base 8 + 16 per level + chevron and gap. */
+  const inset = (depth: number): CSSProperties => ({ paddingLeft: 32 + depth * 16 })
+
   function rows(rel: string, depth: number): ReactNode {
     const d = dirs[rel]
-    if (!d) return <TreeSkeleton depth={depth} />
+    if (!d) return <TreeSkeleton key={`${rel}:loading`} style={inset(depth)} />
     if (!Array.isArray(d))
       return (
-        <div style={{ paddingLeft: 12 + depth * 14 }} className="py-1 pr-2 text-[12px] text-warn">
-          {d.error}{" "}
-          <button type="button" onClick={() => void load(rel)} className="text-accent underline underline-offset-2 pointer-coarse:py-2">
+        <li key={`${rel}:error`} role="none" style={inset(depth)} className="flex flex-wrap items-center gap-x-2 py-1 pr-3">
+          <span className="s-error-line">{d.error}</span>
+          <Button variant="link-brand" size="sm" onClick={() => void load(rel)}>
             Retry
-          </button>
-        </div>
+          </Button>
+        </li>
       )
-    if (d.length === 0) return <div style={{ paddingLeft: 12 + depth * 14 + 18 }} className="py-1 text-[12px] text-muted">{rel ? "Empty folder" : "Nothing here yet. Drop files to add them."}</div>
-    return d.map((e) => {
+    if (d.length === 0)
+      return (
+        <li key={`${rel}:empty`} role="none" style={inset(depth)} className="py-2 pr-3">
+          <p className="s-empty-line">{rel ? "Empty folder." : "Nothing here yet. Drop files to add them."}</p>
+        </li>
+      )
+    const first = dirs[""]
+    const firstRel = Array.isArray(first) ? first[0]?.rel : undefined
+    const tabStop = focusRel ?? selected ?? firstRel
+    return d.flatMap((e) => {
       const dir = e.type === "directory"
       const open = dir && expanded.has(e.rel)
-      return (
-        <div key={e.rel}>
-          <Row
-            entry={e}
-            depth={depth}
-            open={open}
-            active={selected === e.rel}
-            dropping={dir && drop === e.rel}
-            onOpen={() => (dir ? panel.toggleFolder(e.rel) : panel.openFile(e.rel))}
-            onMenu={(ev) => openMenu(ev, e)}
-            onMenuAt={(x, y) => setMenu({ x, y, entry: e, open: true })}
-          />
-          {open && rows(e.rel, depth + 1)}
-        </div>
+      const row = (
+        <Row
+          key={e.rel}
+          entry={e}
+          depth={depth}
+          open={open}
+          active={selected === e.rel}
+          tabbable={tabStop === e.rel}
+          dropping={dir && drop === e.rel}
+          onOpen={() => {
+            setFocusRel(e.rel)
+            if (dir) panel.toggleFolder(e.rel)
+            else panel.openFile(e.rel)
+          }}
+          onMenu={(ev) => openMenu(ev, e)}
+          onMenuAt={(x, y) => setMenu({ x, y, entry: e, open: true })}
+        />
       )
+      return open ? [row, rows(e.rel, depth + 1)] : [row]
     })
   }
 
   return (
     <>
-      <div className="flex shrink-0 items-center gap-0.5 border-b border-line px-2 py-1.5 pointer-coarse:py-0.5">
-        <span className="min-w-0 flex-1 truncate px-1 font-mono text-[11px] text-muted" title={target.dir}>
-          {rootName}
-        </span>
+      {/* Path bar (03 B11): Code body-sm faint crumbs, ghost sm toolbar buttons, a rule below inside the panel. */}
+      <div className="s-pathbar flex shrink-0 items-center gap-1">
+        <nav aria-label="Folder" className="s-crumbs min-w-0 flex-1">
+          <ol>
+            <li className="min-w-0">
+              <span aria-current="page" title={target.dir} className="truncate">
+                {rootName}
+              </span>
+            </li>
+          </ol>
+        </nav>
         <IconButton
+          icon="upload"
           label="Upload files"
           onClick={() => {
             pickFor.current = ""
             picker.current?.click()
           }}
-        >
-          <path d="M7 10V2.5M3.8 5.5 7 2.3l3.2 3.2M2.5 11.5h9" />
-        </IconButton>
-        <IconButton label="Refresh" onClick={refresh}>
-          <path d="M11.5 7a4.5 4.5 0 1 1-1.3-3.2M11.5 2.5v2.8H8.7" />
-        </IconButton>
+        />
+        <IconButton icon="refresh-cw" label="Refresh" onClick={refresh} />
         <div ref={moreRef} className="relative">
-          <IconButton label="More" pressed={more} onClick={() => setMore((v) => !v)}>
-            <circle cx="3" cy="7" r=".9" fill="currentColor" stroke="none" />
-            <circle cx="7" cy="7" r=".9" fill="currentColor" stroke="none" />
-            <circle cx="11" cy="7" r=".9" fill="currentColor" stroke="none" />
-          </IconButton>
-          <Popover open={more} onClose={closeMore} title={rootName} side="down" className="absolute top-full right-0 z-20 mt-1 w-[260px] rounded-xl border border-line bg-surface shadow-card">
+          <IconButton icon="ellipsis" label="More" aria-pressed={more} aria-haspopup="menu" variant={more ? "secondary" : "ghost"} onClick={() => setMore((v) => !v)} />
+          <Popover open={more} onClose={closeMore} title={rootName} side="down" className="s-raised s-raised--md absolute top-full right-0 z-dropdown mt-1 w-[260px]">
             <MenuList
               onDone={closeMore}
               items={[
-                { label: showHidden ? "Hide .git, node_modules and caches" : "Show hidden folders", hint: showHidden ? "On" : undefined, onSelect: () => panel.setShowHidden(!showHidden) },
-                { label: `Download ${rootName} as .zip`, onSelect: () => void zip("") },
+                { label: showHidden ? "Hide .git, node_modules and caches" : "Show hidden folders", icon: <Icon name={showHidden ? "eye-off" : "eye"} />, hint: showHidden ? "On" : undefined, onSelect: () => panel.setShowHidden(!showHidden) },
+                { label: `Download ${rootName} as .zip`, icon: <Icon name="download" />, onSelect: () => void zip("") },
               ]}
             />
           </Popover>
@@ -270,21 +323,23 @@ export function FileTree({ target }: { target: Target }) {
           }}
         />
       </div>
-      <div
+      <ul
         role="tree"
         aria-label={`Files in ${rootName}`}
-        data-drop=""
+        data-drop-dir=""
+        onKeyDown={onTreeKey}
         onDragOver={onDragOver}
         onDragLeave={(e) => !e.currentTarget.contains(e.relatedTarget as Node) && setDrop(null)}
         onDrop={onDrop}
         onContextMenu={(e) => openMenu(e, null)}
-        className={`min-h-0 flex-1 overflow-auto overscroll-contain py-1 transition ${drop === "" ? "bg-accent-soft/40 outline-2 -outline-offset-4 outline-accent/50 outline-dashed" : ""}`}
+        // The whole tree takes a drop into the workspace root: the brand-tone drop colours (03 B11, B12), never dashed.
+        className={`s-tree min-h-0 flex-1 overflow-auto overscroll-contain p-2 transition-colors ${drop === "" ? "bg-brand-tone outline -outline-offset-1 outline-line-brand" : ""}`}
       >
         {rows("", 0)}
-      </div>
+      </ul>
       {status && (
-        <div role="status" className={`flex shrink-0 items-center gap-2 border-t border-line px-3 py-2 text-[12px] ${status.tone === "warn" ? "text-warn" : status.tone === "ok" ? "text-ink-2" : "text-muted"}`}>
-          {status.busy ? <Brew label={status.text} timerAfter={3} /> : <span className="min-w-0 truncate">{status.text}</span>}
+        <div role="status" className="flex shrink-0 items-center gap-2 border-t border-line px-4 py-2">
+          {status.busy ? <Brew label={status.text} timerAfter={3} /> : <span className={`min-w-0 truncate text-sm ${status.tone === "warn" ? "text-warn" : "text-ink-2"}`}>{status.text}</span>}
         </div>
       )}
       {menu &&
@@ -303,12 +358,16 @@ export function FileTree({ target }: { target: Target }) {
   )
 }
 
-/** Tap opens; right-click, a long press or the ⋯ (always there on touch, on hover with a mouse) gives the actions. */
+/**
+ * One tree row (s-tree__row: 36, r12, indent 16 per level, faint icons, inset focus ring). The treeitem is the row's
+ * <li>: tap opens; right-click, a long press or the ⋯ (always there on touch, on hover with a mouse) gives the actions.
+ */
 function Row({
   entry,
   depth,
   open,
   active,
+  tabbable,
   dropping,
   onOpen,
   onMenu,
@@ -318,91 +377,58 @@ function Row({
   depth: number
   open: boolean
   active: boolean
+  tabbable: boolean
   dropping: boolean
   onOpen(): void
   onMenu(e: ReactMouseEvent): void
   onMenuAt(x: number, y: number): void
 }) {
   const dir = entry.type === "directory"
-  const press = useLongPress<HTMLButtonElement>((x, y) => onMenuAt(x, y))
+  const press = useLongPress<HTMLLIElement>((x, y) => onMenuAt(x, y))
   return (
-    <div
-      data-drop={dir ? entry.rel : parentRel(entry.rel)}
-      className={`group flex items-center rounded-md transition ${active ? "bg-surface-2" : "hover:bg-surface-2/70"} ${dropping ? "bg-accent-soft/60 outline-1 -outline-offset-1 outline-accent/60 outline-dashed" : ""} mx-1`}
+    <li
+      role="treeitem"
+      aria-level={depth + 1}
+      aria-expanded={dir ? open : undefined}
+      aria-selected={active}
+      tabIndex={tabbable ? 0 : -1}
+      data-rel={entry.rel}
+      data-drop-dir={dir ? entry.rel : parentRel(entry.rel)}
+      title={entry.rel}
+      {...press}
+      onClick={onOpen}
+      onContextMenu={onMenu}
+      className="[-webkit-touch-callout:none] pointer-coarse:select-none"
     >
-      <button
-        type="button"
-        role="treeitem"
-        aria-expanded={dir ? open : undefined}
-        aria-selected={active}
-        {...press}
-        onClick={onOpen}
-        onContextMenu={onMenu}
-        title={entry.rel}
-        style={{ paddingLeft: 6 + depth * 14 }}
-        className={`flex min-w-0 flex-1 items-center gap-1.5 py-[3px] text-left text-[13px] outline-none [-webkit-touch-callout:none] focus-visible:underline pointer-coarse:min-h-11 pointer-coarse:text-[14px] pointer-coarse:select-none ${entry.ignored ? "text-muted" : "text-ink-2"} ${active ? "text-ink" : ""}`}
-      >
-        <span className="flex w-3 shrink-0 justify-center text-muted">
-          {dir && (
-            <svg width="8" height="8" viewBox="0 0 8 8" className={`transition-transform ${open ? "rotate-90" : ""}`}>
-              <path d="M2.5 1.2 5.6 4 2.5 6.8" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          )}
+      {/* 44px rows on touch screens: a touch-target size, the one change to the shared row. */}
+      <div className="s-tree__row pointer-coarse:min-h-11" data-drop={dropping || undefined}>
+        {dir ? <Icon name="chevron-right" className="s-tree__chevron" /> : <span className="s-tree__spacer" />}
+        <Icon name={dir ? (open ? "folder-open" : "folder") : "file-text"} className="s-tree__icon" />
+        <span className={`s-tree__name ${entry.ignored ? "text-muted" : ""}`}>{entry.name}</span>
+        <span className="s-tree__actions">
+          <IconButton
+            icon="ellipsis"
+            label={`Actions for ${entry.name}`}
+            tabIndex={-1}
+            onClick={(e) => {
+              e.stopPropagation()
+              onMenu(e)
+            }}
+          />
         </span>
-        {dir ? <FolderIcon open={open} /> : <FileIcon />}
-        <span className="min-w-0 truncate">{entry.name}</span>
-      </button>
-      <button
-        type="button"
-        onClick={onMenu}
-        aria-label={`Actions for ${entry.name}`}
-        className="mr-1 flex shrink-0 items-center justify-center rounded px-1 text-muted transition hover:text-ink focus-visible:opacity-100 pointer-coarse:mr-0 pointer-coarse:h-11 pointer-coarse:w-11 pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100"
-      >
-        ⋯
-      </button>
-    </div>
+      </div>
+    </li>
   )
 }
 
-function TreeSkeleton({ depth }: { depth: number }) {
+function TreeSkeleton({ style }: { style: CSSProperties }) {
   return (
-    <div aria-busy className="skel-in space-y-2 py-1.5" style={{ paddingLeft: 26 + depth * 14 }}>
-      {[62, 48, 70, 40].map((w, i) => (
-        <Skel key={i} className="h-3" style={{ width: `${w}%` }} />
-      ))}
-    </div>
-  )
-}
-
-function IconButton({ label, pressed, onClick, children }: { label: string; pressed?: boolean; onClick(): void; children: ReactNode }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={label}
-      aria-label={label}
-      aria-pressed={pressed}
-      className={`flex items-center justify-center rounded-lg p-1.5 transition pointer-coarse:h-11 pointer-coarse:w-11 ${pressed ? "bg-surface-2 text-ink" : "text-muted hover:bg-surface-2 hover:text-ink"}`}
-    >
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-        {children}
-      </svg>
-    </button>
-  )
-}
-
-function FolderIcon({ open }: { open: boolean }) {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" className="shrink-0 text-accent/80" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round">
-      {open ? <path d="M1.8 11.2V3.4c0-.4.3-.7.7-.7h2.8l1.2 1.3h4.3c.4 0 .7.3.7.7v1.2M1.8 11.2l1.6-4.6c.1-.3.4-.5.7-.5h7.9c.4 0 .7.4.6.8l-1.3 4.3H1.8Z" /> : <path d="M1.8 11.2V3.4c0-.4.3-.7.7-.7h2.8l1.2 1.3h4.9c.4 0 .7.3.7.7v5.8c0 .4-.3.7-.7.7H2.5c-.4 0-.7-.3-.7-.7Z" />}
-    </svg>
-  )
-}
-
-function FileIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" className="shrink-0 text-muted" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round">
-      <path d="M3.2 1.8h4.6l3 3v7c0 .4-.3.7-.7.7H3.2c-.4 0-.7-.3-.7-.7V2.5c0-.4.3-.7.7-.7Z M7.6 1.9v3h3" />
-    </svg>
+    <li role="none" className="skel-in py-2 pr-3" style={style}>
+      <div aria-busy className="s-skeleton-stack">
+        {[0, 1, 2, 3].map((i) => (
+          <span key={i} className="s-skeleton s-skeleton--line" />
+        ))}
+      </div>
+    </li>
   )
 }

@@ -2,4 +2,4 @@
 export const THEME_KEY = "syrup.theme"
 
 /** Runs in <head> before first paint, so a saved light/dark choice never flashes the other theme. */
-export const THEME_SCRIPT = `try{var t=localStorage.getItem("${THEME_KEY}");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t}catch(e){}`
+export const THEME_SCRIPT = `try{var t=localStorage.getItem("${THEME_KEY}");if(t==="light"||t==="dark"){var r=document.documentElement;r.dataset.theme=t;delete r.dataset.mode}}catch(e){}`

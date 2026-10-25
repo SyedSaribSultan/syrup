@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { Brew, Skel } from "@/components/brew"
+import { Button, Icon } from "@/components/ui/s"
 import { RowMenu } from "@/components/pages/row-menu"
 import { useOptionalEngine } from "@/lib/engine-store"
 import { useRouterStatus } from "@/lib/use-router-status"
@@ -22,7 +22,7 @@ type ProviderInfo = {
 /** Shipped with syrup: never take a key, never show a key form. Mirrors BUILT_IN in src/server/providers.ts. */
 const BUILT_IN = new Set(["syrup", "opencode"])
 
-const DIRECT_ONLY = "Direct pick only — Auto and Fast don't use this provider."
+const DIRECT_ONLY = "Direct pick only: Auto and Fast don't use this provider."
 
 export default function ProvidersPage() {
   const [providers, setProviders] = useState<ProviderInfo[] | null>(null)
@@ -85,25 +85,32 @@ export default function ProvidersPage() {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto w-full max-w-[880px] px-4 py-8 medium:px-6">
-        <h1 className="font-display text-[1.75rem] font-normal text-ink">Providers</h1>
-        <p className="mt-1 max-w-[640px] text-sm text-muted">
+        <h1 className="font-display text-heading text-ink">Providers</h1>
+        <p className="mt-2 max-w-[640px] text-base text-ink-2">
           Add API keys from any provider. Keys are encrypted at rest and only ever used for requests you start. You can keep several keys per provider; the active one is what the agent uses.
         </p>
 
-        {error && <div className="mt-4 rounded-lg border border-err/30 bg-err/5 px-3 py-2 text-[13px] text-err">{error}</div>}
+        {error && (
+          <div role="alert" className="s-alert s-alert--critical mt-4">
+            <Icon name="circle-alert" />
+            <div className="s-alert__body">
+              <p className="s-alert__desc">{error}. Reload the page to try again.</p>
+            </div>
+          </div>
+        )}
 
         <Section title="Built in" hint="Ships with syrup">
-          <div className="grid gap-2 medium:grid-cols-2">
+          <div className="grid gap-3 medium:grid-cols-2">
             <BuiltInCard
               name="syrup router"
-              badge="built in"
+              badge="Built in"
               note="Auto and Fast. Picks the best model for each chat from your keys and fails over instantly. Nothing to set up."
               waiting={providers && !routerReady ? "Add a key below to turn it on." : undefined}
             />
             <BuiltInCard
               name="OpenCode Zen"
-              badge="free models"
-              note="Free models with no key: Big Pickle, Muse Spark 1.3, MiMo-V2.6-Flash, Space Bunny and more. Pick them directly in the model picker — Auto can't route them, because OpenCode limits its free tier to OpenCode itself. Free for a limited time; some use your prompts for training."
+              badge="Free models"
+              note="Free models with no key: Big Pickle, Muse Spark 1.3, MiMo-V2.6-Flash, Space Bunny and more. Pick them directly in the model picker. Auto can't route them, because OpenCode limits its free tier to OpenCode itself. Free for a limited time; some use your prompts for training."
             />
           </div>
         </Section>
@@ -131,20 +138,19 @@ export default function ProvidersPage() {
             title="All providers"
             hint={`${others.length} more`}
             right={
-              <input
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder="Search…"
-                className="w-full rounded-lg border border-line bg-surface px-2.5 py-1 text-xs outline-none placeholder:text-muted focus:border-line-2 pointer-coarse:min-h-11 medium:w-44"
-              />
+              <div className="s-field s-field--sm w-full medium:w-56">
+                <Icon name="search" />
+                <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search" aria-label="Search providers" className="s-field__input" />
+              </div>
             }
           >
-            <div className="grid gap-2 medium:grid-cols-2">
+            <div className="grid gap-3 medium:grid-cols-2">
               {others.slice(0, q ? 200 : 40).map((p) => (
                 <ProviderCard key={p.id} p={p} onChange={changed} compact />
               ))}
             </div>
-            {!q && others.length > 40 && <div className="mt-2 text-xs text-muted">Search to see the rest.</div>}
+            {!q && others.length > 40 && <p className="s-empty-line mt-2">Search to see the rest.</p>}
+            {q && others.length === 0 && <p className="s-empty-line mt-2">No provider matches. Try another name.</p>}
           </Section>
         )}
       </div>
@@ -157,26 +163,27 @@ function Section({ title, hint, right, children }: { title: string; hint?: strin
     <section className="mt-8">
       {/* On phones the right-hand control (search) drops under the title at full width. */}
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-medium text-ink">
-          {title} {hint && <span className="ml-1 font-normal text-muted">· {hint}</span>}
+        <h2 className="flex flex-wrap items-baseline gap-x-2 text-lg text-ink">
+          {title} {hint && <span className="s-meta">{hint}</span>}
         </h2>
         {right && <div className="w-full medium:w-auto">{right}</div>}
       </div>
-      <div className="space-y-2">{children}</div>
+      <div className="flex flex-col gap-3">{children}</div>
     </section>
   )
 }
 
+/** A built-in provider: a P2 card with a status dot (success when it works, neutral while it waits for a key). */
 function BuiltInCard({ name, badge, note, waiting }: { name: string; badge: string; note: string; waiting?: string }) {
   return (
-    <div className="rounded-xl border border-line bg-surface px-4 py-3">
+    <div className="s-card s-card--compact">
       <div className="flex items-center gap-2">
-        <span className={`h-2 w-2 shrink-0 rounded-full ${waiting ? "bg-line-2" : "bg-ok"}`} />
-        <span className="truncate text-sm font-medium text-ink">{name}</span>
-        <span className="rounded bg-accent-soft px-1 text-[10px] font-medium text-accent">{badge}</span>
+        <span className={`s-dot ${waiting ? "" : "s-dot--success"}`} />
+        <span className="truncate text-base text-ink">{name}</span>
+        <span className="s-badge">{badge}</span>
       </div>
-      <div className="mt-1 text-[13px] text-ink-2">{note}</div>
-      {waiting && <div className="mt-1 text-[12px] text-muted">{waiting}</div>}
+      <p className="text-sm text-ink-2">{note}</p>
+      {waiting && <p className="s-help">{waiting}</p>}
     </div>
   )
 }
@@ -234,58 +241,54 @@ function ProviderCard({
 
   const c = p.curated
 
+  // A P2 card; status lives in the dot (success / critical / neutral), never in a coloured border. p-0: the head is the
+  // expand button, so the card's padding moves onto it (a hit-area reason).
   return (
-    <div className={`rounded-xl border bg-surface transition ${authFailed ? "border-err/40" : p.connected ? "border-ok/40" : "border-line"}`}>
-      <button type="button" onClick={() => setOpen((v) => !v)} className="flex w-full items-center gap-3 px-4 py-3 text-left">
-        <span className={`h-2 w-2 shrink-0 rounded-full ${authFailed ? "bg-err" : p.connected ? "bg-ok" : "bg-line-2"}`} />
+    <div className="s-card s-card--compact gap-0 p-0">
+      <button type="button" aria-expanded={open} onClick={() => setOpen((v) => !v)} className="flex w-full items-center gap-3 rounded-xl px-5 py-4 text-left">
+        <span className={`s-dot ${authFailed ? "s-dot--critical" : p.connected ? "s-dot--success" : ""}`} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="truncate text-sm font-medium text-ink">{p.name}</span>
-            {c?.freeTier && <span className="rounded bg-accent-soft px-1 text-[10px] font-medium text-accent">free tier</span>}
+            <span className="truncate text-base text-ink">{p.name}</span>
+            {c?.freeTier && <span className="s-badge">Free tier</span>}
           </div>
-          {!compact && c && <div className="mt-0.5 text-[13px] text-ink-2">{c.note}</div>}
-          {!compact && !p.routable && <div className="mt-0.5 text-[12px] text-muted">{DIRECT_ONLY}</div>}
-          {compact && <div className="text-[11px] text-muted">{p.id}</div>}
-          {authFailed && (
-            <div className="mt-1.5 rounded-md border border-err/30 bg-err/5 px-2 py-1 text-[12px] text-err">
-              The last request with this key was rejected. Check it or add a new one.
-            </div>
-          )}
+          {!compact && c && <p className="mt-1 text-sm text-ink-2">{c.note}</p>}
+          {!compact && !p.routable && <p className="s-help mt-1">{DIRECT_ONLY}</p>}
+          {compact && <p className="s-meta">{p.id}</p>}
+          {authFailed && <p className="s-error-line mt-2">The last request with this key was rejected. Check it or add a new one.</p>}
         </div>
-        <svg width="10" height="10" viewBox="0 0 10 10" className={`shrink-0 opacity-60 transition ${open ? "rotate-180" : ""}`}>
-          <path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
-        </svg>
+        <Icon name="chevron-down" size={16} className={`text-muted transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
 
       {open && (
-        <div className="@container border-t border-line px-4 py-3">
+        <div className="@container flex flex-col gap-3 border-t border-line px-5 py-4">
           {p.keys.length > 0 && (
-            <ul className="mb-3 space-y-1.5">
+            <ul className="flex flex-col gap-1">
               {p.keys.map((k) => {
                 const activate = () => call(k.id, () => fetch(`/api/providers/${p.id}/keys/${k.id}`, { method: "PATCH" }))
                 const remove = () => call(k.id, () => fetch(`/api/providers/${p.id}/keys/${k.id}`, { method: "DELETE" }))
                 return (
-                  <li key={k.id} className="flex items-center gap-2 text-[13px]">
-                    <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${k.active ? "bg-ok" : "bg-line-2"}`} />
+                  <li key={k.id} className="flex min-h-9 items-center gap-3 text-sm">
+                    <span className={`s-dot ${k.active ? "s-dot--success" : ""}`} />
                     {/* One line when the card is wide; narrow, the hint (and "active") drop to a second line. */}
                     <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-0.5">
                       <span className="min-w-0 truncate text-ink">{k.label}</span>
-                      <span className="order-last basis-full font-mono text-xs text-muted @[480px]:order-none @[480px]:basis-auto">
+                      <span className="s-meta order-last basis-full @[480px]:order-none @[480px]:basis-auto">
                         {k.hint}
-                        {k.active && <span className="font-sans text-[11px] @[480px]:hidden"> · active</span>}
+                        {k.active && <span className="@[480px]:hidden"> · active</span>}
                       </span>
-                      <span className={`rounded px-1 text-[10px] font-medium ${k.tier === "free" ? "bg-accent-soft text-accent" : "bg-surface-2 text-ink-2"}`}>{k.tier}</span>
+                      <span className="s-badge">{k.tier === "free" ? "Free" : "Paid"}</span>
                     </div>
                     <div className="hidden items-center gap-2 @[480px]:flex">
                       {!k.active && (
-                        <Small onClick={activate} disabled={!!busy}>
+                        <Button variant="ghost" size="sm" onClick={activate} disabled={!!busy}>
                           Use this key
-                        </Small>
+                        </Button>
                       )}
-                      {k.active && <span className="text-[11px] text-muted">active</span>}
-                      <Small onClick={remove} disabled={!!busy} tone="err">
+                      {k.active && <span className="s-meta">Active</span>}
+                      <Button variant="ghost" size="sm" onClick={remove} disabled={!!busy}>
                         Remove
-                      </Small>
+                      </Button>
                     </div>
                     <RowMenu
                       className="@[480px]:hidden"
@@ -304,49 +307,45 @@ function ProviderCard({
 
           {/* Narrow: the key gets its own line, then label, tier and Add share the next. */}
           <div className="flex flex-wrap items-center gap-2">
-            <input
-              type="password"
-              autoComplete="off"
-              value={key}
-              onChange={(e) => setKey(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && void add()}
-              placeholder={p.env[0] ? `${p.env[0]} value` : "API key"}
-              className="w-full rounded-lg border border-line bg-bg px-3 py-1.5 font-mono text-[13px] outline-none placeholder:font-sans placeholder:text-muted focus:border-line-2 pointer-coarse:min-h-11 @[520px]:w-auto @[520px]:min-w-[220px] @[520px]:flex-1"
-            />
-            <input
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
-              placeholder="Label (optional)"
-              className="w-0 min-w-0 flex-1 rounded-lg border border-line bg-bg px-3 py-1.5 text-[13px] outline-none placeholder:text-muted focus:border-line-2 pointer-coarse:min-h-11 @[520px]:w-36 @[520px]:flex-none"
-            />
-            <div className="flex rounded-lg border border-line p-0.5 text-xs">
+            <div className="s-field s-field--sm w-full @[520px]:w-auto @[520px]:min-w-[220px] @[520px]:flex-1">
+              <input
+                type="password"
+                autoComplete="off"
+                value={key}
+                onChange={(e) => setKey(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && void add()}
+                placeholder={p.env[0] ? `${p.env[0]} value` : "API key"}
+                aria-label={`${p.name} API key`}
+                className="s-field__input"
+              />
+            </div>
+            <div className="s-field s-field--sm w-0 min-w-0 flex-1 @[520px]:w-40 @[520px]:flex-none">
+              <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Label (optional)" aria-label="Label" className="s-field__input" />
+            </div>
+            <div role="group" aria-label="Key tier" className="s-seg">
               {(["free", "paid"] as Tier[]).map((t) => (
-                <button key={t} type="button" onClick={() => setTier(t)} className={`rounded-md px-2 py-1 transition pointer-coarse:min-h-10 pointer-coarse:px-3 ${tier === t ? "bg-surface-2 text-ink" : "text-muted hover:text-ink"}`}>
-                  {t}
+                <button key={t} type="button" aria-pressed={tier === t} onClick={() => setTier(t)} className="s-seg__item">
+                  {t === "free" ? "Free" : "Paid"}
                 </button>
               ))}
             </div>
-            <button
-              type="button"
-              onClick={() => void add()}
-              disabled={!key.trim() || !!busy}
-              className={`rounded-lg bg-accent-fill px-3 py-1.5 text-xs font-medium text-accent-ink transition pointer-coarse:min-h-11 ${busy === "add" ? "" : "disabled:opacity-40"}`}
-            >
-              {busy === "add" ? <Brew mood="save" tone="inherit" timerAfter={0} /> : "Add key"}
-            </button>
+            <Button size="sm" busy={busy === "add"} disabled={!key.trim() || (!!busy && busy !== "add")} onClick={() => void add()}>
+              Add key
+            </Button>
           </div>
 
-          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
             {c && (
-              <a href={c.keyUrl} target="_blank" rel="noreferrer" className="text-accent underline underline-offset-2 pointer-coarse:inline-flex pointer-coarse:min-h-11 pointer-coarse:items-center">
-                Get a key ↗
+              <a href={c.keyUrl} target="_blank" rel="noreferrer" className="s-btn s-btn--link-brand s-btn--sm pointer-coarse:min-h-11">
+                <span className="s-btn__label">Get a key</span>
+                <Icon name="arrow-up-right" />
               </a>
             )}
-            {compact && !p.routable && <span>{DIRECT_ONLY}</span>}
-            {c?.trainsOnData && <span>Free tier may use your prompts for training.</span>}
-            {p.env.length > 0 && <span>Also reads {p.env.join(", ")} from the environment.</span>}
+            {compact && !p.routable && <span className="s-help">{DIRECT_ONLY}</span>}
+            {c?.trainsOnData && <span className="s-help">Free tier may use your prompts for training.</span>}
+            {p.env.length > 0 && <span className="s-help">Also reads {p.env.join(", ")} from the environment.</span>}
           </div>
-          {err && <div className="mt-2 text-[12px] text-err">{err}</div>}
+          {err && <p className="s-field-error">{err}</p>}
         </div>
       )}
     </div>
@@ -358,36 +357,17 @@ function CatalogSkeleton() {
   return (
     <section aria-busy className="skel-in mt-8">
       <div className="mb-3 flex items-center gap-2">
-        <Skel className="h-3.5 w-16" />
-        <Skel className="h-3 w-44" />
+        <span className="s-skeleton s-skeleton--line w-16" />
+        <span className="s-skeleton s-skeleton--line w-44" />
       </div>
-      <div className="space-y-2">
+      <div className="flex flex-col gap-3">
         {["w-24", "w-32", "w-20"].map((w) => (
-          <div key={w} className="flex items-center gap-3 rounded-xl border border-line bg-surface px-4 py-3">
-            <Skel className="h-2 w-2 shrink-0 rounded-full" />
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <Skel className={`h-3.5 ${w}`} />
-                <Skel className="h-3 w-12" />
-              </div>
-              <Skel className="mt-2 h-3.5 w-[76%]" />
-            </div>
+          <div key={w} className="s-card s-card--compact">
+            <span className={`s-skeleton s-skeleton--row ${w}`} />
+            <span className="s-skeleton s-skeleton--line w-3/4" />
           </div>
         ))}
       </div>
     </section>
-  )
-}
-
-function Small({ children, onClick, disabled, tone }: { children: React.ReactNode; onClick(): void; disabled?: boolean; tone?: "err" }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className={`rounded px-1.5 py-0.5 text-[11px] transition disabled:opacity-40 pointer-coarse:min-h-11 pointer-coarse:px-2.5 ${tone === "err" ? "text-muted hover:text-err" : "text-ink-2 hover:text-ink"}`}
-    >
-      {children}
-    </button>
   )
 }

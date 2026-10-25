@@ -5,10 +5,10 @@
  */
 import { backgroundChats, defineScenario, WORKSPACE_FILES } from "./_kit.mjs"
 
-const FAST = "0.12s"
-const BASE = "0.18s"
-const MOVE = "cubic-bezier(0.2, 0, 0, 1)"
-const LEAVE = "cubic-bezier(0.3, 0, 1, 1)"
+const FAST = "0.15s"
+const BASE = "0.25s"
+const MOVE = "cubic-bezier(0.4, 0, 0.2, 1)"
+const LEAVE = "cubic-bezier(0.4, 0, 1, 1)"
 const DRAWER = 'div[aria-label="Navigation"]'
 /** A sidebar chat row's Rename / Delete buttons (only on chats of the open workspace). */
 const ACTIONS = 'div:has(> button[title="Rename"])'
@@ -17,7 +17,7 @@ const ROW_TIME = 'nav li:has(button[title="Rename"]) a > span:last-child'
 /** The sidebar rows that have actions, in order (Playwright's `>> nth=` picks one). */
 const ROWS = 'nav li:has(button[title="Rename"])'
 const SETTINGS = 'button:has-text("Running on this computer")'
-const DARK = '[role="radio"]:has-text("Dark")'
+const DARK = '[aria-label="Theme"] button:has-text("Dark")'
 const OPEN_MENU = 'button[aria-label="Open menu"]'
 /** A `.skel-in` group of its own, so its timing can be read under reduced motion (loading.tsx uses the same class). */
 const SKEL_PROBE = '<div id="skel-in-probe" class="skel-in" style="position:fixed;left:0;top:0;width:1px;height:1px"></div>'
@@ -97,7 +97,7 @@ const scenarios = [
     widths: [390],
     steps: [{ watchAnimations: true }, { tap: OPEN_MENU }, { wait: 400 }],
     assert: [
-      { style: DRAWER, prop: "transition-duration", equals: "0.24s, 0.24s, 0s" },
+      { style: DRAWER, prop: "transition-duration", equals: "0.42s, 0.42s, 0s" },
       { focused: DRAWER },
       { composited: ["translate"] },
       { visible: `${DRAWER}[data-open="true"] nav` },
@@ -115,7 +115,9 @@ const scenarios = [
       { click: SETTINGS },
       { waitFor: DARK },
       // Hover first, so the pointer's own hover fade isn't counted as part of the switch.
-      { hover: DARK, widths: [1440] },
+      // Hover settles first at every width: the Sarib segment's hover colour is not gated to hover-capable pointers, so a
+      // tap would start it (that is the tap, not the theme).
+      { hover: DARK },
       { wait: 300 },
       { watchTransitions: true },
       { click: DARK },
@@ -127,7 +129,7 @@ const scenarios = [
       { transitions: { max: 0, ignore: ["outline-color"] } },
       { count: 'html[data-theme="dark"]', equals: 1 },
       { count: "html[data-theme-switching]", equals: 0 },
-      { visible: `${DARK}[aria-checked="true"]` },
+      { visible: `${DARK}[aria-pressed="true"]` },
     ],
   }),
   defineScenario({

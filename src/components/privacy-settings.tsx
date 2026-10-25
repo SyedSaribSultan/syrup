@@ -3,7 +3,7 @@
 import Link from "next/link"
 import posthog from "posthog-js"
 import { useCallback, useEffect, useState } from "react"
-import { Skel } from "./brew"
+import { Button } from "./ui/s"
 import { confirmDialog } from "./ui/dialog"
 
 type Consent = { granted: boolean; current: boolean; at: string | null }
@@ -64,19 +64,20 @@ export function PrivacySettings() {
   const research = me.consents.research
   return (
     <>
-      <section className="mt-6 rounded-xl border border-line bg-surface p-4">
-        <h2 className="text-sm font-medium text-ink">Account</h2>
+      {/* Settings pattern (03 B19): each group a P2 card on the canvas; label and help left, control right. */}
+      <section className="s-settings__group mt-6">
+        <h2 className="s-settings__title">Account</h2>
         {/* Label above value on phones, side by side from medium up. */}
-        <dl className="mt-2 grid grid-cols-1 text-[13px] medium:grid-cols-[120px_1fr] medium:gap-y-1">
-          <dt className="text-muted">Email</dt>
+        <dl className="grid grid-cols-1 text-sm medium:grid-cols-[140px_1fr] medium:gap-y-2">
+          <dt className="text-ink-2">Email</dt>
           <dd className="font-mono break-all text-ink">{me.email}</dd>
-          <dt className="mt-2 text-muted medium:mt-0">Member since</dt>
-          <dd className="text-ink-2">{new Date(me.createdAt).toLocaleDateString()}</dd>
-          <dt className="mt-2 text-muted medium:mt-0">Terms accepted</dt>
-          <dd className="text-ink-2">
-            {me.consents.terms.at ? new Date(me.consents.terms.at).toLocaleDateString() : "—"}{" "}
-            <Link href="/legal/terms" className="text-muted underline underline-offset-2 hover:text-ink">
-              read
+          <dt className="mt-2 text-ink-2 medium:mt-0">Member since</dt>
+          <dd className="text-ink">{new Date(me.createdAt).toLocaleDateString()}</dd>
+          <dt className="mt-2 text-ink-2 medium:mt-0">Terms accepted</dt>
+          <dd className="text-ink">
+            {me.consents.terms.at ? new Date(me.consents.terms.at).toLocaleDateString() : "Not yet"}{" "}
+            <Link href="/legal/terms" className="s-link">
+              Read them
             </Link>
           </dd>
         </dl>
@@ -91,7 +92,7 @@ export function PrivacySettings() {
         offLabel="Off"
       >
         Anonymous usage events (which features, how often, which errors) and masked session replays. Never prompts, code or keys. Helps us see what breaks and what nobody uses.{" "}
-        <Link href="/legal/privacy" className="underline underline-offset-2 hover:text-ink">
+        <Link href="/legal/privacy" className="s-link">
           Details
         </Link>
         .
@@ -99,31 +100,34 @@ export function PrivacySettings() {
 
       <Toggle title="Research data consent" on={research.granted} busy={busy === "research"} onChange={(v) => void patch({ research: v }, "research")} onLabel="Consented" offLabel="Off">
         Allow the <em>content</em> of your conversations with the agent to be used to improve syrup and for anonymized research. Off by default, never required, revocable here at any time.{" "}
-        <Link href="/legal/research" className="underline underline-offset-2 hover:text-ink">
+        <Link href="/legal/research" className="s-link">
           Exactly what this means
         </Link>
-        .{research.granted && research.at && <span className="text-muted"> Granted {new Date(research.at).toLocaleDateString()}.</span>}
+        .{research.granted && research.at && <span> Granted {new Date(research.at).toLocaleDateString()}.</span>}
       </Toggle>
 
-      <section className="mt-6 rounded-xl border border-line bg-surface p-4">
-        <h2 className="text-sm font-medium text-ink">Your data</h2>
-        <p className="mt-1 text-[13px] text-ink-2">Export everything we hold about you, or delete your account. Requests are recorded with a timestamp and handled within the times published in the Privacy Policy.</p>
-        <div className="mt-3 flex flex-col gap-2 medium:flex-row">
-          <button type="button" disabled={!!busy} onClick={() => void request("export")} className="rounded-lg border border-line bg-bg px-3 py-2 text-xs font-medium text-ink transition hover:border-line-2 disabled:opacity-40 pointer-coarse:min-h-11">
-            Request export
-          </button>
-          <button type="button" disabled={!!busy} onClick={() => void request("delete")} className="rounded-lg border border-err/30 bg-bg px-3 py-2 text-xs font-medium text-err transition hover:border-err/60 disabled:opacity-40 pointer-coarse:min-h-11">
-            Delete account…
-          </button>
+      <section className="s-settings__group mt-6">
+        <div className="s-settings__head">
+          <h2 className="s-settings__title">Your data</h2>
+          <p className="s-settings__desc">Export everything we hold about you, or delete your account. Requests are recorded with a timestamp and handled within the times published in the Privacy Policy.</p>
         </div>
-        {msg && <div className="mt-2 text-xs text-ok">{msg}</div>}
+        {/* The danger zone (03 B19): export is secondary; delete is the error variant and opens a confirm. */}
+        <div className="flex flex-col gap-2 medium:flex-row">
+          <Button variant="secondary" disabled={!!busy} onClick={() => void request("export")}>
+            Request export
+          </Button>
+          <Button variant="error" disabled={!!busy} onClick={() => void request("delete")}>
+            Delete account…
+          </Button>
+        </div>
+        {msg && <p className="text-sm text-ok">{msg}</p>}
         {me.requests.length > 0 && (
-          <ul className="mt-3 divide-y divide-line text-[12px]">
+          <ul className="s-rows s-rows--divided">
             {me.requests.map((r) => (
-              <li key={r.id} className="flex flex-wrap gap-x-3 gap-y-0.5 py-1.5">
-                <span className="rounded bg-surface-2 px-1.5 text-[10px] font-mono text-ink-2">{r.type}</span>
+              <li key={r.id} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 py-2 text-sm">
+                <span className="s-badge">{r.type}</span>
                 <span className="text-ink-2">{r.status}</span>
-                <span className="text-muted">{new Date(r.requestedAt).toLocaleString()}</span>
+                <span className="s-meta">{new Date(r.requestedAt).toLocaleString()}</span>
               </li>
             ))}
           </ul>
@@ -135,58 +139,51 @@ export function PrivacySettings() {
 
 /** The account card and two switch cards, at their real heights. */
 function PrivacySkeleton() {
-  const card = "mt-6 rounded-xl border border-line bg-surface p-4"
   return (
     <div aria-busy className="skel-in">
-      <section className={card}>
-        <Skel className="h-4 w-20" />
-        <div className="mt-3 space-y-2">
+      <section className="s-settings__group mt-6">
+        <span className="s-skeleton s-skeleton--row w-20" />
+        <div className="flex flex-col gap-2">
           {["w-56", "w-28", "w-32"].map((w) => (
             <div key={w} className="flex gap-4">
-              <Skel className="h-3.5 w-[104px]" />
-              <Skel className={`h-3.5 ${w}`} />
+              <span className="s-skeleton s-skeleton--line w-[104px]" />
+              <span className={`s-skeleton s-skeleton--line ${w}`} />
             </div>
           ))}
         </div>
       </section>
       {[0, 1].map((i) => (
-        <section key={i} className={card}>
+        <section key={i} className="s-settings__group mt-6">
           <div className="flex items-start gap-4">
-            <div className="min-w-0 flex-1 space-y-2">
-              <Skel className="h-4 w-40" />
-              <Skel className="h-3.5 w-full" />
-              <Skel className="h-3.5 w-[70%]" />
+            <div className="s-skeleton-stack min-w-0 flex-1">
+              <span className="s-skeleton s-skeleton--row w-40" />
+              <span className="s-skeleton s-skeleton--line" />
+              <span className="s-skeleton s-skeleton--line" />
             </div>
-            <Skel className="mt-0.5 h-6 w-11 rounded-full" />
+            <span className="s-skeleton s-skeleton--circle h-6 w-10" />
           </div>
-          <Skel className="mt-3 h-3 w-10" />
         </section>
       ))}
     </div>
   )
 }
 
+/** A consent as a settings group with one s-switch row: the title and help left, the switch and its state right. */
 function Toggle({ title, on, busy, onChange, onLabel, offLabel, children }: { title: string; on: boolean; busy: boolean; onChange(v: boolean): void; onLabel: string; offLabel: string; children: React.ReactNode }) {
   return (
-    <section className="mt-6 rounded-xl border border-line bg-surface p-4">
-      <div className="flex items-start gap-4">
-        <div className="min-w-0 flex-1">
-          <h2 className="text-sm font-medium text-ink">{title}</h2>
-          <p className="mt-1 text-[13px] leading-relaxed text-ink-2">{children}</p>
+    <section className="s-settings__group mt-6">
+      <div className="s-setting">
+        <div className="s-setting__label">
+          <h2 className="s-settings__title">{title}</h2>
+          <p className="s-setting__help mt-1">{children}</p>
         </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={on}
-          disabled={busy}
-          onClick={() => onChange(!on)}
-          className={`relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition disabled:opacity-50 pointer-coarse:after:absolute pointer-coarse:after:-inset-2.5 ${on ? "bg-accent-fill" : "bg-line-2"}`}
-          title={on ? onLabel : offLabel}
-        >
-          <span className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition ${on ? "translate-x-5" : "translate-x-0"}`} />
-        </button>
+        <div className="s-setting__control">
+          <label className="s-switch">
+            <span className="s-meta">{on ? onLabel : offLabel}</span>
+            <input type="checkbox" role="switch" checked={on} disabled={busy} onChange={() => onChange(!on)} aria-label={title} />
+          </label>
+        </div>
       </div>
-      <div className="mt-2 text-[11px] text-muted">{on ? onLabel : offLabel}</div>
     </section>
   )
 }

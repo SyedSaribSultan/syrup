@@ -1,5 +1,6 @@
 import Link from "next/link"
 import { redirect } from "next/navigation"
+import { btnClass } from "@/components/ui/s"
 import { env } from "@/server/env"
 
 const ERRORS: Record<string, string> = {
@@ -11,6 +12,7 @@ const ERRORS: Record<string, string> = {
   Configuration: "Sign-in is misconfigured on the server. This is our fault, not yours.",
 }
 
+/** The Sarib sign-in pattern (sarib-design 03 B20): a P2 card on the canvas, no shadow; brand, headline, lede, one outline OAuth button. */
 export default async function SignInPage({ searchParams }: PageProps<"/signin">) {
   if (!env.isCloud) redirect("/")
   const sp = await searchParams
@@ -30,44 +32,48 @@ export default async function SignInPage({ searchParams }: PageProps<"/signin">)
   return (
     // Scrolls on a short screen (a phone in landscape); centred otherwise. Clears the notch and home bar.
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="flex min-h-full flex-col items-center justify-center px-4 pt-[max(4rem,env(safe-area-inset-top))] pb-[max(4rem,env(safe-area-inset-bottom))] medium:px-6">
-        <div className="w-full max-w-[400px]">
-          <div className="mb-8 text-center">
-            <h1 className="font-sans text-[2.2rem] font-medium text-ink">syrup</h1>
-            <p className="mt-2 text-[15px] text-ink-2">A coding agent powered by your own API keys.</p>
-          </div>
+      <div className="s-auth min-h-full pt-[max(4rem,env(safe-area-inset-top))] pb-[max(4rem,env(safe-area-inset-bottom))]">
+        <div className="flex w-full max-w-[400px] flex-col items-center gap-6">
+          <div className="s-auth__card">
+            <span className="s-auth__brand">syrup</span>
+            <div className="flex flex-col gap-2">
+              <h1 className="s-auth__title">Sign in</h1>
+              <p className="s-auth__lede">A coding agent powered by your own API keys.</p>
+            </div>
 
-          <div className="rounded-2xl border border-line bg-surface p-6">
             <form action={google}>
-              <button type="submit" className="flex w-full items-center justify-center gap-3 rounded-xl border border-line-2 bg-bg px-4 py-3 text-sm font-medium text-ink transition hover:border-ink/30" data-ph="signin-google">
-                <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden>
-                  <path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.5l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.5 5.4 2.6 13.3l7.9 6.1C12.4 13.6 17.7 9.5 24 9.5z" />
-                  <path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.5 5.8c4.4-4.1 7.1-10.1 7.1-17.5z" />
-                  <path fill="#FBBC05" d="M10.5 28.6A14.5 14.5 0 0 1 9.5 24c0-1.6.3-3.2.8-4.6l-7.9-6.1A24 24 0 0 0 0 24c0 3.9.9 7.5 2.6 10.7l7.9-6.1z" />
-                  <path fill="#34A853" d="M24 48c6.3 0 11.7-2.1 15.6-5.7l-7.5-5.8c-2.1 1.4-4.8 2.3-8.1 2.3-6.3 0-11.6-4.1-13.5-9.8l-7.9 6.1C6.5 42.6 14.6 48 24 48z" />
-                </svg>
-                Continue with Google
+              <button type="submit" className={btnClass({ variant: "outline", block: true })} data-ph="signin-google">
+                {/* Google's own mark, in its own colours (public/google.svg). */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/google.svg" alt="" width={16} height={16} />
+                <span className="s-btn__label">Continue with Google</span>
               </button>
             </form>
 
-            {error && <div className="mt-4 rounded-lg border border-err/30 bg-err/5 px-3 py-2 text-[13px] leading-relaxed text-err">{ERRORS[error] ?? "Something went wrong signing in. Try again."}</div>}
+            {error && (
+              <div role="alert" className="s-alert s-alert--critical">
+                <div className="s-alert__body">
+                  <p className="s-alert__desc">{ERRORS[error] ?? "Something went wrong signing in. Try again."}</p>
+                </div>
+              </div>
+            )}
 
-            <p className="mt-5 text-center text-[12px] leading-relaxed text-muted">
+            <p className="s-help text-center">
               By continuing you agree to the{" "}
-              <Link href="/legal/terms" className="underline underline-offset-2 hover:text-ink pointer-coarse:py-2">
+              <Link href="/legal/terms" className="s-link">
                 Terms of Service
               </Link>{" "}
               and{" "}
-              <Link href="/legal/privacy" className="underline underline-offset-2 hover:text-ink pointer-coarse:py-2">
+              <Link href="/legal/privacy" className="s-link">
                 Privacy Policy
               </Link>
               .
             </p>
           </div>
 
-          <p className="mt-6 text-center text-[12px] text-muted">
+          <p className="s-help text-center">
             Prefer to run it yourself?{" "}
-            <a href="https://github.com/SyedSaribSultan/syrup" className="underline underline-offset-2 hover:text-ink pointer-coarse:py-2" target="_blank" rel="noreferrer">
+            <a href="https://github.com/SyedSaribSultan/syrup" className="s-link" target="_blank" rel="noreferrer">
               syrup is open source
             </a>
             .

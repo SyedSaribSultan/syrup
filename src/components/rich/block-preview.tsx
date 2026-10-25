@@ -1,5 +1,6 @@
 "use client"
 
+import { Button } from "../ui/s"
 import { loadCore, useLazy } from "@/lib/rich/lazy"
 import type { PanelBlock } from "@/lib/panel"
 import { Brew } from "../brew"
@@ -18,14 +19,18 @@ export function BlockPreview({ block }: { block: PanelBlock | null }) {
   const core = useLazy(loadCore)
   const C = core.module
   if (!block || !("input" in block))
-    return <div className="flex flex-1 items-center justify-center p-6 text-center text-[13px] text-muted">This preview is gone after the reload. Open it again from the chat.</div>
+    return (
+      <div className="flex flex-1 items-center justify-center p-6 text-center">
+        <p className="s-empty-line">This preview is gone after the reload. Open it again from the chat.</p>
+      </div>
+    )
   if (core.failed)
     return (
-      <div className="flex flex-1 items-center justify-center p-6 text-center text-[13px] text-muted">
-        Couldn&apos;t load the diagram viewer.{" "}
-        <button type="button" className="rich-link" onClick={core.retry}>
+      <div role="alert" className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center">
+        <p className="s-error-line">Couldn&apos;t load the diagram viewer. Retry to load it again.</p>
+        <Button variant="secondary" size="sm" onClick={core.retry}>
           Retry
-        </button>
+        </Button>
       </div>
     )
   if (!C)

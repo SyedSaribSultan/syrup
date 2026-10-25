@@ -1,0 +1,9 @@
+{
+  "entries": [
+    {
+      "file": "src/app/globals.css",
+      "pattern": "--s-font-family",
+      "reason": "sarib-design fonts.md (a): next/font self-hosts Google Sans Flex and Code under hashed family names, so the font-family tokens point at its CSS variables (the same override syedsarib.com makes)."
+    }
+  ]
+}

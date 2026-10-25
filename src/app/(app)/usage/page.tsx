@@ -2,7 +2,6 @@
 
 import Link from "next/link"
 import { useEffect, useState, type ReactNode } from "react"
-import { Skel } from "@/components/brew"
 import { useOptionalEngine } from "@/lib/engine-store"
 import { fmtCost, fmtRelative, fmtTokens } from "@/lib/format"
 
@@ -65,12 +64,12 @@ export default function UsagePage() {
         {/* On phones the range control sits under the title. */}
         <div className="mb-6 flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
           <div className="w-full medium:w-auto medium:min-w-0 medium:flex-1">
-            <h1 className="font-display text-[1.75rem] font-normal text-ink">Usage & cost</h1>
-            <p className="mt-1 text-sm text-muted">Every token the agent used, as reported by the engine. Free-tier usage is shown separately from paid spend.</p>
+            <h1 className="font-display text-heading text-ink">Usage & cost</h1>
+            <p className="mt-2 text-base text-ink-2">Every token the agent used, as reported by the engine. Free-tier usage is shown separately from paid spend.</p>
           </div>
-          <div className="flex rounded-lg border border-line bg-surface p-0.5 text-xs">
+          <div role="group" aria-label="Window" className="s-seg">
             {[7, 30, 90].map((d) => (
-              <button key={d} type="button" onClick={() => setDays(d)} className={`rounded-md px-2.5 py-1 transition pointer-coarse:min-h-10 pointer-coarse:px-3.5 ${days === d ? "bg-surface-2 text-ink" : "text-muted hover:text-ink"}`}>
+              <button key={d} type="button" aria-pressed={days === d} onClick={() => setDays(d)} className="s-seg__item">
                 {d}d
               </button>
             ))}
@@ -79,7 +78,7 @@ export default function UsagePage() {
 
         <div className={`motion-fade ${stale ? "opacity-50" : ""}`}>
           <div className="grid grid-cols-2 gap-3 expanded:grid-cols-4">
-            <Stat loading={loading} label="Spent" value={fmtCost(spent)} hint={data && spent === 0 ? "all free so far" : rt && rt.cost > 0 ? `${fmtCost(rt.cost)} via router` : undefined} accent />
+            <Stat loading={loading} label="Spent" value={fmtCost(spent)} hint={data && spent === 0 ? "All free so far" : rt && rt.cost > 0 ? `${fmtCost(rt.cost)} via router` : undefined} />
             <Stat loading={loading} label="Tokens" value={fmtTokens(allTokens)} hint={t ? `${fmtTokens(t.input)} in · ${fmtTokens(t.output)} out` : undefined} />
             <Stat loading={loading} label="Free tokens" value={fmtTokens(t?.freeTokens)} hint={allTokens ? `${Math.round(((t?.freeTokens ?? 0) / allTokens) * 100)}% of total` : undefined} />
             <Stat loading={loading} label="Messages" value={String(t?.messages ?? 0)} hint={t ? `${fmtTokens(t.cacheRead)} cached reads` : undefined} />
@@ -89,9 +88,9 @@ export default function UsagePage() {
             {data && data.byDay.length === 0 && <Empty />}
             {/* Touch: the tapped bar's numbers, in a line of their own (a floating tip would run off a phone's edge). */}
             {dayCount > 0 && (
-              <div className="mb-2 h-4 truncate text-[11px] tabular-nums text-muted pointer-fine:hidden">
+              <div className="s-meta mb-2 truncate tabular-nums pointer-fine:hidden">
                 {pickedDay ? (
-                  <span className="text-ink-2">
+                  <span className="text-ink">
                     {pickedDay.day} · {fmtTokens(pickedDay.input + pickedDay.output + pickedDay.reasoning)} · {fmtCost(pickedDay.cost)}
                   </span>
                 ) : (
@@ -115,9 +114,13 @@ export default function UsagePage() {
                     onClick={() => setPicked(on ? null : d.day)}
                     className="group relative flex h-full min-w-0 flex-1 items-end"
                   >
-                    <div className={`w-full rounded-t-sm transition group-hover:bg-accent-fill ${on ? "bg-accent-fill" : "bg-ink-2/35"}`} style={{ height: `${Math.max(3, (v / maxDay) * 100)}%` }} />
-                    <div className={`pointer-events-none absolute bottom-full mb-1 hidden rounded bg-ink px-1.5 py-0.5 text-[10px] whitespace-nowrap text-bg opacity-0 transition pointer-fine:block pointer-fine:group-hover:opacity-100 ${edge}`}>
-                      {d.day} · {fmtTokens(v)} · {fmtCost(d.cost)}
+                    {/* Chart rules (03 B21): one ink series; brand only for the one highlighted bar (hover or picked). */}
+                    <div className={`w-full rounded-t-sm transition group-hover:bg-accent-fill ${on ? "bg-accent-fill" : "bg-ink"}`} style={{ height: `${Math.max(3, (v / maxDay) * 100)}%` }} />
+                    <div className={`s-chart-tip absolute bottom-full z-tooltip mb-2 hidden whitespace-nowrap opacity-0 transition pointer-fine:flex pointer-fine:group-hover:opacity-100 ${edge}`}>
+                      <span className="s-chart-tip__label">{d.day}</span>
+                      <span className="s-chart-tip__value">
+                        {fmtTokens(v)} · {fmtCost(d.cost)}
+                      </span>
                     </div>
                   </button>
                 )
@@ -133,7 +136,7 @@ export default function UsagePage() {
               rows={(data?.byModel ?? []).map((m) => [
                 <span key="m" className="flex items-center gap-1.5">
                   {m.modelId}
-                  {m.free === 1 && <span className="rounded bg-accent-soft px-1 text-[10px] font-medium text-accent">free</span>}
+                  {m.free === 1 && <span className="s-badge">Free</span>}
                 </span>,
                 m.providerId,
                 String(m.messages),
@@ -145,7 +148,7 @@ export default function UsagePage() {
                 title: (
                   <span className="flex min-w-0 items-center gap-1.5">
                     <span className="truncate">{m.modelId}</span>
-                    {m.free === 1 && <span className="shrink-0 rounded bg-accent-soft px-1 text-[10px] font-medium text-accent">free</span>}
+                    {m.free === 1 && <span className="s-badge shrink-0">Free</span>}
                   </span>
                 ),
                 sub: m.providerId,
@@ -163,7 +166,7 @@ export default function UsagePage() {
             {loading && <TableSkeleton />}
             {data && data.routed.byBackend.length === 0 && <Empty />}
             {rt && rt.requests > 0 && (
-              <div className="mb-3 text-xs text-muted">
+              <div className="s-meta mb-3">
                 {rt.requests} requests · {rt.ok} ok · {rt.rateLimited} rate limited · {rt.errors} errors{rt.timeouts > 0 ? ` · ${rt.timeouts} timeouts` : ""} · {Math.round(rt.avgLatency)}ms avg
                 {rt.avgTtft != null ? ` · ${fmtSeconds(rt.avgTtft)} to first token` : ""}
               </div>
@@ -176,13 +179,13 @@ export default function UsagePage() {
                   {b.modelId}
                 </span>,
                 b.alias,
-                <span key="t" className={`rounded px-1 text-[10px] font-medium ${b.tier === "free" ? "bg-accent-soft text-accent" : "bg-surface-2 text-ink-2"}`}>
-                  {b.tier}
+                <span key="t" className="s-badge">
+                  {b.tier === "free" ? "Free" : "Paid"}
                 </span>,
                 String(b.requests),
                 String(b.rateLimited),
                 String(b.timeouts),
-                b.avgTtft != null ? fmtSeconds(b.avgTtft) : <span key="f" className="text-muted">—</span>,
+                b.avgTtft != null ? fmtSeconds(b.avgTtft) : <span key="f" className="text-muted">None</span>,
                 fmtTokens(b.input),
                 fmtTokens(b.output),
                 fmtCost(b.cost),
@@ -194,14 +197,14 @@ export default function UsagePage() {
                       <span className="text-muted">{b.providerId}/</span>
                       {b.modelId}
                     </span>
-                    <span className={`shrink-0 rounded px-1 text-[10px] font-medium ${b.tier === "free" ? "bg-accent-soft text-accent" : "bg-surface-2 text-ink-2"}`}>{b.tier}</span>
+                    <span className="s-badge shrink-0">{b.tier === "free" ? "Free" : "Paid"}</span>
                   </span>
                 ),
                 value: fmtCost(b.cost),
                 fields: [
                   ["Requests", String(b.requests)],
                   ["Rate limited", String(b.rateLimited)],
-                  ["First token", b.avgTtft != null ? fmtSeconds(b.avgTtft) : "—"],
+                  ["First token", b.avgTtft != null ? fmtSeconds(b.avgTtft) : "None"],
                 ],
                 more: [
                   ["Alias", b.alias],
@@ -219,7 +222,7 @@ export default function UsagePage() {
             <Table
               head={["Session", "Last active", "Messages", "Tokens", "Cost"]}
               rows={(data?.bySession ?? []).map((s) => [
-                <Link key="s" href={s.workspaceId ? `/w/${s.workspaceId}/s/${s.sessionId}` : `/s/${s.sessionId}`} className="text-ink hover:underline">
+                <Link key="s" href={s.workspaceId ? `/w/${s.workspaceId}/s/${s.sessionId}` : `/s/${s.sessionId}`} className="s-table__link">
                   {s.title || sessions?.[s.sessionId]?.title || s.sessionId}
                 </Link>,
                 fmtRelative(s.last),
@@ -229,7 +232,7 @@ export default function UsagePage() {
               ])}
               cards={(data?.bySession ?? []).map((s) => ({
                 title: (
-                  <Link href={s.workspaceId ? `/w/${s.workspaceId}/s/${s.sessionId}` : `/s/${s.sessionId}`} className="block truncate text-ink hover:underline">
+                  <Link href={s.workspaceId ? `/w/${s.workspaceId}/s/${s.sessionId}` : `/s/${s.sessionId}`} className="block truncate text-ink">
                     {s.title || sessions?.[s.sessionId]?.title || s.sessionId}
                   </Link>
                 ),
@@ -252,23 +255,24 @@ function fmtSeconds(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`
 }
 
-function Stat({ label, value, hint, accent, loading }: { label: string; value: string; hint?: string; accent?: boolean; loading?: boolean }) {
+/** A KPI (s-kpi, 03 B21) in a P2 card: label, Code value, hint. */
+function Stat({ label, value, hint, loading }: { label: string; value: string; hint?: string; loading?: boolean }) {
   return (
-    <div className="rounded-xl border border-line bg-surface p-4">
-      <div className="text-[11px] font-mono text-muted">{label}</div>
-      {loading ? (
-        <div aria-busy className="skel-in">
-          <div className="mt-1 flex h-[2.4rem] items-center">
-            <Skel className="h-7 w-20" />
+    <div className="s-card s-card--compact">
+      <div className="s-kpi">
+        <span className="s-kpi__label">{label}</span>
+        {loading ? (
+          <div aria-busy className="skel-in flex flex-col gap-2 py-1">
+            <span className="s-skeleton s-skeleton--row w-20" />
+            <span className="s-skeleton s-skeleton--line w-24" />
           </div>
-          <Skel className="mt-1.5 h-3 w-24" />
-        </div>
-      ) : (
-        <>
-          <div className={`mt-1 font-display text-[1.6rem] font-normal ${accent ? "text-accent" : "text-ink"}`}>{value}</div>
-          {hint && <div className="mt-0.5 text-xs text-muted">{hint}</div>}
-        </>
-      )}
+        ) : (
+          <>
+            <span className="s-kpi__value">{value}</span>
+            {hint && <span className="s-kpi__delta">{hint}</span>}
+          </>
+        )}
+      </div>
     </div>
   )
 }
@@ -278,7 +282,7 @@ function DaySkeleton() {
   return (
     <div aria-busy className="skel-in flex h-full flex-1 items-end gap-1">
       {Array.from({ length: 30 }, (_, i) => (
-        <Skel key={i} className="flex-1 rounded-b-none rounded-t-sm" style={{ height: `${22 + Math.round(38 * (0.5 + 0.5 * Math.sin(i * 0.7)) + 18 * (0.5 + 0.5 * Math.sin(i * 2.3)))}%` }} />
+        <span key={i} className="s-skeleton flex-1 rounded-b-none" style={{ height: `${22 + Math.round(38 * (0.5 + 0.5 * Math.sin(i * 0.7)) + 18 * (0.5 + 0.5 * Math.sin(i * 2.3)))}%` }} />
       ))}
     </div>
   )
@@ -286,15 +290,14 @@ function DaySkeleton() {
 
 function TableSkeleton() {
   return (
-    <div aria-busy className="skel-in">
-      <Skel className="mb-3 h-2.5 w-2/5" />
+    <div aria-busy className="skel-in flex flex-col">
+      <span className="s-skeleton s-skeleton--line mb-3 w-2/5" />
       {["w-44", "w-36", "w-52"].map((w) => (
-        <div key={w} className="flex items-center gap-6 border-t border-line py-[11px]">
-          <Skel className={`h-3.5 ${w}`} />
+        <div key={w} className="flex items-center gap-6 border-t border-line py-3">
+          <span className={`s-skeleton s-skeleton--line ${w}`} />
           <span className="flex-1" />
-          <Skel className="h-3.5 w-10" />
-          <Skel className="h-3.5 w-12" />
-          <Skel className="h-3.5 w-12" />
+          <span className="s-skeleton s-skeleton--line w-10" />
+          <span className="s-skeleton s-skeleton--line w-12" />
         </div>
       ))}
     </div>
@@ -304,15 +307,15 @@ function TableSkeleton() {
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="mt-8">
-      <h2 className="mb-3 text-sm font-medium text-ink">{title}</h2>
-      {/* A container, so the tables can switch to cards by the card's own width (the sidebar changes it too). */}
-      <div className="@container rounded-xl border border-line bg-surface p-4">{children}</div>
+      <h2 className="mb-3 text-lg text-ink">{title}</h2>
+      {/* A P2 card and a container, so the tables can switch to cards by the card's own width (the sidebar changes it too). */}
+      <div className="s-card @container">{children}</div>
     </section>
   )
 }
 
 function Empty() {
-  return <div className="py-6 text-center text-sm text-muted">Nothing yet in this window.</div>
+  return <p className="s-empty-line py-6 text-center">Nothing yet in this window. Pick a longer one above.</p>
 }
 
 type Card = { title: ReactNode; sub?: string; value: string; fields: [string, string][]; more?: [string, string][] }
@@ -331,7 +334,7 @@ function Table({ head, rows, cards }: { head: string[]; rows: ReactNode[][]; car
           <RowCard key={i} c={c} />
         ))}
       </ul>
-      <div className="hidden overflow-x-auto @[500px]:block">
+      <div className="s-table s-table--dense hidden @[500px]:block">
         <TableView head={head} rows={rows} />
       </div>
     </>
@@ -341,7 +344,7 @@ function Table({ head, rows, cards }: { head: string[]; rows: ReactNode[][]; car
 function RowCard({ c }: { c: Card }) {
   const cell = ([label, value]: [string, string]) => (
     <div key={label} className="min-w-0">
-      <dt className="truncate text-[11px] text-muted">{label}</dt>
+      <dt className="s-meta truncate">{label}</dt>
       <dd className="truncate tabular-nums text-ink-2">{value}</dd>
     </div>
   )
@@ -351,11 +354,11 @@ function RowCard({ c }: { c: Card }) {
         <div className="min-w-0 flex-1 text-ink">{c.title}</div>
         <div className="shrink-0 tabular-nums text-ink">{c.value}</div>
       </div>
-      {c.sub && <div className="truncate text-[12px] text-muted">{c.sub}</div>}
+      {c.sub && <div className="s-meta truncate">{c.sub}</div>}
       <dl className="mt-1.5 grid grid-cols-3 gap-x-3 gap-y-1.5">{c.fields.map(cell)}</dl>
       {c.more && (
         <details className="group mt-1">
-          <summary className="inline-flex cursor-pointer list-none items-center gap-1 text-[12px] text-muted hover:text-ink pointer-coarse:min-h-11 [&::-webkit-details-marker]:hidden">
+          <summary className="s-btn s-btn--link-neutral s-btn--sm list-none pointer-coarse:min-h-11 [&::-webkit-details-marker]:hidden">
             <span className="group-open:hidden">More</span>
             <span className="hidden group-open:inline">Less</span>
           </summary>
@@ -366,13 +369,15 @@ function RowCard({ c }: { c: Card }) {
   )
 }
 
+/** s-table (03 A15, B7): bottom hairlines only, 500 ink head, muted cells; numbers right-aligned in Code. */
 function TableView({ head, rows }: { head: string[]; rows: ReactNode[][] }) {
+  const numeric = head.map((_, j) => j > 0 && rows.every((r) => typeof r[j] === "string" && /^[\d$.,<~]/.test(r[j] as string)))
   return (
-    <table className="w-full text-sm">
+    <table>
       <thead>
-        <tr className="text-left text-[11px] font-mono text-muted">
-          {head.map((h) => (
-            <th key={h}className="pb-2 pr-3 font-medium whitespace-nowrap last:pr-0">
+        <tr>
+          {head.map((h, j) => (
+            <th key={h} className={`whitespace-nowrap ${numeric[j] ? "text-right" : ""}`}>
               {h}
             </th>
           ))}
@@ -380,9 +385,9 @@ function TableView({ head, rows }: { head: string[]; rows: ReactNode[][] }) {
       </thead>
       <tbody>
         {rows.map((r, i) => (
-          <tr key={i} className="border-t border-line text-ink-2">
+          <tr key={i}>
             {r.map((c, j) => (
-              <td key={j} className={`py-2 pr-3 last:pr-0 ${j === 0 ? "text-ink" : "whitespace-nowrap"} ${j >= 2 ? "tabular-nums" : ""}`}>
+              <td key={j} className={`${j === 0 ? "text-ink" : "whitespace-nowrap"} ${numeric[j] ? "s-col-num" : ""}`}>
                 {c}
               </td>
             ))}

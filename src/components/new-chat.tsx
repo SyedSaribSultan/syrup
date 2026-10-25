@@ -1,5 +1,6 @@
 "use client"
 
+import { Button, Icon } from "./ui/s"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useState } from "react"
@@ -80,7 +81,7 @@ export function NewChat({ hrefFor, noKeys, error, onRetry }: Props) {
             {pending ? (
               <div className="mb-6 space-y-4">
                 <div className="flex justify-end">
-                  <div className="max-w-[85%] rounded-2xl rounded-br-md bg-surface-2 px-4 py-2.5 text-[15px] leading-6 whitespace-pre-wrap text-ink opacity-70 [overflow-wrap:anywhere]">
+                  <div className="max-w-[85%] rounded-2xl rounded-br-md bg-surface-2 px-4 py-2.5 text-base leading-6 whitespace-pre-wrap text-ink-2 [overflow-wrap:anywhere]">
                     {pending.text}
                     {pending.files.length > 0 && (
                       <div className={`flex flex-wrap gap-1.5 ${pending.text ? "mt-2" : ""}`}>
@@ -94,7 +95,7 @@ export function NewChat({ hrefFor, noKeys, error, onRetry }: Props) {
                   </div>
                 </div>
                 {error ? (
-                  <div className="text-[13px] text-muted">Not sent yet. It goes out as soon as the workspace starts.</div>
+                  <p className="s-empty-line">Not sent yet. It goes out as soon as the workspace starts.</p>
                 ) : (
                   <>
                     <Brew mood="wake" label="Sends as soon as your workspace is up" timerAfter={8} />
@@ -104,7 +105,7 @@ export function NewChat({ hrefFor, noKeys, error, onRetry }: Props) {
               </div>
             ) : (
               <>
-                <h1 className="text-center font-display text-[1.75rem] font-normal text-ink medium:text-[2rem] expanded:mb-6 [@media(max-height:480px)]:text-[1.25rem]">
+                <h1 className="text-center font-display text-heading font-normal text-ink medium:text-heading expanded:mb-6 [@media(max-height:480px)]:text-xl">
                   What are we <em className="text-accent not-italic">building</em>?
                 </h1>
                 <div className="mt-2 flex justify-center text-xs text-muted expanded:hidden [@media(max-height:480px)]:hidden">{where}</div>
@@ -122,31 +123,43 @@ export function NewChat({ hrefFor, noKeys, error, onRetry }: Props) {
               </div>
             )}
             {(sendError || missing) && (
-              <div className="mx-auto max-w-[560px] rounded-xl border border-err/30 bg-err/5 px-4 py-3 text-[13px] leading-relaxed text-ink-2 expanded:mt-6">
-                {missing ? (
-                  <>
-                    <span className="font-medium text-err">This folder no longer exists.</span> Switch to another workspace from the top of the sidebar, or put the folder back and reload.
-                  </>
-                ) : (
-                  <>
-                    <span className="font-medium text-err">Couldn&apos;t start the chat.</span> {sendError}
-                  </>
-                )}
+              <div role="alert" className="s-alert s-alert--critical mx-auto max-w-[560px] expanded:mt-6">
+                <Icon name="circle-alert" />
+                <div className="s-alert__body">
+                  {missing ? (
+                    <>
+                      <p className="s-alert__title">This folder no longer exists.</p>
+                      <p className="s-alert__desc">Switch to another workspace from the top of the sidebar, or put the folder back and reload.</p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="s-alert__title">Couldn&apos;t start the chat.</p>
+                      <p className="s-alert__desc">{sendError}</p>
+                    </>
+                  )}
+                </div>
               </div>
             )}
             {error && (
-              <div className="mx-auto max-w-[560px] rounded-xl border border-err/30 bg-err/5 px-4 py-3 text-[13px] leading-relaxed text-ink-2 expanded:mt-6">
-                <span className="font-medium text-err">Your workspace didn&apos;t start.</span> {error}
-                {onRetry && (
-                  <button type="button" onClick={onRetry} className="ml-2 rounded-lg bg-accent-fill px-2.5 py-1 text-xs font-medium text-accent-ink pointer-coarse:px-3.5 pointer-coarse:py-2">
-                    Try again
-                  </button>
-                )}
+              <div role="alert" className="s-alert s-alert--critical mx-auto max-w-[560px] expanded:mt-6">
+                <Icon name="circle-alert" />
+                <div className="s-alert__body">
+                  <p className="s-alert__title">Your workspace didn&apos;t start.</p>
+                  <p className="s-alert__desc">{error}</p>
+                  {onRetry && (
+                    <Button variant="secondary" size="sm" onClick={onRetry} className="mt-2">
+                      Try again
+                    </Button>
+                  )}
+                </div>
               </div>
             )}
             {showKeys && (
-              <div className="mx-auto max-w-[560px] rounded-xl border border-accent/30 bg-accent-soft/40 px-4 py-3 text-[13px] leading-relaxed text-ink-2 expanded:mt-8">
-                <span className="font-medium text-ink">No API keys yet.</span>{" "}
+              <div className="s-alert s-alert--info mx-auto max-w-[560px] expanded:mt-8">
+                <Icon name="lock" />
+                <div className="s-alert__body">
+                <p className="s-alert__title">No API keys yet.</p>
+                <p className="s-alert__desc">
                 {providers.length > 0 ? (
                   <>
                     {freeCount} free models work out of the box, but <span className="font-mono">Auto</span> and <span className="font-mono">Fast</span> need at least one provider key to route to.
@@ -154,10 +167,12 @@ export function NewChat({ hrefFor, noKeys, error, onRetry }: Props) {
                 ) : (
                   "The agent needs at least one provider key."
                 )}{" "}
-                <Link href="/settings/providers" className="text-accent underline underline-offset-2">
+                <Link href="/settings/providers" className="s-link">
                   Add a key
-                </Link>{" "}
-                — Google AI Studio is free and takes a minute.
+                </Link>
+                . Google AI Studio is free and takes a minute.
+                </p>
+                </div>
               </div>
             )}
           </div>

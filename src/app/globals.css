@@ -1,5 +1,15 @@
+/*
+ * Layer order: Tailwind's preflight (base) first, then the Sarib component library (s: reset, base, components), then
+ * Tailwind's components and utilities, so layout utilities placed next to an s- class still apply. syrup's own rules
+ * below are unlayered and win over all of them.
+ */
+@layer theme, base, s, components, utilities;
 @import "tailwindcss";
-@import "./sarib-tokens.css";
+/* The Sarib design system, vendored by sarib-design/scripts/sync.mjs (never edit src/sarib; sarib-design.lock.json
+   pins every file and `pnpm lint` fails on drift). */
+@import "../sarib/tokens.css";
+@import "../sarib/components.css";
+@import "../sarib/icons.css";
 
 /*
  * Window size classes (Material 3), replacing Tailwind's defaults so there is one system.
@@ -18,7 +28,7 @@
 }
 
 /*
- * Colour, type and shape come from the Sarib design system (syedsarib.com), vendored in sarib-tokens.css as --s-*
+ * Colour, type and shape come from the Sarib design system (syedsarib.com), vendored in src/sarib/tokens.css as --s-*
  * custom properties. syrup's own roles below only point at them, so components keep using bg-surface, text-muted,
  * border-line ... and dark mode re-resolves through the --s-* blocks: it follows the OS, unless lib/theme.ts sets
  * data-theme="light" | "dark" on <html>. Never put a hex value in a component.
@@ -27,6 +37,12 @@
  *   --accent     brand text: links, focus   --accent-fill: solid brand button (white label: --accent-ink)
  */
 :root {
+  /* sarib-design fonts.md (a): the font tokens name next/font's self-hosted families (sarib.allow.json). */
+  --s-font-family-display: var(--font-google-sans-flex), system-ui, sans-serif;
+  --s-font-family-heading: var(--font-google-sans-flex), system-ui, sans-serif;
+  --s-font-family-body: var(--font-google-sans-flex), system-ui, sans-serif;
+  --s-font-family-label: var(--font-google-sans-flex), system-ui, sans-serif;
+  --s-font-family-code: var(--font-google-sans-code), ui-monospace, monospace;
   /* Native controls, scrollbars and form widgets follow the theme too. */
   color-scheme: light dark;
   --bg: var(--s-color-background);
@@ -55,7 +71,7 @@
   --ws-1: #3f9a5a;
   --ws-2: #d19a1f;
   --ws-3: #8a5bc9;
-  --ws-4: #d2493f;
+  --ws-4: #6f7f2a;
   --ws-5: #1f9a9a;
   --ws-6: #cf4f95;
   --ws-7: #9a6a3f;
@@ -67,7 +83,7 @@
     --ws-1: #6cc487;
     --ws-2: #e6b84f;
     --ws-3: #b08ae8;
-    --ws-4: #ec7068;
+    --ws-4: #b3c25e;
     --ws-5: #4cc4c4;
     --ws-6: #e87bb8;
     --ws-7: #c49467;
@@ -81,38 +97,73 @@
   --ws-1: #6cc487;
   --ws-2: #e6b84f;
   --ws-3: #b08ae8;
-  --ws-4: #ec7068;
+  --ws-4: #b3c25e;
   --ws-5: #4cc4c4;
   --ws-6: #e87bb8;
   --ws-7: #c49467;
 }
 
 @theme inline {
-  --color-bg: var(--bg);
-  --color-surface: var(--surface);
-  --color-surface-2: var(--surface-2);
-  --color-elevated: var(--elevated);
-  --color-ink: var(--ink);
-  --color-ink-2: var(--ink-2);
-  --color-muted: var(--muted);
-  --color-line: var(--line);
-  --color-line-2: var(--line-2);
-  --color-accent: var(--accent);
-  --color-accent-fill: var(--accent-fill);
-  --color-accent-fill-hover: var(--accent-fill-hover);
-  --color-accent-ink: var(--accent-ink);
-  --color-accent-soft: var(--accent-soft);
-  --color-ok: var(--ok);
-  --color-warn: var(--warn);
-  --color-err: var(--err);
+  --color-bg: var(--s-color-background);
+  --color-surface: var(--s-color-fill-secondary-variant);
+  --color-surface-2: var(--s-color-fill-secondary);
+  --color-elevated: var(--s-color-surface-elevated);
+  --color-ink: var(--s-color-content-primary);
+  --color-ink-2: var(--s-color-content-secondary);
+  --color-muted: var(--s-color-content-tertiary);
+  --color-line: var(--s-color-border-primary);
+  --color-line-2: var(--s-color-border-secondary);
+  --color-accent: var(--s-color-content-brand);
+  --color-accent-fill: var(--s-color-fill-brand);
+  --color-accent-fill-hover: var(--s-color-fill-brand-hover);
+  --color-accent-fill-disabled: var(--s-color-fill-brand-disabled);
+  --color-accent-ink: var(--s-color-content-fixed-inverse);
+  --color-accent-soft: var(--s-color-surface-brand);
+  --color-ok: var(--s-color-content-success);
+  --color-warn: var(--s-color-content-warning);
+  --color-err: var(--s-color-content-critical);
   --color-err-fill: var(--s-color-fill-critical);
-  --color-code-bg: var(--code-bg);
+  --color-code-bg: var(--s-color-fill-secondary);
+  /* Surface planes (sarib-design DESIGN.md §11.0): P0 band = bg, P1 canvas, P2w well, P3 raised = elevated. */
+  --color-canvas: var(--s-color-fill-primary-disabled);
+  --color-well: var(--s-color-fill-primary-variant);
+  --color-hover: var(--s-color-fill-primary-variant-hover);
+  --color-pressed: var(--s-color-fill-primary-variant-active);
+  --color-brand-tone: var(--s-color-fill-brand-secondary);
+  --color-line-brand: var(--s-color-border-brand);
+  --color-ink-disabled: var(--s-color-content-primary-disabled);
+  /* Sarib layout sizes (DESIGN.md §11.2) as spacing keys: w-sidebar, w-rail, w-drawer. */
+  --spacing-sidebar: var(--s-sidebar-w);
+  --spacing-rail: var(--s-rail-w);
+  --spacing-drawer: var(--s-drawer-w-menu);
+  --spacing-drawer-gap: var(--s-drawer-gap);
+  --color-info: var(--s-color-content-info);
+  --color-ok-tone: var(--s-color-surface-success);
+  --color-err-tone: var(--s-color-surface-critical);
+  /* The kit's type scale only (11 / 12 / 14 / 16 / 18 / 20, headings fluid). text-2xs is label-xs. */
+  --text-2xs: var(--s-font-size-label-xs);
+  --text-2xs--line-height: var(--s-line-height-label-xs);
+  --text-xs: var(--s-font-size-body-xs);
+  --text-xs--line-height: var(--s-line-height-body-xs);
+  --text-sm: var(--s-font-size-body-sm);
+  --text-sm--line-height: var(--s-line-height-body-sm);
+  --text-base: var(--s-font-size-body-md);
+  --text-base--line-height: var(--s-line-height-body-md);
+  --text-lg: var(--s-font-size-body-lg);
+  --text-lg--line-height: var(--s-line-height-body-lg);
+  --text-xl: var(--s-font-size-body-xl);
+  --text-xl--line-height: var(--s-line-height-body-xl);
+  --text-2xl: var(--s-font-size-heading-sm);
+  --text-2xl--line-height: var(--s-line-height-heading-sm);
+  --text-heading: var(--s-font-size-heading-lg);
+  --text-heading--line-height: var(--s-line-height-heading-lg);
   /* Google Sans Flex for everything you read and click; Google Sans Code for headlines, numbers, meta and code. */
   --font-sans: var(--font-google-sans-flex), system-ui, sans-serif;
   --font-display: var(--font-google-sans-code), ui-monospace, monospace;
   --font-mono: var(--font-google-sans-code), ui-monospace, monospace;
-  --shadow-card: var(--shadow);
-  --shadow-raised: var(--shadow-sm);
+  --shadow-card: var(--s-elevation-md);
+  --shadow-raised: var(--s-elevation-sm);
+  --shadow-panel: var(--s-elevation-lg);
   /* Very rounded UI (DESIGN.md 4.2): small controls 10, sm buttons and fields 14, cards and menus 20, sheets 24, composer 28. */
   --radius-md: var(--s-radius-5);
   --radius-lg: var(--s-radius-7);
@@ -136,8 +187,8 @@ body {
   height: var(--app-h, 100dvh);
   /* The page itself never scrolls (only inner regions do), so no pull-to-refresh or rubber-banding of the whole app. */
   overscroll-behavior: none;
-  background: var(--bg);
-  color: var(--ink);
+  background: var(--s-color-background);
+  color: var(--s-color-content-primary);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
 }
@@ -177,14 +228,14 @@ body {
   input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"]),
   textarea,
   select {
-    font-size: 16px;
+    font-size: var(--s-font-size-body-md);
   }
 }
 
 /* Thin, quiet scrollbars */
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--line-2) transparent;
+  scrollbar-color: var(--s-color-border-secondary) transparent;
 }
 
 /*
@@ -203,15 +254,15 @@ body {
 /* Markdown body */
 /* Chat messages read in the softer ink; headings and bold keep full ink for hierarchy. */
 .chat-text {
-  color: var(--ink-2);
+  color: var(--s-color-content-secondary);
 }
 .chat-text :is(h1, h2, h3, h4, strong) {
-  color: var(--ink);
+  color: var(--s-color-content-primary);
 }
 
 .md {
   line-height: 1.6;
-  font-size: 1rem;
+  font-size: var(--s-font-size-body-md);
   letter-spacing: 0.005em;
 }
 .md > * + * {
@@ -228,13 +279,13 @@ body {
   margin-top: 1.4em;
 }
 .md h1 {
-  font-size: 1.5rem;
+  font-size: var(--s-font-size-heading-sm);
 }
 .md h2 {
-  font-size: 1.25rem;
+  font-size: var(--s-font-size-body-xl);
 }
 .md h3 {
-  font-size: 1.1rem;
+  font-size: var(--s-font-size-body-lg);
 }
 .md :is(strong, b) {
   font-weight: 500;
@@ -243,16 +294,16 @@ body {
 .md li code,
 .md td code {
   font-family: var(--font-mono);
-  font-size: 0.9em;
-  background: var(--code-bg);
+  font-size: var(--s-font-size-body-sm);
+  background: var(--s-color-fill-secondary);
   border-radius: var(--s-radius-4);
   padding: 0.1em 0.35em;
 }
 .md pre {
   font-family: var(--font-mono);
-  font-size: 0.8125rem;
+  font-size: var(--s-font-size-body-sm);
   line-height: 1.55;
-  background: var(--code-bg);
+  background: var(--s-color-fill-secondary);
   border-radius: var(--s-radius-10);
   padding: 1rem;
   overflow-x: auto;
@@ -268,13 +319,13 @@ body {
   list-style: decimal;
 }
 .md li::marker {
-  color: var(--muted);
+  color: var(--s-color-content-tertiary);
 }
 .md li + li {
   margin-top: 0.25em;
 }
 .md a {
-  color: var(--accent);
+  color: var(--s-color-content-brand);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -283,31 +334,31 @@ body {
 }
 .md blockquote {
   border-radius: var(--s-radius-10);
-  background: var(--surface-2);
+  background: var(--s-color-fill-secondary);
   padding: 0.75rem 1rem;
-  color: var(--ink-2);
+  color: var(--s-color-content-secondary);
 }
 .md .md-table {
   overflow-x: auto;
 }
 .md table {
   border-collapse: collapse;
-  font-size: 0.9em;
+  font-size: var(--s-font-size-body-sm);
   width: 100%;
 }
 .md th,
 .md td {
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--s-color-border-primary);
   padding: 0.6em 1em 0.6em 0;
   text-align: left;
 }
 .md th {
   font-weight: 500;
-  color: var(--ink);
+  color: var(--s-color-content-primary);
 }
 .md hr {
   border: 0;
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--s-color-border-primary);
 }
 
 /* @motion-begin
@@ -320,13 +371,13 @@ body {
  * and fails on raw timings anywhere else.
  */
 :root {
-  --motion-fast: 120ms; /* hover, press, chevrons, crossfades, all exits of small things */
-  --motion-base: 180ms; /* popovers, menus, dialogs, expand/collapse, notices */
-  --motion-slow: 240ms; /* sheets, drawer, workspace panel, sidebar ↔ rail */
+  --motion-fast: 150ms; /* hover, press, chevrons, crossfades, all exits of small things */
+  --motion-base: 250ms; /* popovers, menus, dialogs, expand/collapse, notices */
+  --motion-slow: 420ms; /* sheets, drawer, workspace panel, sidebar ↔ rail */
   --motion-shift: 4px; /* how far popovers and notices travel */
-  --ease-arrive: cubic-bezier(0.2, 0, 0, 1); /* entering: fast start, soft landing */
-  --ease-leave: cubic-bezier(0.3, 0, 1, 1); /* leaving: gets out of the way */
-  --ease-move: cubic-bezier(0.2, 0, 0, 1); /* changing size or place on screen */
+  --ease-arrive: cubic-bezier(0.4, 0, 0.2, 1); /* entering: fast start, soft landing */
+  --ease-leave: cubic-bezier(0.4, 0, 1, 1); /* leaving: gets out of the way */
+  --ease-move: cubic-bezier(0.4, 0, 0.2, 1); /* changing size or place on screen */
 }
 
 /*
@@ -660,7 +711,7 @@ body {
 
 /* Skeletons: shaped like the real content, breathing gently; groups appear late (160 ms) so fast loads never flash. */
 .skel {
-  background: var(--line);
+  background: var(--s-color-border-primary);
   animation: skel-breathe 1.6s ease-in-out infinite;
 }
 @keyframes skel-breathe {
@@ -684,8 +735,8 @@ body {
 
 /* Behind image previews, so transparency reads as transparency. */
 .checker {
-  background-color: var(--surface);
-  background-image: linear-gradient(45deg, var(--surface-2) 25%, transparent 25%, transparent 75%, var(--surface-2) 75%), linear-gradient(45deg, var(--surface-2) 25%, transparent 25%, transparent 75%, var(--surface-2) 75%);
+  background-color: var(--s-color-fill-secondary-variant);
+  background-image: linear-gradient(45deg, var(--s-color-fill-secondary) 25%, transparent 25%, transparent 75%, var(--s-color-fill-secondary) 75%), linear-gradient(45deg, var(--s-color-fill-secondary) 25%, transparent 25%, transparent 75%, var(--s-color-fill-secondary) 75%);
   background-size: 16px 16px;
   background-position: 0 0, 8px 8px;
 }
@@ -711,12 +762,12 @@ figure.rich {
 }
 .rich-kind {
   font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--muted);
+  font-size: var(--s-font-size-body-xs);
+  color: var(--s-color-content-tertiary);
 }
 .rich-cap {
-  font-size: 12px;
-  color: var(--muted);
+  font-size: var(--s-font-size-body-xs);
+  color: var(--s-color-content-tertiary);
 }
 .rich-bar .rich-cap {
   margin-left: 0.5rem;
@@ -726,9 +777,9 @@ figure.rich {
   overflow: hidden;
   position: relative;
   isolation: isolate;
-  border: 1px solid var(--line);
+  border: 1px solid var(--s-color-border-primary);
   border-radius: var(--s-radius-10);
-  background: var(--surface);
+  background: var(--s-color-fill-secondary-variant);
   padding: 0.75rem;
   cursor: zoom-in;
 }
@@ -761,7 +812,7 @@ figure.rich {
   position: absolute;
   inset: auto 0 0 0;
   height: 4rem;
-  background: linear-gradient(to bottom, transparent, var(--surface));
+  background: linear-gradient(to bottom, transparent, var(--s-color-fill-secondary-variant));
   pointer-events: none;
 }
 .rich-paper .rich-fade {
@@ -772,18 +823,18 @@ figure.rich {
 }
 .rich-note {
   margin-top: 0.4rem;
-  font-size: 13px;
-  color: var(--muted);
+  font-size: var(--s-font-size-body-sm);
+  color: var(--s-color-content-tertiary);
 }
 .rich-err {
   display: block;
   margin-top: 0.15rem;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--s-font-size-body-xs);
   overflow-wrap: anywhere;
 }
 .rich-link {
-  color: var(--accent);
+  color: var(--s-color-content-brand);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -811,8 +862,8 @@ figure[data-rich-state="pending"] .rich-src > summary {
   overflow: visible;
   clip-path: none;
   margin-top: 0.35rem;
-  font-size: 12px;
-  color: var(--muted);
+  font-size: var(--s-font-size-body-xs);
+  color: var(--s-color-content-tertiary);
   cursor: pointer;
 }
 .rich-src[open] .rich-source {
@@ -823,9 +874,9 @@ figure[data-rich-state="pending"] .rich-src > summary {
   display: grid;
   gap: 0.75rem;
   align-content: center;
-  border: 1px solid var(--line);
+  border: 1px solid var(--s-color-border-primary);
   border-radius: var(--s-radius-10);
-  background: var(--surface);
+  background: var(--s-color-fill-secondary-variant);
   padding: 1rem;
 }
 .rich-skel i {
@@ -870,7 +921,7 @@ figure[data-rich-state="pending"] .rich-src > summary {
 }
 .rich-tex-raw {
   font-family: var(--font-mono);
-  font-size: 0.85em;
+  font-size: var(--s-font-size-body-sm);
   overflow-wrap: anywhere;
 }
 .rich-tex-raw-display {
@@ -881,11 +932,48 @@ figure[data-rich-state="pending"] .rich-src > summary {
   background: transparent;
   border: 0;
   padding: 0.25rem 0;
-  color: var(--muted);
+  color: var(--s-color-content-tertiary);
   white-space: pre-wrap;
 }
 .rich-tex-src {
   font-family: var(--font-mono);
-  font-size: 0.85em;
-  color: var(--muted);
+  font-size: var(--s-font-size-body-sm);
+  color: var(--s-color-content-tertiary);
+}
+
+/*
+ * The fade under the chat's composer, in the canvas colour. P1 is translucent over P0 (sarib-design 03 §1), so the
+ * fade lays the two planes over each other: the band below, the canvas tint above, both fading out together.
+ */
+.canvas-fade {
+  background:
+    linear-gradient(to top, var(--s-color-fill-primary-disabled), color-mix(in srgb, var(--s-color-fill-primary-disabled) 90%, transparent) 50%, transparent),
+    linear-gradient(to top, var(--s-color-background), color-mix(in srgb, var(--s-color-background) 90%, transparent) 50%, transparent);
+}
+
+/*
+ * Stacking order from the Sarib layer tokens (--s-layer-*), as named utilities. Named rather than z-[var(--s-…)] so the
+ * class list never contains "s-": the library's reduced-motion rule matches [class*="s-"] and would drop the app's own
+ * reduced-motion fades (docs/MOTION.md) on the drawer, scrims and layers.
+ */
+@utility z-sticky {
+  z-index: var(--s-layer-sticky);
+}
+@utility z-dropdown {
+  z-index: var(--s-layer-dropdown);
+}
+@utility z-overlay {
+  z-index: var(--s-layer-overlay);
+}
+@utility z-modal {
+  z-index: var(--s-layer-modal);
+}
+@utility z-popover {
+  z-index: var(--s-layer-popover);
+}
+@utility z-toast {
+  z-index: var(--s-layer-toast);
+}
+@utility z-tooltip {
+  z-index: var(--s-layer-tooltip);
 }

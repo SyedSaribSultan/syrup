@@ -2,6 +2,7 @@ import { redirect } from "next/navigation"
 import { Connections } from "@/components/connections"
 import { PrivacySettings } from "@/components/privacy-settings"
 import { SharedLinks } from "@/components/share-dialog"
+import { btnClass } from "@/components/ui/s"
 import { env } from "@/server/env"
 
 export default async function SettingsPage() {
@@ -16,17 +17,19 @@ export default async function SettingsPage() {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto w-full max-w-[760px] px-4 py-8 medium:px-6">
-        <h1 className="font-display text-[1.75rem] font-normal text-ink">Account & privacy</h1>
-        <p className="mt-1 max-w-[600px] text-sm text-muted">Every promise in the Privacy Policy has a control here. Changes take effect immediately and are recorded in your account&apos;s audit log.</p>
+        <h1 className="font-display text-heading font-normal text-ink">Account & privacy</h1>
+        <p className="mt-2 max-w-[600px] text-base text-ink-2">Every promise in the Privacy Policy has a control here. Changes take effect immediately and are recorded in your account&apos;s audit log.</p>
         <PrivacySettings />
         <SharedLinks />
         <Connections />
-        <section className="mt-6 rounded-xl border border-line bg-surface p-4">
-          <h2 className="text-sm font-medium text-ink">Session</h2>
-          <p className="mt-1 text-[13px] text-ink-2">Signs you out on this device. Your data stays.</p>
-          <form action={out} className="mt-3">
-            <button type="submit" className="w-full rounded-lg border border-line bg-bg px-3 py-2 text-xs font-medium text-ink transition hover:border-line-2 pointer-coarse:min-h-11 medium:w-auto">
-              Sign out
+        <section className="s-settings__group mt-6">
+          <div className="s-settings__head">
+            <h2 className="s-settings__title">Session</h2>
+            <p className="s-settings__desc">Signs you out on this device. Your data stays.</p>
+          </div>
+          <form action={out}>
+            <button type="submit" className={btnClass({ variant: "secondary", className: "w-full medium:w-auto" })}>
+              <span className="s-btn__label">Sign out</span>
             </button>
           </form>
         </section>

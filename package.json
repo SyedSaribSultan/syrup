@@ -8,7 +8,7 @@
     "start": "next start -H 127.0.0.1",
     "db:generate:pg": "drizzle-kit generate --config drizzle-pg.config.ts",
     "db:migrate:pg": "node scripts/migrate-pg.mjs",
-    "lint": "eslint && node scripts/check-motion.mjs",
+    "lint": "eslint && node scripts/check-motion.mjs && node scripts/sarib-check.mjs .",
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",

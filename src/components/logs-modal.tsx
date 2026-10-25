@@ -1,5 +1,6 @@
 "use client"
 
+import { Button, IconButton } from "./ui/s"
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { useParams } from "next/navigation"
 import { clog } from "@/lib/clientlog"
@@ -177,36 +178,27 @@ export function LogsModal({ sessionID, onClose, presence }: { sessionID?: string
   const filters = (sheet: boolean) => (
     <>
       <input
+        type="search"
         value={q}
         onChange={(e) => setQ(e.target.value)}
-        placeholder="Search events and data…"
-        className={`rounded-lg border border-line bg-surface outline-none placeholder:text-muted focus:border-line-2 ${sheet ? "min-h-11 w-full px-3 py-2" : "w-64 px-2.5 py-1.5"}`}
+        placeholder="Search events and data"
+        aria-label="Search events and data"
+        className={`s-search ${sheet ? "w-full max-w-none" : "max-w-64"}`}
       />
-      {sheet && <div className="mt-4 mb-1.5 text-[11px] font-mono text-muted">Level</div>}
-      <div className={`flex rounded-lg border border-line bg-surface p-0.5 ${sheet ? "w-full" : ""}`}>
+      {sheet && <p className="s-sidebar__label mt-3 px-0">Level</p>}
+      <div role="group" aria-label="Level" className={`s-seg ${sheet ? "s-seg--md s-seg--block" : ""}`}>
         {(["debug", "info", "warn"] as const).map((l) => (
-          <button
-            key={l}
-            type="button"
-            onClick={() => setMinLevel(l)}
-            className={`rounded-md px-2 py-1 transition ${sheet ? "min-h-10 flex-1" : ""} ${minLevel === l ? "bg-surface-2 text-ink" : "text-muted hover:text-ink"}`}
-          >
+          <button key={l} type="button" aria-pressed={minLevel === l} onClick={() => setMinLevel(l)} className="s-seg__item">
             {l === "debug" ? "everything" : l === "info" ? "info+" : "warnings+"}
           </button>
         ))}
       </div>
-      {sheet && <div className="mt-4 mb-1.5 text-[11px] font-mono text-muted">Sources</div>}
-      <div className={`flex flex-wrap ${sheet ? "gap-1.5" : "gap-1"}`}>
+      {sheet && <p className="s-sidebar__label mt-3 px-0">Sources</p>}
+      <div className="s-chip-row flex flex-wrap gap-2">
         {SOURCES.map((s) => {
           const on = sources.has(s)
           return (
-            <button
-              key={s}
-              type="button"
-              aria-pressed={on}
-              onClick={() => toggleSource(s)}
-              className={`rounded-md border transition ${sheet ? "min-h-10 px-3" : "px-1.5 py-0.5"} ${on ? "border-line-2 bg-surface-2 text-ink" : "border-line text-muted hover:text-ink"}`}
-            >
+            <button key={s} type="button" aria-pressed={on} onClick={() => toggleSource(s)} className="s-chip">
               {s}
             </button>
           )
@@ -214,12 +206,12 @@ export function LogsModal({ sessionID, onClose, presence }: { sessionID?: string
       </div>
       <div className={sheet ? "mt-3" : "contents"}>
         {sessionID && (
-          <label className={`flex items-center text-ink-2 ${sheet ? "min-h-11 gap-2.5" : "gap-1.5"}`}>
-            <input type="checkbox" checked={onlySession} onChange={(e) => setOnlySession(e.target.checked)} /> this session only
+          <label className="s-check">
+            <input type="checkbox" checked={onlySession} onChange={(e) => setOnlySession(e.target.checked)} /> This chat only
           </label>
         )}
-        <label className={`flex items-center text-ink-2 ${sheet ? "min-h-11 gap-2.5" : "gap-1.5"}`}>
-          <input type="checkbox" checked={live} onChange={(e) => setLive(e.target.checked)} /> live
+        <label className="s-check">
+          <input type="checkbox" checked={live} onChange={(e) => setLive(e.target.checked)} /> Live
         </label>
       </div>
     </>
@@ -233,14 +225,15 @@ export function LogsModal({ sessionID, onClose, presence }: { sessionID?: string
     <div
       {...presence?.props}
       data-side={narrow ? "up" : undefined}
-      className="fixed inset-0 z-50 flex flex-col bg-bg/95 pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] backdrop-blur-sm motion-pop"
+      // A full-screen P0 layer, solid: no glass (03 B24).
+      className="fixed inset-0 z-modal flex flex-col bg-bg pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] motion-pop"
       role="dialog"
       aria-modal="true"
       aria-label="Logs"
     >
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line bg-surface px-4 py-3 medium:px-5">
-        <h2 className="order-1 font-sans text-[1.2rem] font-medium text-ink medium:order-none">Logs</h2>
-        <span className="order-3 flex basis-full flex-wrap items-center gap-x-1 text-xs text-muted medium:order-none medium:basis-auto">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-4 py-3 medium:px-5">
+        <h2 className="order-1 text-base font-medium text-ink medium:order-none">Logs</h2>
+        <span className="s-meta order-3 flex basis-full flex-wrap items-center gap-x-1 medium:order-none medium:basis-auto">
           {onlySession && sessionID ? "this chat" : "whole app"} · last 24h ·{" "}
           {loaded ? (
             <span>
@@ -252,7 +245,7 @@ export function LogsModal({ sessionID, onClose, presence }: { sessionID?: string
         </span>
         <span className="order-1 flex-1 medium:order-none" />
         <div className="order-4 flex basis-full flex-wrap items-center gap-2 medium:order-none medium:basis-auto">
-          <span className="text-xs text-muted medium:hidden">Copy</span>
+          <span className="s-meta medium:hidden">Copy</span>
           <CopyBtn onClick={() => copy("5m")} done={copied === "5m"} primary>
             <span className="medium:hidden">last 5 min</span>
             <span className="hidden medium:inline">Copy last 5 min</span>
@@ -266,37 +259,25 @@ export function LogsModal({ sessionID, onClose, presence }: { sessionID?: string
             <span className="hidden medium:inline">Copy all shown</span>
           </CopyBtn>
         </div>
-        <button
-          type="button"
-          onClick={() => setFiltersOpen(true)}
-          aria-haspopup="dialog"
-          className="order-2 rounded-lg border border-line px-2.5 py-1.5 text-xs text-ink-2 transition hover:border-line-2 hover:text-ink pointer-coarse:min-h-11 pointer-coarse:px-3.5 medium:order-none expanded:hidden"
-        >
-          Filters{activeFilters > 0 && <span className="ml-1 text-accent">· {activeFilters}</span>}
-        </button>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close"
-          className="order-2 rounded-lg border border-line px-2.5 py-1.5 text-xs text-ink-2 transition hover:border-line-2 hover:text-ink pointer-coarse:min-h-11 pointer-coarse:min-w-11 medium:order-none medium:ml-2"
-        >
-          <span className="pointer-coarse:hidden">Esc </span>✕
-        </button>
+        <Button variant="secondary" size="sm" onClick={() => setFiltersOpen(true)} aria-haspopup="dialog" className="order-2 medium:order-none expanded:hidden">
+          Filters{activeFilters > 0 && <span className="s-count ml-1">{activeFilters}</span>}
+        </Button>
+        <IconButton icon="close" label="Close" title="Close (Esc)" onClick={onClose} className="order-2 medium:order-none medium:ml-2" />
       </div>
 
-      <div className="hidden shrink-0 flex-wrap items-center gap-2 border-b border-line px-5 py-2 text-xs expanded:flex">{filters(false)}</div>
+      <div className="hidden shrink-0 flex-wrap items-center gap-3 border-b border-line px-5 py-2 expanded:flex">{filters(false)}</div>
       <Sheet open={filtersOpen && narrow} onClose={() => setFiltersOpen(false)} title="Filters">
-        <div className="px-5 pb-4 text-[13px]">
+        <div className="flex flex-col gap-2 px-6 pb-4">
           {filters(true)}
-          <button type="button" onClick={() => setFiltersOpen(false)} className="mt-4 min-h-11 w-full rounded-lg bg-surface-2 text-sm font-medium text-ink transition hover:bg-line">
+          <Button variant="secondary" block onClick={() => setFiltersOpen(false)} className="mt-3">
             Done
-          </button>
+          </Button>
         </div>
       </Sheet>
 
-      <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)] font-mono text-[12px]">
+      <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)] font-mono text-xs">
         {!loaded && <LogSkeleton />}
-        {loaded && rows.length === 0 && <div className="p-8 text-center font-sans text-sm text-muted">No log rows match.</div>}
+        {loaded && rows.length === 0 && <p className="s-empty-line p-8 text-center">No log rows match. Widen the filters.</p>}
         {rows.map((r) => {
           const isOpen = open === r.id
           return (
@@ -305,7 +286,7 @@ export function LogsModal({ sessionID, onClose, presence }: { sessionID?: string
               <button
                 type="button"
                 onClick={() => setOpen(isOpen ? null : r.id)}
-                className="block w-full px-4 py-2 text-left hover:bg-surface/70 medium:flex medium:items-start medium:gap-3 medium:px-5 medium:py-1.5"
+                className="block w-full px-4 py-2 text-left transition-colors hover:bg-hover medium:flex medium:items-start medium:gap-3 medium:px-5 medium:py-1.5"
               >
                 <span className="flex items-center gap-2 medium:contents">
                   <span className="tabular-nums text-muted medium:w-[86px] medium:shrink-0">
@@ -322,7 +303,7 @@ export function LogsModal({ sessionID, onClose, presence }: { sessionID?: string
               </button>
               {isOpen && (
                 <div className="bg-code-bg px-4 py-3 medium:px-5">
-                  <div className="mb-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted">
+                  <div className="mb-2 flex flex-wrap gap-x-4 gap-y-1 text-2xs text-muted">
                     <span>{new Date(r.ts).toISOString()}</span>
                     <span>level={r.level}</span>
                     {r.sessionId && <span className="break-all">session={r.sessionId}</span>}
@@ -340,7 +321,7 @@ export function LogsModal({ sessionID, onClose, presence }: { sessionID?: string
             <summary className="cursor-pointer px-4 py-2 font-sans text-xs text-ink-2 hover:text-ink pointer-coarse:py-3.5 medium:px-5">
               OpenCode engine log — last {engineTail.length} lines (raw, included in copies)
             </summary>
-            <pre className="max-h-[40vh] overflow-auto bg-code-bg px-4 py-3 whitespace-pre-wrap break-words text-[11px] text-muted medium:px-5">{engineTail.join("\n")}</pre>
+            <pre className="max-h-[40vh] overflow-auto bg-code-bg px-4 py-3 whitespace-pre-wrap break-words text-2xs text-muted medium:px-5">{engineTail.join("\n")}</pre>
           </details>
         )}
       </div>
@@ -371,12 +352,8 @@ function LogSkeleton() {
 
 function CopyBtn({ children, onClick, done, primary }: { children: React.ReactNode; onClick(): void; done: boolean; primary?: boolean }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-lg px-3 py-1.5 text-xs font-medium transition pointer-coarse:min-h-11 ${primary ? "bg-accent-fill text-accent-ink" : "border border-line text-ink-2 hover:border-line-2 hover:text-ink"}`}
-    >
-      {done ? "Copied ✓" : children}
-    </button>
+    <Button variant={primary ? "primary" : "secondary"} size="sm" onClick={onClick}>
+      {done ? "Copied" : children}
+    </Button>
   )
 }

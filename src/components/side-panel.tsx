@@ -8,6 +8,7 @@ import { useLazy } from "@/lib/rich/lazy"
 import { useNarrow } from "@/lib/use-window-class"
 import { Brew } from "./brew"
 import { ChangesTab, useChangeCount } from "./changes"
+import { Button, IconButton } from "./ui/s"
 import { MenuList, Sheet } from "./ui/sheet"
 
 /**
@@ -24,15 +25,15 @@ function lazyPanel<M, P extends object>(load: () => Promise<M>, pick: (m: M) => 
     }
     if (m.failed)
       return (
-        <div role="alert" className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center text-[13px] text-ink-2">
-          <span>Couldn&apos;t load {what}.</span>
-          <span className="flex gap-3">
-            <button type="button" onClick={m.retry} className="text-accent underline underline-offset-2 pointer-coarse:min-h-11">
+        <div role="alert" className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center">
+          <p className="s-error-line">Couldn&apos;t load {what}. Retry, or reload the page.</p>
+          <span className="flex gap-2">
+            <Button variant="secondary" size="sm" onClick={m.retry}>
               Retry
-            </button>
-            <button type="button" onClick={() => location.reload()} className="text-accent underline underline-offset-2 pointer-coarse:min-h-11">
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => location.reload()}>
               Reload
-            </button>
+            </Button>
           </span>
         </div>
       )
@@ -106,34 +107,30 @@ export function PanelToggle({ className = "", compact = false }: { className?: s
   const label = `${panel.open ? "Hide" : "Show"} changes, files & preview`
   if (compact)
     return (
-      <button
-        type="button"
+      <IconButton
+        icon="panel-open"
         // With changed files, opening shows Changes first: what the agent did is what you check on a phone.
         onClick={() => (!panel.open && c.files > 0 ? panel.openTab("changes") : panel.toggle())}
         aria-pressed={panel.open}
-        aria-label={c.files > 0 ? `${label} (${c.files} changed file${c.files === 1 ? "" : "s"})` : label}
+        label={c.files > 0 ? `${label} (${c.files} changed file${c.files === 1 ? "" : "s"})` : label}
         title={`${label} (${PANEL_SHORTCUT})`}
-        className={`relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition pointer-coarse:h-11 pointer-coarse:w-11 ${panel.open ? "bg-surface-2 text-ink" : "text-ink-2 hover:bg-surface-2 hover:text-ink"} ${className}`}
+        variant={panel.open ? "secondary" : "ghost"}
+        className={`relative ${className}`}
       >
-        <PanelIcon size={17} />
         {c.files > 0 && (
-          <span aria-hidden className="absolute top-0.5 right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent-fill px-1 text-[10px] leading-none font-medium text-accent-ink tabular-nums pointer-coarse:top-1.5 pointer-coarse:right-1.5">
+          <span aria-hidden className="s-badge absolute -top-1 -right-1">
             {c.files > 99 ? "99+" : c.files}
           </span>
         )}
-      </button>
+      </IconButton>
     )
+  // On = the secondary fill (what is open), off = ghost: one toggle look across the header (Changes, Files). While the
+  // pane is open it steps down to its icon, so the chat's title keeps room at the 440px floor.
+  if (panel.open) return <IconButton icon="panel-close" variant="secondary" aria-pressed label={label} title={`${label} (${PANEL_SHORTCUT})`} onClick={panel.toggle} className={className} />
   return (
-    <button
-      type="button"
-      onClick={panel.toggle}
-      aria-pressed={panel.open}
-      title={`${label} (${PANEL_SHORTCUT})`}
-      className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs transition pointer-coarse:min-h-11 ${panel.open ? "bg-surface-2 text-ink" : "text-ink-2 hover:bg-surface-2 hover:text-ink"} ${className}`}
-    >
-      <PanelIcon />
+    <Button variant={panel.open ? "secondary" : "ghost"} size="sm" icon="panel-open" onClick={panel.toggle} aria-pressed={panel.open} title={`${label} (${PANEL_SHORTCUT})`} className={className}>
       Files
-    </button>
+    </Button>
   )
 }
 
@@ -199,7 +196,8 @@ function SidePane() {
   }
 
   return (
-    <aside ref={ref} style={{ width }} aria-label="Workspace panel" className="relative flex max-w-[min(75vw,calc(100%-440px))] shrink-0 flex-col border-l border-line bg-surface/50">
+    <aside ref={ref} style={{ width }} aria-label="Workspace panel" className="relative flex max-w-[min(75vw,calc(100%-440px))] shrink-0 flex-col bg-bg">
+      {/* P0 band beside the P1 chat canvas, like the sidebar: the planes make the edge, no border (sarib-design 03 §1). */}
       <div
         role="separator"
         aria-orientation="vertical"
@@ -209,23 +207,12 @@ function SidePane() {
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
         onDoubleClick={() => panel.setWidth(panel.width >= PANEL_WIDE - 40 ? 440 : Math.min(PANEL_WIDE, max()))}
-        className={`absolute inset-y-0 -left-[3px] z-10 w-[6px] cursor-col-resize touch-none transition-colors hover:bg-accent/30 pointer-coarse:-left-2 pointer-coarse:w-4 ${live !== null ? "bg-accent/40" : ""}`}
+        className={`absolute inset-y-0 -left-[3px] z-sticky w-[6px] cursor-col-resize touch-none transition-colors hover:bg-line pointer-coarse:-left-2 pointer-coarse:w-4 ${live !== null ? "bg-line-2" : ""}`}
       />
-      <header className="flex h-12 shrink-0 items-center gap-1 border-b border-line px-2">
-        {TABS.map((t) => (
-          <Tab key={t} active={panel.tab === t} onClick={() => panel.setTab(t)}>
-            {t === "preview" ? (
-              <span className="max-w-[180px] truncate">{previewLabel(panel)}</span>
-            ) : (
-              TAB_LABEL[t]
-            )}
-            {t === "changes" && count.files > 0 && <span className="ml-1.5 text-[11px] text-muted tabular-nums">{count.files}</span>}
-          </Tab>
-        ))}
+      <header className="flex h-16 shrink-0 items-center gap-2 px-4">
+        <PanelTabs count={count.files} />
         <div className="flex-1" />
-        <button type="button" onClick={() => panel.setOpen(false)} title={`Close (${PANEL_SHORTCUT})`} aria-label="Close panel" className="flex items-center justify-center rounded-lg p-1.5 text-muted transition hover:bg-surface-2 hover:text-ink pointer-coarse:h-11 pointer-coarse:w-11">
-          <CloseIcon size={12} />
-        </button>
+        <IconButton icon="close" label="Close panel" title={`Close (${PANEL_SHORTCUT})`} onClick={() => panel.setOpen(false)} />
       </header>
       <PanelBody />
     </aside>
@@ -248,29 +235,13 @@ function PanelLayer() {
   }
 
   return (
-    <div role="dialog" aria-modal="true" aria-label="Workspace panel" onKeyDown={onKeyDown} className="fixed inset-0 z-40 flex flex-col bg-bg pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
-      <header className="flex h-14 shrink-0 items-center gap-1 border-b border-line px-1">
-        <button ref={closeBtn} type="button" onClick={() => panel.setOpen(false)} aria-label="Close panel" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-ink-2 transition hover:bg-surface-2 hover:text-ink">
-          <CloseIcon size={14} />
-        </button>
-        <div role="tablist" aria-label="Panel" className="flex min-w-0 flex-1 justify-center gap-0.5">
-          {TABS.map((t) => (
-            <button
-              key={t}
-              type="button"
-              role="tab"
-              aria-selected={panel.tab === t}
-              onClick={() => panel.setTab(t)}
-              className={`flex h-9 min-w-0 items-center rounded-lg px-3 text-[14px] transition pointer-coarse:h-11 ${panel.tab === t ? "bg-surface-2 font-medium text-ink" : "text-ink-2 hover:text-ink"}`}
-            >
-              <span className="truncate">{TAB_LABEL[t]}</span>
-              {t === "changes" && count.files > 0 && <span className="ml-1 text-[12px] font-normal text-muted tabular-nums">{count.files}</span>}
-            </button>
-          ))}
+    <div role="dialog" aria-modal="true" aria-label="Workspace panel" onKeyDown={onKeyDown} className="fixed inset-0 z-overlay flex flex-col bg-bg pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
+      <header className="flex h-16 shrink-0 items-center gap-2 px-2">
+        <IconButton ref={closeBtn} icon="close" label="Close panel" onClick={() => panel.setOpen(false)} />
+        <div className="flex min-w-0 flex-1 justify-center">
+          <PanelTabs count={count.files} md />
         </div>
-        <button type="button" onClick={() => setMenu(true)} aria-label="View options" aria-haspopup="menu" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-ink-2 transition hover:bg-surface-2 hover:text-ink">
-          <MoreIcon />
-        </button>
+        <IconButton icon="ellipsis" label="View options" aria-haspopup="menu" onClick={() => setMenu(true)} />
         <Sheet open={menu} onClose={() => setMenu(false)} title="View">
           <MenuList
             onDone={() => setMenu(false)}
@@ -306,15 +277,17 @@ function PanelBody() {
   )
   return (
     <>
-      <div className={show("changes")}>
+      <div role="tabpanel" id="panel-changes" aria-labelledby="panel-tab-changes" className={show("changes")}>
         <ChangesTab />
       </div>
-      <div className={show("files")}>{!seen.has("files") ? null : panel.target ? <FileTree key={`${panel.target.dir}|${panel.target.conn?.baseUrl ?? ""}|${panel.showHidden}`} target={panel.target} /> : waking}</div>
-      <div className={show("preview")}>
+      <div role="tabpanel" id="panel-files" aria-labelledby="panel-tab-files" className={show("files")}>{!seen.has("files") ? null : panel.target ? <FileTree key={`${panel.target.dir}|${panel.target.conn?.baseUrl ?? ""}|${panel.showHidden}`} target={panel.target} /> : waking}</div>
+      <div role="tabpanel" id="panel-preview" aria-labelledby="panel-tab-preview" className={show("preview")}>
         {!seen.has("preview") ? null : panel.block || panel.blockGone ? (
           <BlockPreview block={panel.block} />
         ) : !panel.selected ? (
-          <div className="flex flex-1 items-center justify-center p-6 text-center text-[13px] text-muted">Pick a file in Files and it shows up here.</div>
+          <div className="flex flex-1 items-center justify-center p-6 text-center">
+            <p className="s-empty-line">Nothing open yet. Pick a file in Files to preview it here.</p>
+          </div>
         ) : panel.target ? (
           <FilePreview key={`${panel.target.dir}|${panel.selected}`} target={panel.target} rel={panel.selected} />
         ) : (
@@ -325,37 +298,21 @@ function PanelBody() {
   )
 }
 
-function Tab({ active, onClick, children }: { active: boolean; onClick(): void; children: ReactNode }) {
+/**
+ * Changes · Files · Preview: the Sarib segmented control with tab semantics (s-seg, 03 B6): sm 28 beside the chat,
+ * md 36 on touch layouts. The changed-file count sits in the tab, Code label-xs faint.
+ */
+function PanelTabs({ count, md }: { count: number; md?: boolean }) {
+  const panel = usePanel()!
   return (
-    <button type="button" onClick={onClick} aria-pressed={active} className={`flex min-w-0 items-center rounded-lg px-2.5 py-1 text-xs transition pointer-coarse:min-h-11 ${active ? "bg-surface-2 text-ink" : "text-ink-2 hover:bg-surface-2 hover:text-ink"}`}>
-      {children}
-    </button>
+    <div role="tablist" aria-label="Panel" className={`s-seg min-w-0 ${md ? "s-seg--md" : ""}`}>
+      {TABS.map((t) => (
+        <button key={t} type="button" role="tab" id={`panel-tab-${t}`} aria-selected={panel.tab === t} aria-controls={`panel-${t}`} onClick={() => panel.setTab(t)} className="s-seg__item min-w-0">
+          <span className={`truncate ${t === "preview" && !md ? "max-w-[180px]" : ""}`}>{t === "preview" && !md ? previewLabel(panel) : TAB_LABEL[t]}</span>
+          {t === "changes" && count > 0 && <span className="s-seg__count">{count}</span>}
+        </button>
+      ))}
+    </div>
   )
 }
 
-function PanelIcon({ size = 13 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <rect x="1.5" y="2" width="11" height="10" rx="2" />
-      <path d="M8.5 2v10" />
-    </svg>
-  )
-}
-
-function CloseIcon({ size }: { size: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 12 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-      <path d="M2.5 2.5l7 7M9.5 2.5l-7 7" />
-    </svg>
-  )
-}
-
-function MoreIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-      <circle cx="3.5" cy="8" r="1.2" />
-      <circle cx="8" cy="8" r="1.2" />
-      <circle cx="12.5" cy="8" r="1.2" />
-    </svg>
-  )
-}

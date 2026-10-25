@@ -1,6 +1,5 @@
 "use client"
 
-import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Brew, Skel } from "@/components/brew"
@@ -23,6 +22,7 @@ import { useWorkspaces } from "@/lib/workspaces"
 import { MenuButton } from "./app-shell"
 import { ModelPicker } from "./model-picker"
 import { alertDialog, confirmDialog, promptDialog } from "./ui/dialog"
+import { IconButton, LinkButton } from "./ui/s"
 import { MenuList, Popover, type MenuItem } from "./ui/sheet"
 
 /**
@@ -213,16 +213,17 @@ export function SessionView({ id }: { id: string }) {
   return (
     <>
       {/* Phones and tablets: ☰ · model · new chat · panel · ⋯ (the model lives here, not in the composer). Desktop: title · Changes · Share · Files · ⋯. */}
-      <header className="shrink-0 border-b border-line pt-[env(safe-area-inset-top)]">
-        <div className="flex h-12 items-center gap-1 px-2 pointer-coarse:h-14 expanded:gap-3 expanded:px-5">
+      {/* The chat's top bar is the P0 band over the P1 log (the origin's chat panel bar): planes, not a rule. */}
+      <header className="shrink-0 bg-bg pt-[env(safe-area-inset-top)]">
+        <div className="flex h-16 items-center gap-1 px-2 expanded:gap-2 expanded:px-5">
           <MenuButton />
           <div className="flex min-w-0 flex-1 items-center expanded:hidden">
             <ModelPicker variant="bar" />
           </div>
-          <h1 className="hidden min-w-0 flex-1 truncate text-sm font-medium text-ink expanded:block">{session?.title || "New chat"}</h1>
-          <div className="flex shrink-0 items-center gap-0.5 expanded:gap-3">
+          <h1 className="hidden min-w-0 flex-1 truncate text-base text-ink expanded:block">{session?.title || "New chat"}</h1>
+          <div className="flex shrink-0 items-center gap-1">
             {(totals.tokens > 0 || totals.cost > 0) && !paneOpen && (
-              <div className="hidden text-xs text-muted large:block">
+              <div className="s-meta hidden large:block">
                 {fmtTokens(totals.tokens)} tokens · {fmtCost(totals.cost)}
               </div>
             )}
@@ -231,11 +232,7 @@ export function SessionView({ id }: { id: string }) {
             </div>
             <ShareButton sessionId={id} open={shareOpen} onOpenChange={setShareOpen} trigger={!narrow} />
             {w.newChatHref && (
-              <Link href={w.newChatHref} aria-label="New chat" title="New chat" className="flex h-9 w-9 items-center justify-center rounded-lg text-ink-2 transition hover:bg-surface-2 hover:text-ink pointer-coarse:h-11 pointer-coarse:w-11 expanded:hidden">
-                <svg width="17" height="17" viewBox="0 0 17 17" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M8 2.5H4A1.5 1.5 0 0 0 2.5 4v9A1.5 1.5 0 0 0 4 14.5h9a1.5 1.5 0 0 0 1.5-1.5V9M12.3 2.2l2.5 2.5L8.5 11H6V8.5l6.3-6.3Z" />
-                </svg>
-              </Link>
+              <LinkButton href={w.newChatHref} variant="ghost" size="sm" icon="edit" label="New chat" className="expanded:hidden" />
             )}
             <PanelToggle compact className="expanded:hidden" />
             <div className="hidden expanded:block">
@@ -270,25 +267,25 @@ export function SessionView({ id }: { id: string }) {
           )}
           {!narrow && <Prompts sessionID={id} />}
           {status[id]?.type === "retry" && (
-            <div className="flex items-center gap-2 rounded-lg border border-warn/30 bg-warn/5 px-3 py-2 text-[13px] text-ink-2">
+            <div className="flex items-center gap-2 rounded-lg border border-warn/30 bg-warn/5 px-3 py-2 text-sm text-ink-2">
               <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warn pulse" />
               <span>
                 Provider is busy, retrying (attempt {status[id].attempt}){status[id].message ? ` — ${status[id].message}` : ""}
               </span>
             </div>
           )}
-          {errors[id] && <div className="rounded-lg border border-err/30 bg-err/5 px-3 py-2 text-[13px] text-err">{errors[id]}</div>}
+          {errors[id] && <div className="rounded-lg border border-err/30 bg-err/5 px-3 py-2 text-sm text-err">{errors[id]}</div>}
         </div>
       </div>
 
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-bg via-bg/90 to-transparent pt-10 pb-[max(0.75rem,env(safe-area-inset-bottom))] medium:pb-5">
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 canvas-fade pt-10 pb-[max(0.75rem,env(safe-area-inset-bottom))] medium:pb-5">
         <div className="mx-auto w-full max-w-[720px] px-3 medium:px-6">
           {scrolledUp && (
             <button
               type="button"
               onClick={toBottom}
               aria-label="Scroll to the latest message"
-              className="pointer-events-auto mx-auto mb-2 flex h-9 w-9 items-center justify-center rounded-full border border-line bg-surface text-ink-2 shadow-card transition hover:text-ink pointer-coarse:h-11 pointer-coarse:w-11"
+              className="pointer-events-auto mx-auto mb-2 flex h-9 w-9 items-center justify-center rounded-full border border-line bg-elevated text-ink-2 shadow-card transition hover:bg-surface-2 hover:text-ink pointer-coarse:h-11 pointer-coarse:w-11"
             >
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M7 2.5v9M3 7.5l4 4 4-4" />
@@ -297,7 +294,7 @@ export function SessionView({ id }: { id: string }) {
           )}
           {/* On phones a permission or question waits right above the composer, where it can't scroll out of sight. */}
           {narrow && (
-            <div className="chat-log pointer-events-auto mb-2 max-h-[45dvh] overflow-y-auto overscroll-contain rounded-xl bg-bg shadow-card empty:hidden">
+            <div className="s-raised s-raised--md chat-log pointer-events-auto mb-2 max-h-[45dvh] overflow-y-auto overscroll-contain empty:hidden">
               <Prompts sessionID={id} />
             </div>
           )}
@@ -346,21 +343,8 @@ function ChatMenu({ id, title, totals, onShare }: { id: string; title: string; t
 
   return (
     <div ref={ref} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        aria-label="Chat options"
-        title="Chat options"
-        className={`flex h-9 w-9 items-center justify-center rounded-lg text-ink-2 transition hover:bg-surface-2 hover:text-ink pointer-coarse:h-11 pointer-coarse:w-11 expanded:h-8 expanded:w-8 ${open ? "bg-surface-2 text-ink" : ""}`}
-      >
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden>
-          <circle cx="3.5" cy="8" r="1.3" />
-          <circle cx="8" cy="8" r="1.3" />
-          <circle cx="12.5" cy="8" r="1.3" />
-        </svg>
-      </button>
-      <Popover open={open} onClose={close} title={title} side="down" className="absolute top-full right-0 z-30 mt-1.5 w-[220px] overflow-hidden rounded-xl border border-line bg-surface shadow-card">
+      <IconButton icon="ellipsis" label="Chat options" aria-expanded={open} aria-haspopup="menu" variant={open ? "secondary" : "ghost"} onClick={() => setOpen((v) => !v)} />
+      <Popover open={open} onClose={close} title={title} side="down" className="s-raised s-raised--md absolute top-full right-0 z-dropdown mt-1.5 w-[220px] overflow-hidden">
         <MenuList items={items} onDone={close} />
       </Popover>
     </div>

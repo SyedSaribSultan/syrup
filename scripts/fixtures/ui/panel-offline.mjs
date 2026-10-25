@@ -25,8 +25,8 @@ const variants = [
     steps: [{ offline: true }, OPEN, { waitFor: NOTE }],
     assert: [
       { text: "Couldn't load the file list." },
-      { visible: "[aria-label='Workspace panel'] button:text-is('Retry')" },
-      { visible: "[aria-label='Workspace panel'] button:text-is('Reload')" },
+      { visible: "[aria-label='Workspace panel'] button:has(> .s-btn__label:text-is('Retry'))" },
+      { visible: "[aria-label='Workspace panel'] button:has(> .s-btn__label:text-is('Reload'))" },
       { visible: "textarea", widths: [1440] },
       { text: "MARKER-CHAT", widths: [1440] },
     ],

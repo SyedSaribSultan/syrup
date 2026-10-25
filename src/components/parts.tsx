@@ -1,5 +1,6 @@
 "use client"
 
+import { Icon } from "./ui/s"
 import { lazy, Suspense, useEffect, useMemo, useState } from "react"
 import { isOpenPart } from "@/lib/engine-store"
 import { prefetchFor } from "@/lib/rich/lazy"
@@ -95,18 +96,21 @@ export function PartView({ part, streaming, live = false, frozen = false, paths 
       return <Tool part={part} live={streaming} ro={ro} paths={paths} />
     case "step-finish":
       return (
-        <div className="mt-1 text-[11px] text-muted">
+        <div className="mt-1 text-2xs text-muted">
           {fmtTokens(part.tokens.input + part.tokens.output + part.tokens.reasoning)} tokens · {fmtCost(part.cost)}
         </div>
       )
     case "file":
       // A shared snapshot may leave a large attachment out; then only its name remains.
       return part.url ? (
-        <a href={part.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-xs text-ink-2">
+        <a href={part.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-well px-3 py-1.5 text-xs text-ink-2 transition-colors hover:border-line-2">
           📎 {part.filename ?? part.mime}
         </a>
       ) : (
-        <span className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-xs text-ink-2">📎 {part.filename ?? part.mime}</span>
+        <span className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-well px-3 py-1.5 text-xs text-ink-2">
+          <Icon name="file" size={14} />
+          {part.filename ?? part.mime}
+        </span>
       )
     case "patch":
       return (
@@ -123,7 +127,7 @@ export function PartView({ part, streaming, live = false, frozen = false, paths 
     case "retry":
       return <div className="text-xs text-warn">Retrying…</div>
     case "compaction":
-      return <div className="my-2 border-t border-dashed border-line pt-2 text-center text-[11px] text-muted">Context compacted</div>
+      return <div className="s-meta my-2 border-t border-line pt-2 text-center">Context compacted</div>
     default:
       return null
   }
@@ -147,7 +151,7 @@ function Reasoning({ text, done, ms, ro = false }: { text: string; done: boolean
           <Chevron open={false} className="group-open/think:rotate-180" />
           {label}
         </summary>
-        <div className="mt-1.5 border-l-2 border-line pl-3 text-[13px] leading-relaxed text-ink-2 whitespace-pre-wrap">{text}</div>
+        <div className="mt-1.5 border-l-2 border-line pl-3 text-sm leading-relaxed text-ink-2 whitespace-pre-wrap">{text}</div>
       </details>
     )
   return (
@@ -156,7 +160,7 @@ function Reasoning({ text, done, ms, ro = false }: { text: string; done: boolean
         <Chevron open={open} />
         {done ? label : <Brew mood="think" timerAfter={0} />}
       </button>
-      {open && <div className="mt-1.5 border-l-2 border-line pl-3 text-[13px] leading-relaxed text-ink-2 whitespace-pre-wrap">{text}</div>}
+      {open && <div className="mt-1.5 border-l-2 border-line pl-3 text-sm leading-relaxed text-ink-2 whitespace-pre-wrap">{text}</div>}
     </div>
   )
 }
@@ -261,14 +265,14 @@ function Tool({ part, live, ro = false, paths }: { part: ToolPart; live: boolean
   // Read-only (shared snapshot, HTML export): a native disclosure that opens without JavaScript; file mentions are plain text.
   if (ro)
     return (
-      <details className="group/tool my-1.5 overflow-hidden rounded-xl border border-line bg-surface/70 text-[13px]">
-        <summary className="flex w-full cursor-pointer list-none items-center gap-2 px-3 py-2 text-left transition hover:bg-surface-2/60 [&::-webkit-details-marker]:hidden">
+      <details className="group/tool my-1.5 overflow-hidden rounded-xl border border-line text-sm">
+        <summary className="flex w-full cursor-pointer list-none items-center gap-2 px-3 py-2 text-left transition hover:bg-hover [&::-webkit-details-marker]:hidden">
           <span className="flex shrink-0 items-center gap-2">
             <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
             <span className="font-medium text-ink">{label}</span>
           </span>
           <span className="min-w-0 flex-1 truncate font-mono text-xs text-ink-2">{summary || file}</span>
-          {dur && <span className="shrink-0 text-[11px] text-muted">{dur}</span>}
+          {dur && <span className="shrink-0 text-2xs text-muted">{dur}</span>}
           <Chevron open={false} className="group-open/tool:rotate-180" />
         </summary>
         {detail}
@@ -276,10 +280,11 @@ function Tool({ part, live, ro = false, paths }: { part: ToolPart; live: boolean
     )
 
   return (
-    <div className="my-1.5 overflow-hidden rounded-xl border border-line bg-surface/70 text-[13px]">
+    // A P2 object on the canvas: the hairline is the card, no fill (sarib-design 03 §1).
+    <div className="my-1.5 overflow-hidden rounded-xl border border-line text-sm">
       {/* The whole row toggles; the button gives keyboard access and leaves the file link its own control. */}
-      <div onClick={() => setOpen((v) => !v)} className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left transition hover:bg-surface-2/60">
-        <button type="button" aria-expanded={open} className="flex shrink-0 items-center gap-2 rounded-sm focus-visible:outline-1 focus-visible:outline-accent">
+      <div onClick={() => setOpen((v) => !v)} className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left transition hover:bg-hover">
+        <button type="button" aria-expanded={open} className="flex shrink-0 items-center gap-2 rounded-sm">
           {working ? (
             <Brew label={TOOL_VERB[part.tool] ?? label} timerAfter={0} className="font-medium" />
           ) : (
@@ -298,8 +303,8 @@ function Tool({ part, live, ro = false, paths }: { part: ToolPart; live: boolean
             summary
           )}
         </span>
-        {dur && <span className="shrink-0 text-[11px] text-muted">{dur}</span>}
-        {working && <Elapsed since={st.status === "running" ? st.time.start : undefined} className="shrink-0 text-[11px] text-muted" />}
+        {dur && <span className="shrink-0 text-2xs text-muted">{dur}</span>}
+        {working && <Elapsed since={st.status === "running" ? st.time.start : undefined} className="shrink-0 text-2xs text-muted" />}
         <Chevron open={open} />
       </div>
       {open && detail}
@@ -311,8 +316,8 @@ function Block({ title, text, tone }: { title: string; text: string; tone?: "err
   const clipped = text.length > 6000 ? text.slice(0, 6000) + "\n… (truncated)" : text
   return (
     <div>
-      <div className="mb-1 text-[11px] font-mono text-muted">{title}</div>
-      <pre className={`max-h-[320px] overflow-auto rounded-lg bg-code-bg p-2.5 font-mono text-[12px] leading-relaxed whitespace-pre-wrap ${tone === "err" ? "text-err" : "text-ink-2"}`}>
+      <div className="s-meta mb-1">{title}</div>
+      <pre className={`max-h-[320px] overflow-auto rounded-lg bg-code-bg p-2.5 font-mono text-xs leading-relaxed whitespace-pre-wrap ${tone === "err" ? "text-err" : "text-ink-2"}`}>
         {clipped}
       </pre>
     </div>
@@ -321,7 +326,7 @@ function Block({ title, text, tone }: { title: string; text: string; tone?: "err
 
 function Chevron({ open, className = "" }: { open: boolean; className?: string }) {
   return (
-    <svg width="10" height="10" viewBox="0 0 10 10" className={`shrink-0 opacity-60 transition ${open ? "rotate-180" : ""} ${className}`}>
+    <svg width="10" height="10" viewBox="0 0 10 10" className={`shrink-0 text-muted transition ${open ? "rotate-180" : ""} ${className}`}>
       <path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
     </svg>
   )

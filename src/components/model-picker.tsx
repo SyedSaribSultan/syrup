@@ -1,5 +1,6 @@
 "use client"
 
+import { Icon } from "./ui/s"
 import Link from "next/link"
 import { useParams, usePathname } from "next/navigation"
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from "react"
@@ -89,7 +90,7 @@ export function ModelPicker({ variant = "composer" }: { variant?: "composer" | "
         title={now ? (now.inChat ? `${title} is using ${now.name} (${now.provider}) in this chat` : `${title} last used ${now.name} (${now.provider}); a new chat may get another model`) : undefined}
         className={
           variant === "bar"
-            ? `flex min-w-0 max-w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-[15px] transition hover:bg-surface-2 pointer-coarse:py-2.5 ${open ? "bg-surface-2" : ""}`
+            ? `flex min-w-0 max-w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-base transition hover:bg-surface-2 pointer-coarse:py-2.5 ${open ? "bg-surface-2" : ""}`
             : `flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs transition hover:bg-surface-2 hover:text-ink ${open ? "bg-surface-2 text-ink" : "text-ink-2"}`
         }
       >
@@ -110,8 +111,8 @@ export function ModelPicker({ variant = "composer" }: { variant?: "composer" | "
             )}
           </span>
         )}
-        {badge && <span className="shrink-0 rounded bg-accent-soft px-1 text-[10px] font-medium text-accent">{badge}</span>}
-        <svg width="10" height="10" viewBox="0 0 10 10" className="shrink-0 opacity-60">
+        {badge && <span className="s-badge shrink-0">{badge}</span>}
+        <svg width="10" height="10" viewBox="0 0 10 10" className="shrink-0 text-muted">
           <path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
         </svg>
       </button>
@@ -124,7 +125,7 @@ export function ModelPicker({ variant = "composer" }: { variant?: "composer" | "
         size="full"
         label="Choose a model"
         side={place.up ? "up" : "down"}
-        className={`absolute left-0 z-30 flex w-[420px] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-card ${place.up ? "" : "top-full mt-2"}`}
+        className={`s-raised s-raised--md absolute left-0 z-dropdown flex w-[420px] max-w-[calc(100vw-24px)] flex-col overflow-hidden ${place.up ? "" : "top-full mt-2"}`}
         style={place.up ? { height: place.max, top: -(place.max + 8) } : { height: place.max }}
       >
         <Panel onClose={close} sessionId={sessionId} />
@@ -219,11 +220,8 @@ function Panel({ onClose, sessionId }: { onClose(): void; sessionId?: string }) 
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 items-center gap-2 border-b border-line px-3.5">
-        <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="shrink-0 text-muted">
-          <circle cx="6" cy="6" r="4.2" />
-          <path d="m9.2 9.2 3 3" />
-        </svg>
+      <div className="flex shrink-0 items-center gap-2 border-b border-line px-4">
+        <Icon name="search" size={16} className="text-muted" />
         <input
           // A touch keyboard would cover half the list before anyone asked to search.
           autoFocus={!coarse}
@@ -241,24 +239,24 @@ function Panel({ onClose, sessionId }: { onClose(): void; sessionId?: string }) 
           aria-activedescendant={active ? optionId(active.key) : undefined}
           aria-label="Search models"
           placeholder="Search models, providers, “free”, “vision”…"
-          className="min-w-0 flex-1 bg-transparent py-2.5 text-[13px] text-ink outline-none placeholder:text-muted"
+          className="min-w-0 flex-1 bg-transparent py-3 text-sm text-ink outline-none placeholder:text-muted"
         />
       </div>
 
-      <div ref={list} id="mp-list" role="listbox" aria-label="Models" className="min-h-0 flex-1 overflow-y-auto py-1.5">
+      <div ref={list} id="mp-list" role="listbox" aria-label="Models" className="min-h-0 flex-1 overflow-y-auto p-1">
         {models.length === 0 && !directory ? (
           <div className="px-3.5 py-3">
             <Brew mood="load" />
           </div>
         ) : models.length === 0 ? (
-          <div className="px-3.5 py-3 text-[13px] text-muted">
+          <p className="s-empty-line px-3 py-3">
             No models yet.{" "}
-            <Link href="/settings/providers" onClick={leave} className="text-accent hover:underline">
+            <Link href="/settings/providers" onClick={leave} className="s-link">
               Add a provider key
             </Link>
-          </div>
+          </p>
         ) : items.length === 0 ? (
-          <div className="px-3.5 py-3 text-[13px] text-muted">No models match “{query.trim()}”.</div>
+          <p className="s-empty-line px-3 py-3">No models match “{query.trim()}”. Try “free” or a provider name.</p>
         ) : (
           items.map((item) => (
             <Row
@@ -279,9 +277,9 @@ function Panel({ onClose, sessionId }: { onClose(): void; sessionId?: string }) 
         )}
       </div>
 
-      <div className="h-[84px] shrink-0 space-y-0.5 overflow-hidden border-t border-line bg-surface-2/40 px-3.5 py-2">
+      <div className="h-[84px] shrink-0 space-y-0.5 overflow-hidden border-t border-line px-4 py-2">
         {notice ? (
-          <div role="status" className="text-[11px] text-warn">
+          <div role="status" className="text-2xs text-warn">
             {notice}
           </div>
         ) : (
@@ -312,20 +310,22 @@ type RowProps = {
 }
 
 function Row({ item, active, current, favorites, status, tiers, nowFor, onPick, onHover, onStar, onLeave }: RowProps) {
-  if (item.kind === "header") return <div className="px-3.5 pt-2.5 pb-1 text-[11px] font-medium text-muted">{item.label}</div>
+  if (item.kind === "header") return <div className="s-menu__label">{item.label}</div>
 
   const common = {
     id: optionId(item.key),
     role: "option" as const,
+    "data-active": active ? "" : undefined,
     onMouseMove: () => !active && onHover(item),
     onMouseDown: (e: MouseEvent) => e.preventDefault(),
     onClick: () => onPick(item),
   }
-  const bg = active ? "bg-surface-2" : ""
+  // Rows are the Sarib menu item (s-menu__item, 03 B8): r12 inside the r16 raised panel, the active one fill-secondary.
+  const row = "s-menu__item"
 
   if (item.kind === "toggle") {
     return (
-      <div {...common} aria-selected={false} aria-expanded={item.open} className={`mx-1.5 mt-1 flex cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1.5 text-[12px] text-ink-2 ${item.nested ? "ml-4" : ""} ${bg}`}>
+      <div {...common} aria-selected={false} aria-expanded={item.open} className={`${row} mt-1 gap-2 ${item.nested ? "ml-3" : ""}`}>
         <Chevron open={item.open} />
         {item.label}
       </div>
@@ -335,27 +335,22 @@ function Row({ item, active, current, favorites, status, tiers, nowFor, onPick, 
   const key = modelKey(item.m.providerID, item.m.id)
   const selected = key === current
   const check = (
-    <span className="w-3.5 shrink-0 text-accent">
-      {selected && (
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-          <path d="m2.5 6.2 2.3 2.3 4.7-5" />
-        </svg>
-      )}
-    </span>
+    // Selected = a trailing check in ink, no fill, no weight change (03 B2 listbox).
+    <span className="flex w-4 shrink-0 text-ink">{selected && <Icon name="check" size={16} />}</span>
   )
 
   if (item.kind === "alias") {
     const copy = ALIAS_COPY[item.m.id]
     const now = nowFor(item.m.id)
     return (
-      <div {...common} aria-selected={selected} className={`mx-1.5 flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 pointer-coarse:py-2.5 ${bg}`}>
+      <div {...common} aria-selected={selected} className={`${row} gap-3`}>
         <AliasIcon id={item.m.id} />
         <span className="min-w-0 flex-1">
-          <span className="block text-[13px] font-medium text-ink">{copy?.title ?? displayName(item.m)}</span>
-          <span className="block text-[11px] leading-snug text-muted">{copy?.subtitle}</span>
+          <span className="block text-sm text-ink">{copy?.title ?? displayName(item.m)}</span>
+          <span className="block text-xs text-muted">{copy?.subtitle}</span>
         </span>
         {now && (
-          <span className="max-w-[150px] shrink-0 truncate text-[11px] text-muted" title={`${now.name} · ${now.provider}`}>
+          <span className="max-w-[150px] shrink-0 truncate text-2xs text-muted" title={`${now.name} · ${now.provider}`}>
             {now.inChat ? "now" : "last used"}: {now.name}
           </span>
         )}
@@ -373,16 +368,18 @@ function Row({ item, active, current, favorites, status, tiers, nowFor, onPick, 
   const chip = hint ? undefined : item.chip
   const freeLabel = m.free ? "Free" : freeTier ? "Free tier" : null
   return (
-    <div {...common} aria-selected={selected} className={`group mx-1.5 flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 pointer-coarse:py-1 ${bg}`}>
-      <span className={`flex min-w-0 flex-1 items-center gap-1.5 ${st?.fixKey || item.tag ? "opacity-60" : ""}`}>
-        <span className="truncate text-[13px] text-ink">{displayName(m)}</span>
-        {item.showProvider && <span className="min-w-[3ch] shrink-[4] truncate text-[11px] text-muted">{providerName(m.providerID)}</span>}
-        {freeLabel && chip !== "Free" && <span className="shrink-0 rounded bg-accent-soft px-1 text-[10px] font-medium text-accent">{freeLabel}</span>}
-        {chip && <span className={`shrink-0 rounded px-1 text-[10px] font-medium ${chip === "Free" ? "bg-accent-soft text-accent" : "bg-surface-2 text-ink-2 ring-1 ring-line"}`}>{chip}</span>}
-        {hint && <span className="min-w-0 shrink truncate text-[11px] text-muted">{hint}</span>}
+    <div {...common} aria-selected={selected} className={`group ${row} gap-2`}>
+      {/* A model that can't run now reads in the muted text step, not at reduced opacity (states are colour-only). */}
+      <span className="flex min-w-0 flex-1 items-center gap-2">
+        <span className={`truncate text-sm ${st?.fixKey || item.tag ? "text-ink-2" : "text-ink"}`}>{displayName(m)}</span>
+        {item.showProvider && <span className="min-w-[3ch] shrink-[4] truncate text-2xs text-muted">{providerName(m.providerID)}</span>}
+        {/* Badges are neutral: red never repeats down a list (rule 11). */}
+        {freeLabel && chip !== "Free" && <span className="s-badge shrink-0">{freeLabel}</span>}
+        {chip && <span className="s-badge shrink-0">{chip}</span>}
+        {hint && <span className="min-w-0 shrink truncate text-2xs text-muted">{hint}</span>}
       </span>
       {st && st.tone !== "muted" ? (
-        <span className={`flex shrink-0 items-center gap-1 text-[11px] ${st.tone === "err" ? "text-err" : "text-warn"}`}>
+        <span className={`flex shrink-0 items-center gap-1 text-2xs ${st.tone === "err" ? "text-err" : "text-warn"}`}>
           <span className={`h-1.5 w-1.5 rounded-full ${st.tone === "err" ? "bg-err" : "bg-warn"}`} />
           {st.text}
           {st.fixKey && (
@@ -392,7 +389,7 @@ function Row({ item, active, current, favorites, status, tiers, nowFor, onPick, 
                 e.stopPropagation()
                 onLeave()
               }}
-              className="ml-1 text-accent hover:underline"
+              className="s-link ml-1"
             >
               Fix key
             </Link>
@@ -401,7 +398,7 @@ function Row({ item, active, current, favorites, status, tiers, nowFor, onPick, 
       ) : (
         <Glyphs m={m} />
       )}
-      <span className="w-6 shrink-0 text-right text-[11px] tracking-tight text-muted" title={tier ? "Relative price" : undefined}>
+      <span className="w-6 shrink-0 text-right text-2xs tracking-tight text-muted" title={tier ? "Relative price" : undefined}>
         {"$".repeat(tier)}
       </span>
       <button
@@ -413,7 +410,7 @@ function Row({ item, active, current, favorites, status, tiers, nowFor, onPick, 
           e.stopPropagation()
           onStar(key)
         }}
-        className={`shrink-0 rounded p-0.5 transition hover:text-accent pointer-coarse:p-2 ${fav ? "text-accent" : "text-muted"} ${fav || active ? "opacity-100" : "opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100"}`}
+        className={`shrink-0 rounded-md p-0.5 transition hover:text-ink pointer-coarse:p-2 ${fav ? "text-ink" : "text-muted"} ${fav || active ? "opacity-100" : "opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100"}`}
       >
         <Star filled={fav} />
       </button>

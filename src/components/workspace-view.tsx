@@ -1,5 +1,6 @@
 "use client"
 
+import { Button, Icon } from "./ui/s"
 import { useParams, useRouter } from "next/navigation"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { EngineProvider, useEngine, type EngineConnection } from "@/lib/engine-store"
@@ -116,13 +117,13 @@ function SandboxStatus({ ready, start, beat, reopening, failed }: { ready: boole
   const now = useNow(30_000)
   const idleMin = beat?.expiresAt && now ? Math.max(1, Math.round((new Date(beat.expiresAt).getTime() - now) / 60_000)) : null
   return (
-    <div className="px-5 pb-2 text-[11px] text-muted" title={start ? `Last start: ${start}` : undefined}>
+    <div className="s-meta px-4" title={start ? `Last start: ${start}` : undefined}>
       {failed ? (
-        <span className="text-err">Didn&apos;t start · try again</span>
+        <span className="text-err">Didn&apos;t start. Try again.</span>
       ) : !ready || reopening ? (
-        <Brew mood="wake" timerAfter={10} className="text-[11px]!" />
+        <Brew mood="wake" timerAfter={10} className="text-2xs!" />
       ) : !connected ? (
-        <Brew mood="connect" timerAfter={10} className="text-[11px]!" />
+        <Brew mood="connect" timerAfter={10} className="text-2xs!" />
       ) : beat?.running === false ? (
         "Stopped · wakes on your next message"
       ) : idleMin ? (
@@ -137,14 +138,17 @@ function SandboxStatus({ ready, start, beat, reopening, failed }: { ready: boole
 /** The sandbox could not open. Non-blocking: the chat stays readable and anything typed waits for the retry. */
 function OpenError({ error, onRetry }: { error: string; onRetry(): void }) {
   return (
-    <div className="flex items-center gap-2 border-b border-err/30 bg-err/5 px-5 py-2 text-[12px] text-ink-2">
-      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-err" />
-      <span className="min-w-0 flex-1 truncate" title={error}>
-        <span className="font-medium text-err">Your workspace didn&apos;t start.</span> {error}
-      </span>
-      <button type="button" onClick={onRetry} className="shrink-0 rounded-lg bg-accent-fill px-2.5 py-1 text-xs font-medium text-accent-ink">
+    <div role="alert" className="s-alert s-alert--critical s-alert--banner mx-4 mt-3 w-auto items-center">
+      <Icon name="circle-alert" />
+      <div className="s-alert__body min-w-0">
+        <p className="s-alert__title">Your workspace didn&apos;t start.</p>
+        <p className="s-alert__desc w-full truncate" title={error}>
+          {error}
+        </p>
+      </div>
+      <Button variant="secondary" size="sm" onClick={onRetry}>
         Try again
-      </button>
+      </Button>
     </div>
   )
 }
@@ -163,11 +167,10 @@ function SandboxControls({ workspaceId, egressAllow }: { workspaceId: string; eg
   return (
     <>
       <EgressEditor workspaceId={workspaceId} initial={egressAllow} />
-      <div className="border-t border-line p-2">
-        <button type="button" onClick={() => void stop()} disabled={stopping} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-ink-2 transition hover:bg-surface/70 hover:text-ink disabled:opacity-50">
-          {stopping ? "Stopping…" : "Stop workspace"}
-        </button>
-      </div>
+      <button type="button" onClick={() => void stop()} disabled={stopping} className="s-menu__item gap-3">
+        <Icon name="close" size={16} />
+        <span className="s-menu__text">{stopping ? "Stopping…" : "Stop workspace"}</span>
+      </button>
     </>
   )
 }
@@ -214,9 +217,11 @@ function SessionCapNotice({ beat }: { beat: Heartbeat | null }) {
   const left = new Date(beat.sessionStartedAt).getTime() + beat.sessionCapMs - now
   if (left > 5 * 60_000 || left < 0) return null
   return (
-    <div className="flex items-center gap-2 border-b border-warn/30 bg-warn/5 px-5 py-1.5 text-[12px] text-ink-2">
-      <span className="h-1.5 w-1.5 rounded-full bg-warn" />
-      This workspace will pause for a few seconds in about {Math.max(1, Math.round(left / 60_000))} min (platform session limit). Your files and chat continue afterwards.
+    <div role="status" className="s-alert s-alert--warning s-alert--banner mx-4 mt-3 w-auto">
+      <Icon name="triangle-alert" />
+      <p className="s-alert__desc">
+        This workspace will pause for a few seconds in about {Math.max(1, Math.round(left / 60_000))} min (platform session limit). Your files and chat continue afterwards.
+      </p>
     </div>
   )
 }

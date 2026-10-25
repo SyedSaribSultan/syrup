@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useRef, useState, type ReactNode } from "react"
+import { IconButton } from "@/components/ui/s"
 import { MenuList, Popover, type MenuItem } from "@/components/ui/sheet"
 import { useDismiss } from "@/lib/use-dismiss"
 
@@ -16,21 +17,8 @@ export function RowMenu({ items, label = "More actions", title, className = "" }
   useDismiss(ref, open, close)
   return (
     <div ref={ref} className={`relative shrink-0 ${className}`}>
-      <button
-        type="button"
-        aria-label={label}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
-        className="flex h-8 w-8 items-center justify-center rounded-lg text-muted transition hover:bg-surface-2 hover:text-ink pointer-coarse:h-11 pointer-coarse:w-11"
-      >
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden>
-          <circle cx="3" cy="7" r="1.25" />
-          <circle cx="7" cy="7" r="1.25" />
-          <circle cx="11" cy="7" r="1.25" />
-        </svg>
-      </button>
-      <Popover open={open} onClose={close} title={title} label={label} side="down" className="absolute top-full right-0 z-30 mt-1 w-52 rounded-xl border border-line bg-surface shadow-card">
+      <IconButton icon="ellipsis" label={label} aria-haspopup="menu" aria-expanded={open} variant={open ? "secondary" : "ghost"} onClick={() => setOpen((v) => !v)} />
+      <Popover open={open} onClose={close} title={title} label={label} side="down" className="s-raised s-raised--md absolute top-full right-0 z-dropdown mt-1 w-52">
         <MenuList items={items} onDone={close} />
       </Popover>
     </div>

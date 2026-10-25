@@ -73,9 +73,13 @@ const fail = (file, line, msg) => findings.push({ file, line, msg })
 const rel = (abs) => path.relative(ROOT, abs).split(path.sep).join("/")
 const lineAt = (text, index) => text.slice(0, index).split("\n").length
 
+/** src/sarib is the vendored Sarib design system: it runs on its own --s-motion-* tokens and is hash-locked (sarib-check). */
+const VENDORED = path.join(SRC, "sarib")
+
 function walk(dir, out = []) {
   for (const name of readdirSync(dir)) {
     const p = path.join(dir, name)
+    if (p === VENDORED) continue
     if (statSync(p).isDirectory()) walk(p, out)
     else out.push(p)
   }

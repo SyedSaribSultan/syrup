@@ -11,10 +11,10 @@ import { RICH_CHAT } from "./chat-rich-fences.mjs"
 
 /** Opens Share (the header button on desktop, ⋯ → Share on phones) and saves the HTML export. */
 export const EXPORT_STEPS = [
-  { click: "header button:text-is('Share')", widths: [1440] },
+  { click: "header button:has(> .s-btn__label:text-is('Share'))", widths: [1440] },
   { tap: "button[aria-label='Chat options']", widths: [390] },
   { tap: "[role=menuitem]:has-text('Share')", widths: [390] },
-  { download: "button:text-is('HTML')", save: "export.html" },
+  { download: "button:has(> .s-btn__label:text-is('HTML'))", save: "export.html" },
 ]
 
 // LIGHT_TOKENS.surface2 (#ecebe8) and the dark --surface-2 (#22221f, the Sarib system's fill-secondary), as the browser writes them in the picture's CSS.

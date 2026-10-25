@@ -1,5 +1,6 @@
 "use client"
 
+import { Icon } from "./ui/s"
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type KeyboardEvent, type ReactNode } from "react"
 import { PREFILL_EVENT } from "@/lib/panel"
 import { useDismiss } from "@/lib/use-dismiss"
@@ -135,7 +136,7 @@ export function Composer({ onSend, onStop, busy, autoFocus, placeholder }: Props
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={f.url} alt="" className="h-5 w-5 rounded object-cover" />
               ) : (
-                <span>📎</span>
+                <Icon name="file" size={16} />
               )}
               <span className="max-w-[160px] truncate">{f.name}</span>
               <button type="button" aria-label={`Remove ${f.name}`} onClick={() => setFiles((p) => p.filter((_, j) => j !== i))} className="text-muted hover:text-ink pointer-coarse:-my-2 pointer-coarse:px-2 pointer-coarse:py-2">
@@ -155,7 +156,7 @@ export function Composer({ onSend, onStop, busy, autoFocus, placeholder }: Props
         rows={1}
         enterKeyHint={coarse ? "enter" : "send"}
         placeholder={placeholder ?? "Ask syrup to build, fix, or explain something…"}
-        className="block w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-[15px] leading-6 text-ink outline-none placeholder:text-muted"
+        className="block w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-base leading-6 text-ink outline-none placeholder:text-muted"
       />
       <div className="flex items-center justify-between gap-2 px-2 pb-2">
         <div className="flex min-w-0 items-center gap-1">
@@ -163,7 +164,7 @@ export function Composer({ onSend, onStop, busy, autoFocus, placeholder }: Props
           <div className="hidden min-w-0 expanded:block">
             <ModelPicker />
           </div>
-          {warn && <span className="truncate text-[11px] text-warn">{warn}</span>}
+          {warn && <span className="truncate text-2xs text-warn">{warn}</span>}
         </div>
         {busy ? (
           <button type="button" onClick={onStop} className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-line px-3 text-xs font-medium text-ink-2 transition hover:border-line-2 hover:text-ink pointer-coarse:h-11 pointer-coarse:rounded-full pointer-coarse:px-4">
@@ -175,7 +176,8 @@ export function Composer({ onSend, onStop, busy, autoFocus, placeholder }: Props
             onClick={() => void submit()}
             disabled={empty || sending}
             aria-label="Send"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-fill text-accent-ink transition disabled:opacity-30 pointer-coarse:h-11 pointer-coarse:w-11 pointer-coarse:rounded-full"
+            // Disabled is the brand-disabled fill (sarib-design 11.1 send), not an opacity.
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-fill text-accent-ink transition disabled:bg-accent-fill-disabled pointer-coarse:h-11 pointer-coarse:w-11 pointer-coarse:rounded-full"
           >
             <svg width="14" height="14" viewBox="0 0 14 14">
               <path d="M7 12V2M3 6l4-4 4 4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
@@ -224,7 +226,7 @@ function AttachMenu({ onFiles }: { onFiles(list: FileList | null): void }) {
       <input ref={camera} type="file" hidden accept="image/*" capture="environment" onChange={take} />
       <input ref={photos} type="file" hidden multiple accept="image/*" onChange={take} />
       <input ref={files} type="file" hidden multiple accept={FILE_TYPES} onChange={take} />
-      <Popover open={open} onClose={close} label="Add photos and files" side="up" className="absolute bottom-full left-0 z-30 mb-2 w-[300px] rounded-2xl border border-line bg-surface p-2 shadow-card">
+      <Popover open={open} onClose={close} label="Add photos and files" side="up" className="s-raised s-raised--md absolute bottom-full left-0 z-dropdown mb-2 w-[300px] p-2">
         <div className="flex gap-2 px-2 pb-3 max-expanded:px-4 expanded:p-0">
           {coarse && (
             <Tile label="Camera" onClick={() => pick(camera.current)}>
@@ -256,7 +258,8 @@ function Tile({ label, onClick, children }: { label: string; onClick(): void; ch
         overlay?.skipExit()
         onClick()
       }}
-      className="flex flex-1 flex-col items-center gap-1.5 rounded-2xl bg-surface-2 px-2 py-3.5 text-[12px] text-ink-2 transition hover:text-ink max-expanded:py-5 max-expanded:text-[14px]"
+      // Concentric inside the r16 raised popover (p8): r10 tiles on the muted fill.
+      className="flex flex-1 flex-col items-center gap-2 rounded-md bg-surface-2 px-2 py-3.5 text-sm text-ink-2 transition hover:text-ink max-expanded:py-5"
     >
       <svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
         {children}

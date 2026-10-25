@@ -3,7 +3,7 @@ import type { ThemeTokens } from "./types"
 /**
  * The app's colours for pictures (docs/RENDERING.md §2.7). In the core chunk. readTokens() reads the page's computed
  * :root values at render time; LIGHT_TOKENS are the light values for the HTML export, which always draws light (a
- * dark page's tokens would draw dark pictures on the export's light card). test:rich checks them against globals.css (its roles resolved through sarib-tokens.css).
+ * dark page's tokens would draw dark pictures on the export's light card). test:rich checks them against globals.css (its roles resolved through src/sarib/tokens.css).
  */
 
 export const LIGHT_TOKENS: Readonly<ThemeTokens> = Object.freeze({
@@ -22,7 +22,7 @@ export const LIGHT_TOKENS: Readonly<ThemeTokens> = Object.freeze({
   ok: "#006429",
   warn: "#8c5500",
   err: "#9c0325",
-  series: ["#3b73c4", "#3f9a5a", "#d19a1f", "#8a5bc9", "#d2493f", "#1f9a9a", "#cf4f95", "#9a6a3f"],
+  series: ["#3b73c4", "#3f9a5a", "#d19a1f", "#8a5bc9", "#6f7f2a", "#1f9a9a", "#cf4f95", "#9a6a3f"],
 })
 
 /** The tokens and the CSS custom property each one reads. */

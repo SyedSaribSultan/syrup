@@ -1,24 +1,29 @@
 "use client"
 
+import "./globals.css"
+
 /**
  * The last line of defence (Next 16's global-error.js, node_modules/next/dist/docs/01-app/03-api-reference/
  * 03-file-conventions/error.md): an error in the root layout itself. It replaces the whole document, so it brings its
- * own <html>, <body> and styles (globals.css isn't loaded here) and follows the system's colour scheme.
+ * own <html> and <body> and imports the styles itself. data-mode="system" follows the OS colour scheme; the fonts fall
+ * back to the system faces (the next/font variables live in the root layout this replaces).
  */
 export default function GlobalError({ retry }: { error: Error & { digest?: string }; retry: () => void }) {
   return (
-    <html lang="en">
-      <body style={{ margin: 0, minHeight: "100dvh", display: "grid", placeItems: "center", fontFamily: "ui-sans-serif, system-ui, sans-serif", background: "Canvas", color: "CanvasText", colorScheme: "light dark" }}>
+    <html lang="en" data-mode="system">
+      <body className="flex min-h-dvh bg-canvas text-ink">
         <title>syrup</title>
-        <main style={{ maxWidth: 360, padding: 24, textAlign: "center", lineHeight: 1.5 }}>
-          <h1 style={{ fontSize: 18, fontWeight: 600, margin: "0 0 8px" }}>Something went wrong</h1>
-          <p style={{ fontSize: 14, margin: "0 0 16px", opacity: 0.75 }}>syrup hit an error it couldn&apos;t recover from. Your chats are safe.</p>
-          <button type="button" onClick={() => retry()} style={{ font: "inherit", fontSize: 14, padding: "8px 14px", marginRight: 8, borderRadius: 8, border: "1px solid GrayText", background: "transparent", color: "inherit", cursor: "pointer" }}>
-            Try again
-          </button>
-          <button type="button" onClick={() => location.reload()} style={{ font: "inherit", fontSize: 14, padding: "8px 14px", borderRadius: 8, border: "1px solid GrayText", background: "transparent", color: "inherit", cursor: "pointer" }}>
-            Reload
-          </button>
+        <main role="alert" className="s-empty">
+          <p className="s-empty__line">Something went wrong</p>
+          <p className="s-help">syrup hit an error it couldn&apos;t recover from. Your chats are safe. Try again, or reload the page.</p>
+          <div className="flex justify-center gap-2">
+            <button type="button" onClick={() => retry()} className="s-btn s-btn--secondary">
+              <span className="s-btn__label">Try again</span>
+            </button>
+            <button type="button" onClick={() => location.reload()} className="s-btn s-btn--ghost">
+              <span className="s-btn__label">Reload</span>
+            </button>
+          </div>
         </main>
       </body>
     </html>

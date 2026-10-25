@@ -14,6 +14,8 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // The esbuild bundle of the sandbox sidecar (sidecar/build.mjs), generated and git-ignored like .next.
     ".sidecar/**",
+    // The vendored Sarib design system (sarib-design/scripts/sync.mjs): hash-locked, never edited here.
+    "src/sarib/**",
   ]),
 ]);
 

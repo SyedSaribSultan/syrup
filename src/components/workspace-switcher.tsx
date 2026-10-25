@@ -4,28 +4,18 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { hostOS, localFileAction } from "@/lib/file-actions"
 import { Skel } from "./brew"
 import { confirmDialog } from "./ui/dialog"
+import { Button, Icon, IconButton } from "./ui/s"
 import { Popover } from "./ui/sheet"
 import { useDismiss } from "@/lib/use-dismiss"
 import { useOverlay } from "@/lib/use-presence"
 import { MAX_WORKSPACES } from "@/lib/workspace-limits"
-import { baseName, useAllChats, useWorkspaces, wsColor, wsTint, type WorkspaceItem } from "@/lib/workspaces"
+import { baseName, useAllChats, useWorkspaces, wsColor, type WorkspaceItem } from "@/lib/workspaces"
 
 type Browse = { path: string; exists: boolean; git?: boolean; parent: string | null; dirs: { name: string; path: string; git: boolean }[]; home?: string }
 
+/** The workspace's colour key: an 8px dot on chat rows and in the switcher. Data colours (--ws-*), never brand red. */
 export function WorkspaceDot({ color, className = "" }: { color: number; className?: string }) {
-  return <span className={`h-2 w-2 shrink-0 rounded-full ${className}`} style={{ background: wsColor(color) }} />
-}
-
-/** Rounded square in the workspace's color with its initial: the workspace's identity in the switcher. */
-export function WorkspaceTile({ name, color, size = 28 }: { name: string; color: number; size?: number }) {
-  return (
-    <span
-      className="flex shrink-0 items-center justify-center rounded-lg font-medium"
-      style={{ width: size, height: size, fontSize: Math.round(size * 0.46), background: wsTint(color), color: wsColor(color), boxShadow: `inset 0 0 0 1px ${wsTint(color, 32)}` }}
-    >
-      {name.slice(0, 1).toUpperCase()}
-    </span>
-  )
+  return <span aria-hidden="true" className={`h-2 w-2 shrink-0 rounded-full ${className}`} style={{ background: wsColor(color) }} />
 }
 
 /** Last two path segments, e.g. …\repos\syrup. Repo and cloud details pass through. */
@@ -35,7 +25,10 @@ function shortDetail(detail: string): string {
   return /^[a-z]:|^\//i.test(detail) && parts.length > 2 ? `…${sep}${parts.slice(-2).join(sep)}` : detail
 }
 
-/** `controls`: the open workspace's own settings (cloud: network access, stop), shown under the list. */
+/**
+ * The context switcher: a B9 lg row (sarib-design DESIGN.md §11.2: avatar, name, path, chevron) that opens a raised
+ * menu of workspaces. `controls`: the open workspace's own settings (cloud: network access, stop), under the list.
+ */
 export function WorkspaceSwitcher({ controls }: { controls?: ReactNode }) {
   const { workspaces, activeId } = useWorkspaces()
   const [open, setOpen] = useState(false)
@@ -46,29 +39,21 @@ export function WorkspaceSwitcher({ controls }: { controls?: ReactNode }) {
   useDismiss(ref, open, close)
 
   return (
-    <div ref={ref} className="relative px-3 pt-1 pb-2">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        title={active?.detail}
-        className={`flex w-full items-center gap-2.5 rounded-xl border bg-bg px-2.5 py-2 text-left transition hover:border-line-2 ${open ? "border-line-2" : "border-line"}`}
-      >
-        {active ? <WorkspaceTile name={active.name} color={active.color} /> : <span className="h-7 w-7 shrink-0 rounded-lg border border-dashed border-line-2" />}
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-[13px] font-medium text-ink">{active ? active.name : workspaces ? "Choose a workspace" : <Skel className="h-3 w-20" />}</span>
-          <span className="block truncate text-[11px] text-muted">{active ? shortDetail(active.detail) : "No workspace open"}</span>
+    <div ref={ref} className="relative">
+      <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} aria-haspopup="dialog" title={active?.detail} className="s-row s-row--lg pointer-coarse:min-h-14">
+        <span className="s-avatar s-avatar--md">{active ? active.name.slice(0, 1).toUpperCase() : <Icon name="folder" />}</span>
+        <span className="s-row__text">
+          <span className="s-row__title">{active ? active.name : workspaces ? "Choose a workspace" : <Skel className="h-3 w-20" />}</span>
+          <span className="s-row__sub">{active ? shortDetail(active.detail) : "No workspace open"}</span>
         </span>
-        <svg width="12" height="12" viewBox="0 0 12 12" className="shrink-0 text-muted" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M3.5 4.5 6 2l2.5 2.5M3.5 7.5 6 10l2.5-2.5" />
-        </svg>
+        <Icon name="chevron-down" className="s-row__chevron" />
       </button>
 
-      <Popover open={open} onClose={close} label="Workspaces" side="down" className="absolute left-3 top-full z-30 mt-1.5 w-[328px] overflow-hidden rounded-xl border border-line bg-surface shadow-card">
+      <Popover open={open} onClose={close} label="Workspaces" side="down" className="s-raised s-raised--md absolute top-full left-0 z-dropdown mt-2 w-[328px] overflow-hidden">
         <Menu onDone={close} />
         {controls && (
-          <div className="border-t border-line">
-            <div className="px-3.5 pt-2.5 pb-1 text-[11px] font-mono text-muted">This workspace</div>
+          <div className="border-t border-line p-1">
+            <p className="s-menu__label">This workspace</p>
             {controls}
           </div>
         )}
@@ -120,85 +105,75 @@ function Menu({ onDone }: { onDone(): void }) {
 
   return (
     <div>
-      <div className="flex items-center justify-between border-b border-line px-3.5 py-2.5">
-        <span className="text-[13px] font-medium text-ink">Switch workspace</span>
-        <span className="flex items-center gap-1.5 text-[11px] text-muted" title={`Up to ${MAX_WORKSPACES} workspaces, one color each`}>
-          <span className="flex gap-0.5">
-            {Array.from({ length: MAX_WORKSPACES }, (_, i) => (
-              <span key={i} className={`h-1.5 w-1.5 rounded-full ${i < (workspaces?.length ?? 0) ? (full ? "bg-warn" : "bg-ink-2") : "bg-line-2"}`} />
-            ))}
-          </span>
-          <span className={full ? "text-warn" : ""}>
-            {workspaces?.length ?? 0} of {MAX_WORKSPACES}
-          </span>
+      <div className="flex items-center justify-between gap-3 px-4 pt-3 pb-1">
+        <span className="text-sm text-ink">Switch workspace</span>
+        <span className={`s-count ${full ? "text-warn" : ""}`} title={`Up to ${MAX_WORKSPACES} workspaces, one colour each`}>
+          {workspaces?.length ?? 0} of {MAX_WORKSPACES}
         </span>
       </div>
-      <div className="max-h-[360px] space-y-0.5 overflow-y-auto p-1.5 max-expanded:max-h-none">
-        {workspaces?.length === 0 && <div className="px-2 py-3 text-[13px] text-muted">No workspaces yet. Add one below.</div>}
+      <div className="flex max-h-[360px] flex-col overflow-y-auto p-1 max-expanded:max-h-none">
+        {workspaces?.length === 0 && <p className="s-empty-line px-3 py-2">No workspaces yet. Add a folder below.</p>}
         {workspaces?.map((w) => {
           const isActive = w.id === activeId
           const n = counts.get(w.id) ?? 0
+          const actions = mode === "local" || (!isActive && !w.home)
           return (
-            <div key={w.id} className={`group relative rounded-lg transition ${isActive ? "bg-surface-2" : "hover:bg-surface-2"}`}>
+            <div key={w.id} className="group relative">
               <button
                 type="button"
+                aria-current={isActive || undefined}
                 onClick={() => {
                   overlay?.skipExit()
                   open(w.id)
                   onDone()
                 }}
                 title={w.detail}
-                className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left"
+                // Two-line rows with an avatar are taller than a one-line item, as their content needs; touch keeps 48.
+                className="s-menu__item gap-3 py-2 max-expanded:min-h-12"
               >
-                <WorkspaceTile name={w.name} color={w.color} size={32} />
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-1.5">
-                    <span className={`truncate text-[13px] font-medium ${w.missing ? "text-ink-2 line-through decoration-warn/60" : "text-ink"}`}>{w.name}</span>
-                    {isActive && <span className="shrink-0 rounded bg-surface px-1 py-px text-[10px] font-medium text-ink-2">Current</span>}
-                    {w.missing && <span className="shrink-0 rounded bg-warn/15 px-1 py-px text-[10px] font-medium text-warn">Folder not found</span>}
+                <span className="s-avatar s-avatar--sm">{w.name.slice(0, 1).toUpperCase()}</span>
+                <span className="s-menu__text">
+                  <span className="flex items-center gap-2">
+                    <WorkspaceDot color={w.color} />
+                    <span className={`truncate ${w.missing ? "text-ink-2 line-through" : ""}`}>{w.name}</span>
+                    {w.missing && <span className="s-badge s-badge--warning shrink-0">Folder not found</span>}
                   </span>
-                  <span className="block truncate text-[11px] text-muted">{shortDetail(w.detail)}</span>
+                  <span className="s-menu__desc truncate">{shortDetail(w.detail)}</span>
                 </span>
-                <span className={`shrink-0 text-[11px] text-muted ${isActive && mode === "cloud" ? "" : "transition group-focus-within:opacity-0 group-hover:opacity-0 pointer-coarse:invisible"}`}>
-                  {n} {n === 1 ? "chat" : "chats"}
-                </span>
+                {isActive ? (
+                  <Icon name="check" size={16} className="text-ink" />
+                ) : (
+                  <span className={`s-menu__shortcut ${actions ? "motion-fade group-focus-within:opacity-0 group-hover:opacity-0 pointer-coarse:invisible" : ""}`}>
+                    {n} {n === 1 ? "chat" : "chats"}
+                  </span>
+                )}
               </button>
-              {(mode === "local" || (!isActive && !w.home)) && (
-                <span className="absolute top-1/2 right-2 flex -translate-y-1/2 items-center gap-0.5 motion-reveal">
-                  {mode === "local" && (
-                    <button type="button" title={`Open folder in ${folderApp}`} aria-label="Open folder" onClick={() => void onReveal(w)} className="rounded-md p-1.5 text-muted transition hover:bg-surface hover:text-ink pointer-coarse:p-2.5">
-                      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round">
-                        <path d="M1.75 4.25c0-.55.45-1 1-1h3.1l1.5 1.5h5.9c.55 0 1 .45 1 1v6.5c0 .55-.45 1-1 1H2.75c-.55 0-1-.45-1-1v-8Z" />
-                      </svg>
-                    </button>
-                  )}
-                  {!isActive && !w.home && (
-                    <button type="button" title={mode === "cloud" ? "Delete workspace" : "Remove from list"} onClick={() => void onRemove(w)} className="rounded-md p-1.5 text-muted transition hover:bg-surface hover:text-err pointer-coarse:p-2.5">
-                      <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-                        <path d="M3.5 3.5l7 7M10.5 3.5l-7 7" />
-                      </svg>
-                    </button>
-                  )}
-                </span>
+              {actions && (
+                <div className={`absolute top-1/2 flex -translate-y-1/2 items-center motion-reveal ${isActive ? "right-8" : "right-1"}`}>
+                  {mode === "local" && <IconButton icon="folder-open" label="Open folder" title={`Open folder in ${folderApp}`} onClick={() => void onReveal(w)} />}
+                  {!isActive && !w.home && <IconButton icon="close" label={mode === "cloud" ? "Delete workspace" : "Remove from list"} onClick={() => void onRemove(w)} />}
+                </div>
               )}
             </div>
           )
         })}
-        {folderErr && <div className="px-2 pt-1 pb-0.5 text-[11px] text-warn">{folderErr}</div>}
+        {folderErr && <p className="s-error-line px-3 py-1">{folderErr}</p>}
       </div>
-      <div className="border-t border-line bg-surface-2/40 p-1.5">
+      <div className="border-t border-line p-1">
         {full ? (
-          <div className="flex items-center gap-3 px-2 py-2">
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-dashed border-warn/50 text-[13px] text-warn">!</span>
-            <span className="text-[12px] leading-snug text-ink-2">
-              <span className="block font-medium text-ink">All {MAX_WORKSPACES} slots in use</span>
-              Remove a workspace (the × next to it) to add another.
-            </span>
+          <div className="s-alert s-alert--warning m-1">
+            <Icon name="triangle-alert" />
+            <div className="s-alert__body">
+              <p className="s-alert__title">All {MAX_WORKSPACES} slots in use</p>
+              <p className="s-alert__desc">Remove a workspace (the close button next to it) to add another.</p>
+            </div>
           </div>
         ) : mode === "local" ? (
           <LocalAdd onBrowse={() => setBrowsing(true)} onDone={onDone} />
         ) : (
-          <CloudAddForm compact onDone={onDone} />
+          <div className="p-3">
+            <CloudAddForm compact onDone={onDone} />
+          </div>
         )}
       </div>
     </div>
@@ -234,19 +209,21 @@ function LocalAdd({ onBrowse, onDone }: { onBrowse(): void; onDone(): void }) {
   }
 
   return (
-    <>
-      <button type="button" onClick={() => void pickNative()} disabled={picking} className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition hover:bg-surface disabled:opacity-60">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-dashed border-line-2 text-[15px] text-accent">+</span>
-        <span className="min-w-0 flex-1">
-          <span className="block text-[13px] font-medium text-ink">{picking ? "Waiting for the folder dialog…" : "Add a folder"}</span>
-          <span className="block text-[11px] text-muted">Opens your system&apos;s folder picker</span>
+    <div className="flex flex-col">
+      <button type="button" onClick={() => void pickNative()} disabled={picking} className="s-menu__item gap-3 py-2 max-expanded:min-h-12">
+        <span className="s-avatar s-avatar--sm">
+          <Icon name="plus" />
+        </span>
+        <span className="s-menu__text">
+          <span className="block">{picking ? "Waiting for the folder dialog…" : "Add a folder"}</span>
+          <span className="s-menu__desc">Opens your system&apos;s folder picker</span>
         </span>
       </button>
-      <button type="button" onClick={onBrowse} className="w-full rounded-lg px-2 py-1 text-left text-[11px] text-muted transition hover:bg-surface hover:text-ink">
-        or type / browse a path
-      </button>
-      {err && <div className="px-2 pt-1 text-[11px] text-warn">{err}</div>}
-    </>
+      <Button variant="link-neutral" size="sm" onClick={onBrowse} className="mx-3 my-2 self-start">
+        Or type or browse a path
+      </Button>
+      {err && <p className="s-error-line px-3 pb-2">{err}</p>}
+    </div>
   )
 }
 
@@ -266,38 +243,43 @@ function FolderBrowser({ onBack, onChoose }: { onBack(): void; onChoose(path: st
   }, [typed, activeId])
 
   return (
-    <div>
-      <div className="flex items-center gap-1 border-b border-line p-1.5">
-        <input
-          autoFocus
-          value={typed}
-          onChange={(e) => setTyped(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && data?.exists && onChoose(data.path)}
-          placeholder={data?.path ?? "Type a path…"}
-          className="min-w-0 flex-1 rounded-md bg-transparent px-2 py-1 font-mono text-[12px] outline-none placeholder:text-muted"
-        />
+    <div className="flex flex-col">
+      <div className="border-b border-line p-3">
+        <div className="s-field s-field--sm">
+          <input
+            autoFocus
+            value={typed}
+            onChange={(e) => setTyped(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && data?.exists && onChoose(data.path)}
+            placeholder={data?.path ?? "Type a path"}
+            aria-label="Folder path"
+            className="s-field__input"
+          />
+        </div>
       </div>
-      <div className="max-h-[260px] overflow-y-auto py-1">
+      <div className="flex max-h-[260px] flex-col overflow-y-auto p-1">
         {data?.parent && (
-          <button type="button" onClick={() => setTyped(data.parent!)} className="flex w-full items-center gap-2 px-3 py-1 text-left text-[13px] text-ink-2 hover:bg-surface-2">
-            <span className="text-muted">↑</span> ..
+          <button type="button" onClick={() => setTyped(data.parent!)} className="s-menu__item gap-2">
+            <Icon name="arrow-up" />
+            <span className="s-menu__text">Up one folder</span>
           </button>
         )}
-        {data && !data.exists && <div className="px-3 py-2 text-[12px] text-err">Folder not found.</div>}
+        {data && !data.exists && <p className="s-error-line px-3 py-2">Folder not found. Check the path.</p>}
         {data?.dirs.map((d) => (
-          <button key={d.path} type="button" onClick={() => setTyped(d.path)} onDoubleClick={() => onChoose(d.path)} className="flex w-full items-center gap-2 px-3 py-1 text-left text-[13px] text-ink-2 hover:bg-surface-2 hover:text-ink">
-            <span className="truncate">{d.name}</span>
-            {d.git && <span className="rounded bg-surface-2 px-1 text-[10px] text-muted">git</span>}
+          <button key={d.path} type="button" onClick={() => setTyped(d.path)} onDoubleClick={() => onChoose(d.path)} className="s-menu__item gap-2">
+            <Icon name="folder" />
+            <span className="s-menu__text truncate">{d.name}</span>
+            {d.git && <span className="s-badge">git</span>}
           </button>
         ))}
       </div>
-      <div className="flex items-center justify-between gap-2 border-t border-line p-1.5">
-        <button type="button" onClick={onBack} className="rounded-lg px-2 py-1 text-[12px] text-muted hover:text-ink">
+      <div className="flex items-center justify-between gap-2 border-t border-line p-2">
+        <Button variant="secondary" size="sm" onClick={onBack}>
           Back
-        </button>
-        <button type="button" disabled={!data?.exists} onClick={() => data && onChoose(data.path)} className="rounded-lg bg-accent-fill px-3 py-1 text-[12px] font-medium text-accent-ink disabled:opacity-40">
+        </Button>
+        <Button size="sm" disabled={!data?.exists} onClick={() => data && onChoose(data.path)} className="min-w-0">
           Use {data ? baseName(data.path) : ""}
-        </button>
+        </Button>
       </div>
     </div>
   )
@@ -323,24 +305,28 @@ export function CloudAddForm({ compact, onDone }: { compact?: boolean; onDone?()
   }
 
   return (
-    <div className={compact ? "space-y-1.5 p-0.5" : "space-y-2"}>
-      <input
-        value={repo}
-        onChange={(e) => setRepo(e.target.value)}
-        onKeyDown={(e) => e.key === "Enter" && repo.trim().length >= 3 && void create(false)}
-        placeholder="owner/repo or https://github.com/…"
-        className={`w-full rounded-lg border border-line bg-bg px-2.5 font-mono outline-none placeholder:font-sans placeholder:text-muted focus:border-line-2 ${compact ? "py-1.5 text-[12px]" : "py-2 text-[13px]"}`}
-      />
-      <div className="flex gap-1.5">
-        <button type="button" onClick={() => void create(false)} disabled={busy || repo.trim().length < 3} className="flex-1 rounded-lg bg-accent-fill px-2.5 py-1.5 text-[12px] font-medium text-accent-ink disabled:opacity-40">
-          {busy ? "Creating…" : "Add from repo"}
-        </button>
-        <button type="button" onClick={() => void create(true)} disabled={busy} className="rounded-lg border border-line bg-bg px-2.5 py-1.5 text-[12px] font-medium text-ink disabled:opacity-40">
-          Empty
-        </button>
+    <div className="s-form-item flex flex-col gap-3">
+      <div className={`s-field ${compact ? "s-field--sm" : ""}`}>
+        <input
+          value={repo}
+          onChange={(e) => setRepo(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && repo.trim().length >= 3 && void create(false)}
+          placeholder="owner/repo or https://github.com/…"
+          aria-label="Repository"
+          aria-invalid={err ? true : undefined}
+          className="s-field__input"
+        />
       </div>
-      <div className="text-[11px] leading-snug text-muted">Public repos on GitHub, GitLab, Bitbucket or Codeberg.</div>
-      {err && <div className="text-[11px] text-err">{err}</div>}
+      <div className="flex gap-2">
+        <Button size="sm" busy={busy} disabled={repo.trim().length < 3} onClick={() => void create(false)} className="flex-1">
+          {busy ? "Creating…" : "Add from repo"}
+        </Button>
+        <Button variant="secondary" size="sm" disabled={busy} onClick={() => void create(true)}>
+          Empty
+        </Button>
+      </div>
+      <p className="s-help">Public repos on GitHub, GitLab, Bitbucket or Codeberg.</p>
+      {err && <p className="s-field-error">{err}</p>}
     </div>
   )
 }

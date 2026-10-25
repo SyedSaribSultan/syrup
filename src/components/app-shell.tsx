@@ -4,6 +4,7 @@ import Link from "next/link"
 import { useEffect, useRef, useState, type ReactNode } from "react"
 import { SIDEBAR_SHORTCUT, useNav } from "@/lib/nav"
 import { useWorkspaces } from "@/lib/workspaces"
+import { IconButton, LinkButton } from "./ui/s"
 
 /**
  * The one app layout, local and cloud (docs/RESPONSIVE.md §4). Below the
@@ -29,7 +30,7 @@ export function AppShell({ sidebar, pageBar, children }: { sidebar: ReactNode; p
     // header and composer included, grows wider than a phone screen.
     <div className="flex h-full min-h-0 min-w-0 flex-1">
       {/* The scrim fades with the drawer (motion-layer: in slow + arrive, out base + leave) and takes no taps while closed. */}
-      <div aria-hidden data-open={open} onClick={nav?.closeDrawer} className="invisible fixed inset-0 z-40 bg-ink/30 opacity-0 max-expanded:motion-layer data-[open=true]:visible data-[open=true]:opacity-100 expanded:hidden" />
+      <div aria-hidden data-open={open} onClick={nav?.closeDrawer} className="invisible fixed inset-0 z-overlay bg-ink/30 opacity-0 max-expanded:motion-layer data-[open=true]:visible data-[open=true]:opacity-100 expanded:hidden" />
       <div
         ref={drawer}
         tabIndex={-1}
@@ -61,11 +62,12 @@ export function AppShell({ sidebar, pageBar, children }: { sidebar: ReactNode; p
         }}
         style={dx ? { translate: `${dx}px 0`, transition: "none" } : undefined}
         // motion-layer only while it is a drawer: from `expanded` up it is a column, and sidebar ↔ rail stays instant until M3 (docs/MOTION.md §6.1).
-        className="invisible fixed inset-y-0 left-0 z-50 flex w-[min(80vw,320px)] -translate-x-full bg-bg shadow-card outline-none max-expanded:motion-layer data-[open=true]:visible data-[open=true]:translate-x-0 expanded:visible expanded:static expanded:z-auto expanded:w-[264px] expanded:shrink-0 expanded:translate-x-0 expanded:shadow-none expanded:data-[collapsed=true]:w-16 expanded:max-large:data-[forced=true]:w-16"
+        className="invisible fixed inset-y-0 left-0 z-modal flex w-[min(var(--spacing-drawer),calc(100vw-var(--spacing-drawer-gap)))] -translate-x-full outline-none max-expanded:motion-layer data-[open=true]:visible data-[open=true]:translate-x-0 expanded:visible expanded:static expanded:z-auto expanded:w-sidebar expanded:shrink-0 expanded:translate-x-0 expanded:data-[collapsed=true]:w-rail expanded:max-large:data-[forced=true]:w-rail"
       >
         {sidebar}
       </div>
-      <main inert={open || undefined} className="relative flex min-w-0 flex-1 flex-col">
+      {/* P1 canvas: the work area sits one plane below the P0 sidebar and bars (sarib-design 03 §1). */}
+      <main inert={open || undefined} className="relative flex min-w-0 flex-1 flex-col bg-canvas">
         {pageBar && <PageBar />}
         {children}
       </main>
@@ -77,39 +79,22 @@ export function AppShell({ sidebar, pageBar, children }: { sidebar: ReactNode; p
 export function MenuButton({ className = "" }: { className?: string }) {
   const nav = useNav()
   if (!nav) return null
-  return (
-    <button
-      type="button"
-      onClick={nav.openDrawer}
-      aria-label="Open menu"
-      title={`Menu (${SIDEBAR_SHORTCUT})`}
-      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-ink-2 transition hover:bg-surface-2 hover:text-ink pointer-coarse:h-11 pointer-coarse:w-11 expanded:hidden ${className}`}
-    >
-      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-        <path d="M3 5.5h12M3 12.5h12" />
-      </svg>
-    </button>
-  )
+  return <IconButton icon="menu" label="Open menu" title={`Menu (${SIDEBAR_SHORTCUT})`} onClick={nav.openDrawer} className={`expanded:hidden ${className}`} />
 }
 
-/** Phone/tablet top bar for pages that have no header of their own: ☰ · syrup · new chat. */
+/** Phone/tablet app bar (s-appbar: P0, no border) for pages that have no header of their own: ☰ · syrup · new chat. */
 function PageBar() {
   const w = useWorkspaces()
   return (
-    <div className="flex shrink-0 items-center gap-1 border-b border-line px-2 pt-[env(safe-area-inset-top)] expanded:hidden">
-      <div className="flex h-12 flex-1 items-center gap-1 pointer-coarse:h-14">
-        <MenuButton />
-        <Link href="/" className="px-1 font-sans text-[1.2rem] font-medium text-ink">
-          syrup
-        </Link>
-        <span className="flex-1" />
-        {w.newChatHref && (
-          <Link href={w.newChatHref} aria-label="New chat" title="New chat" className="flex h-9 w-9 items-center justify-center rounded-lg text-ink-2 transition hover:bg-surface-2 hover:text-ink pointer-coarse:h-11 pointer-coarse:w-11">
-            <svg width="17" height="17" viewBox="0 0 17 17" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M8 2.5H4A1.5 1.5 0 0 0 2.5 4v9A1.5 1.5 0 0 0 4 14.5h9a1.5 1.5 0 0 0 1.5-1.5V9M12.3 2.2l2.5 2.5L8.5 11H6V8.5l6.3-6.3Z" />
-            </svg>
+    <div className="shrink-0 bg-bg pt-[env(safe-area-inset-top)] expanded:hidden">
+      <div className="s-appbar">
+        <div className="s-appbar__start">
+          <MenuButton />
+          <Link href="/" className="s-appbar__brand">
+            syrup
           </Link>
-        )}
+        </div>
+        <div className="s-appbar__end">{w.newChatHref && <LinkButton href={w.newChatHref} variant="ghost" size="sm" icon="edit" label="New chat" />}</div>
       </div>
     </div>
   )

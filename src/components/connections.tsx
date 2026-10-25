@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
+import { Button } from "./ui/s"
 import { confirmDialog } from "./ui/dialog"
 
 /** Settings card: GitHub token for private repositories. */
@@ -42,33 +43,37 @@ export function Connections() {
   }
 
   return (
-    <section className="mt-6 rounded-xl border border-line bg-surface p-4">
-      <h2 className="text-sm font-medium text-ink">Connections</h2>
-      <p className="mt-1 text-[13px] leading-relaxed text-ink-2">
-        A GitHub token lets you create workspaces from <em>private</em> repositories. Use a{" "}
-        <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-ink">
-          fine-grained token
-        </a>{" "}
-        with <span className="font-mono text-[12px]">Contents: Read</span> on the repositories you want. It is encrypted with a key unique to your account, used only while cloning, and never written to a workspace&apos;s disk.
-      </p>
+    <section className="s-settings__group mt-6">
+      <div className="s-settings__head">
+        <h2 className="s-settings__title">Connections</h2>
+        <p className="s-settings__desc">
+          A GitHub token lets you create workspaces from <em>private</em> repositories. Use a{" "}
+          <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noreferrer" className="s-link">
+            fine-grained token
+          </a>{" "}
+          with <code className="s-code">Contents: Read</code> on the repositories you want. It is encrypted with a key unique to your account, used only while cloning, and never written to a workspace&apos;s disk.
+        </p>
+      </div>
       {state?.connected ? (
-        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px]">
-          <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[11px] text-ok">connected</span>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+          <span className="s-badge s-badge--success">Connected</span>
           <span className="min-w-0 font-mono break-all text-ink-2">GitHub token {state.hint}</span>
-          <button type="button" disabled={busy} onClick={() => void remove()} className="text-xs text-muted hover:text-err disabled:opacity-40 pointer-coarse:min-h-11 pointer-coarse:px-1">
+          <Button variant="ghost" size="sm" disabled={busy} onClick={() => void remove()}>
             Remove
-          </button>
+          </Button>
         </div>
       ) : (
         // Phones: Save goes full width under the field.
-        <div className="mt-3 flex flex-col gap-2 medium:flex-row">
-          <input value={token} onChange={(e) => setToken(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void save()} placeholder="github_pat_… or ghp_…" type="password" autoComplete="off" className="min-w-0 flex-1 rounded-lg border border-line bg-bg px-3 py-2 font-mono text-[13px] outline-none placeholder:font-sans placeholder:text-muted focus:border-line-2 pointer-coarse:min-h-11" />
-          <button type="button" onClick={() => void save()} disabled={busy || token.trim().length < 20} className="rounded-lg bg-accent-fill px-3 py-2 text-xs font-medium text-accent-ink disabled:opacity-40 pointer-coarse:min-h-11">
-            {busy ? "Checking…" : "Save"}
-          </button>
+        <div className="flex flex-col gap-2 medium:flex-row">
+          <div className="s-field min-w-0 flex-1">
+            <input value={token} onChange={(e) => setToken(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void save()} placeholder="github_pat_… or ghp_…" type="password" autoComplete="off" aria-label="GitHub token" aria-invalid={error ? true : undefined} className="s-field__input font-mono" />
+          </div>
+          <Button busy={busy} disabled={token.trim().length < 20} onClick={() => void save()}>
+            Save
+          </Button>
         </div>
       )}
-      {error && <div className="mt-2 text-xs text-err">{error}</div>}
+      {error && <p className="s-field-error">{error}</p>}
     </section>
   )
 }

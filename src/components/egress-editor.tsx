@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { Button, Icon } from "./ui/s"
 
 /** The allow-list entry that opts into open internet (src/server/engine/egress.ts OPEN_INTERNET). */
 const OPEN = "*"
@@ -33,38 +34,41 @@ export function EgressEditor({ workspaceId, initial }: { workspaceId: string; in
   const openNet = hosts.includes(OPEN)
   const listed = hosts.filter((h) => h !== OPEN)
 
+  // Lives in the workspace menu (a raised surface): the disclosure is a menu item, the controls the Sarib check, badge and sm field.
   return (
-    <div className="border-t border-line px-3 py-2">
-      <button type="button" onClick={() => setOpen((v) => !v)} className="flex w-full items-center justify-between text-[11px] font-mono text-muted hover:text-ink">
-        <span>Network</span>
-        <span>{openNet ? "open" : listed.length ? `strict · ${listed.length}` : "strict"}</span>
+    <div className="flex flex-col">
+      <button type="button" aria-expanded={open} onClick={() => setOpen((v) => !v)} className="s-menu__item">
+        <span className="s-menu__text">Network</span>
+        <span className="s-menu__shortcut">{openNet ? "Open" : listed.length ? `Strict · ${listed.length}` : "Strict"}</span>
       </button>
       {open && (
-        <div className="mt-2 space-y-2">
-          <p className="text-[11px] leading-relaxed text-muted">{openNet ? "Open: the agent can reach the internet. Private networks are always blocked." : "Strict: the agent can only reach git, package registries, web search, syrup, and the hosts below."}</p>
-          <label className="flex items-center gap-2 text-[11px] text-ink-2">
+        <div className="flex flex-col gap-3 px-3 pt-1 pb-3">
+          <p className="s-help">{openNet ? "Open: the agent can reach the internet. Private networks are always blocked." : "Strict: the agent can only reach git, package registries, web search, syrup, and the hosts below."}</p>
+          <label className="s-check">
             <input type="checkbox" checked={openNet} disabled={busy} onChange={(e) => void save(e.target.checked ? [...listed, OPEN] : listed)} />
             Allow the open internet
           </label>
           {listed.length > 0 && (
             <ul className="flex flex-wrap gap-1">
               {listed.map((h) => (
-                <li key={h} className="flex items-center gap-1 rounded bg-surface px-1.5 py-0.5 font-mono text-[11px] text-ink-2">
+                <li key={h} className="s-badge gap-1 font-mono">
                   {h}
-                  <button type="button" disabled={busy} onClick={() => void save(hosts.filter((x) => x !== h))} className="text-muted hover:text-err" title="Remove">
-                    ×
+                  <button type="button" disabled={busy} onClick={() => void save(hosts.filter((x) => x !== h))} aria-label={`Remove ${h}`} title="Remove" className="inline-flex text-muted hover:text-ink">
+                    <Icon name="x" size={12} />
                   </button>
                 </li>
               ))}
             </ul>
           )}
-          <div className="flex gap-1">
-            <input value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === "Enter" && draft.trim() && void save([...hosts, draft])} placeholder="api.example.com" className="min-w-0 flex-1 rounded-md border border-line bg-bg px-2 py-1 font-mono text-[11px] outline-none placeholder:font-sans placeholder:text-muted focus:border-line-2" />
-            <button type="button" disabled={busy || !draft.trim()} onClick={() => void save([...hosts, draft])} className="rounded-md bg-surface px-2 py-1 text-[11px] text-ink disabled:opacity-40">
+          <div className="flex gap-2">
+            <div className="s-field s-field--sm min-w-0 flex-1">
+              <input value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === "Enter" && draft.trim() && void save([...hosts, draft])} placeholder="api.example.com" aria-label="Host to allow" className="s-field__input" />
+            </div>
+            <Button variant="secondary" size="sm" disabled={busy || !draft.trim()} onClick={() => void save([...hosts, draft])}>
               Add
-            </button>
+            </Button>
           </div>
-          {error && <div className="text-[11px] text-err">{error}</div>}
+          {error && <p className="s-field-error">{error}</p>}
         </div>
       )}
     </div>

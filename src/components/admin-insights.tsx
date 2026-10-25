@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react"
 import { fmtRelative } from "@/lib/format"
 import { modelLabel } from "@/lib/model-label"
 import { providerName } from "@/lib/model-registry"
+import { Button } from "./ui/s"
 
 type ModelRow = { provider: string; model: string; requests: number; viaAuto: number; failed: number; busy: number; ttftMs: number | null; up: number; down: number }
 type Data = {
@@ -15,7 +16,7 @@ type Data = {
   research: { consenting: number; users: number; chats: number; messages: number; rated: number }
 }
 
-const pct = (n: number, of: number) => (of > 0 ? `${Math.round((n / of) * 100)}%` : "—")
+const pct = (n: number, of: number) => (of > 0 ? `${Math.round((n / of) * 100)}%` : "None")
 
 /**
  * The admin's decision view (/api/admin/insights): each block answers one
@@ -39,18 +40,24 @@ export function Insights() {
   }, [load])
 
   return (
-    <section className="mt-6 rounded-xl border border-line bg-surface p-4">
-      <div className="flex flex-wrap items-baseline gap-x-2">
-        <h2 className="text-sm font-medium text-ink">Insights</h2>
-        {data && <span className="text-xs text-muted">updated {fmtRelative(data.generatedAt)}</span>}
-        <button type="button" onClick={() => void load()} className="ml-auto text-xs text-muted hover:text-ink pointer-coarse:-my-3 pointer-coarse:min-h-11 pointer-coarse:px-1">
+    <section className="s-card mt-6">
+      <div className="flex flex-wrap items-center gap-x-2">
+        <h2 className="text-lg text-ink">Insights</h2>
+        {data && <span className="s-meta">Updated {fmtRelative(data.generatedAt)}</span>}
+        <Button variant="ghost" size="sm" icon="refresh-cw" onClick={() => void load()} className="ml-auto">
           Refresh
-        </button>
+        </Button>
       </div>
-      {failed && !data && <p className="mt-3 text-sm text-err">Couldn&apos;t load insights.</p>}
-      {!data && !failed && <p className="mt-3 text-sm text-muted">Loading…</p>}
+      {failed && !data && <p className="s-error-line">Couldn&apos;t load insights. Refresh to try again.</p>}
+      {!data && !failed && (
+        <div aria-busy className="s-skeleton-stack">
+          <span className="s-skeleton s-skeleton--line" />
+          <span className="s-skeleton s-skeleton--line" />
+          <span className="s-skeleton s-skeleton--line" />
+        </div>
+      )}
       {data && (
-        <div className="mt-4 space-y-6">
+        <div className="flex flex-col gap-6">
           <Block title="Is it growing?" hint="Active means sent at least one message that week.">
             <div className="grid grid-cols-2 gap-2 medium:grid-cols-3">
               <Stat label="People" value={data.growth.users} />
@@ -77,13 +84,14 @@ export function Insights() {
           </Block>
 
           <Block title="Research data" hint="Only people who opted in. Keys, secrets, emails and paths are scrubbed; attachments are left out.">
-            <div className="flex flex-wrap items-center gap-3 text-[13px] text-ink-2">
+            <div className="flex flex-wrap items-center gap-3 text-sm text-ink-2">
               <span>
-                <b className="font-medium text-ink">{data.research.consenting}</b> of {data.research.users} people opted in · {data.research.chats} chats · {data.research.messages} messages · {data.research.rated} rated replies
+                <strong className="font-medium text-ink">{data.research.consenting}</strong> of {data.research.users} people opted in · {data.research.chats} chats · {data.research.messages} messages · {data.research.rated} rated replies
               </span>
               {data.research.consenting > 0 ? (
-                <a href="/api/admin/research-export" className="ml-auto rounded-lg border border-line px-3 py-1.5 text-xs font-medium text-ink-2 hover:border-line-2 hover:text-ink pointer-coarse:inline-flex pointer-coarse:min-h-11 pointer-coarse:items-center">
-                  Download dataset (.jsonl)
+                <a href="/api/admin/research-export" className="s-btn s-btn--secondary s-btn--sm ml-auto">
+                  <span className="s-icon" data-icon="download" aria-hidden="true" />
+                  <span className="s-btn__label">Download dataset (.jsonl)</span>
                 </a>
               ) : null}
             </div>
@@ -97,8 +105,8 @@ export function Insights() {
 function Block({ title, hint, children }: { title: string; hint: string; children: ReactNode }) {
   return (
     <div>
-      <h3 className="text-[13px] font-medium text-ink">{title}</h3>
-      <p className="mb-2 text-xs text-muted">{hint}</p>
+      <h3 className="text-base text-ink">{title}</h3>
+      <p className="s-help mb-3">{hint}</p>
       {children}
     </div>
   )
@@ -106,10 +114,10 @@ function Block({ title, hint, children }: { title: string; hint: string; childre
 
 function Stat({ label, value, sub }: { label: string; value: number; sub?: string }) {
   return (
-    <div className="rounded-lg border border-line bg-bg px-3 py-2">
-      <div className="text-[11px] text-muted">{label}</div>
-      <div className="font-display text-[1.35rem] font-normal text-ink tabular-nums">{value}</div>
-      {sub && <div className="text-[11px] text-muted">{sub}</div>}
+    <div className="s-card s-card--compact s-kpi">
+      <span className="s-kpi__label">{label}</span>
+      <span className="s-kpi__value">{value}</span>
+      {sub && <span className="s-kpi__delta">{sub}</span>}
     </div>
   )
 }
@@ -131,10 +139,11 @@ function Funnel({ steps }: { steps: Data["funnel"] }) {
     <ul className="space-y-1.5">
       {steps.map((s, i) => (
         // Phones: step and count on one line, the bar full width under them.
-        <li key={s.step} className="grid grid-cols-[1fr_auto] items-center gap-x-3 gap-y-1 text-[13px] medium:grid-cols-[170px_1fr_90px] medium:gap-3">
+        <li key={s.step} className="grid grid-cols-[1fr_auto] items-center gap-x-3 gap-y-1 text-sm medium:grid-cols-[170px_1fr_90px] medium:gap-3">
           <span className="min-w-0 text-ink-2">{s.step}</span>
-          <span className="order-last col-span-2 h-2 overflow-hidden rounded bg-surface-2 medium:order-none medium:col-span-1">
-            <span className={`block h-full rounded ${i === worst ? "bg-warn" : "bg-accent-fill"}`} style={{ width: top > 0 ? `${(s.users / top) * 100}%` : "0%" }} />
+          {/* Progress track (s-progress geometry): ink bars, the worst step in the warning colour; never brand on repeated rows. */}
+          <span className="order-last col-span-2 h-1 overflow-hidden rounded-full bg-surface-2 medium:order-none medium:col-span-1">
+            <span className={`block h-full rounded-full ${i === worst ? "bg-warn" : "bg-ink"}`} style={{ width: top > 0 ? `${(s.users / top) * 100}%` : "0%" }} />
           </span>
           <span className="text-right tabular-nums text-ink-2">
             {s.users} <span className="text-muted">{i > 0 ? pct(s.users, top) : ""}</span>
@@ -142,7 +151,7 @@ function Funnel({ steps }: { steps: Data["funnel"] }) {
         </li>
       ))}
       {worst > 0 && (
-        <li className="pt-1 text-xs text-warn">
+        <li className="pt-1 text-sm text-warn">
           Biggest drop: {steps[worst - 1].step.toLowerCase()} → {steps[worst].step.toLowerCase()} ({Math.round(worstLoss * 100)}% lost)
         </li>
       )}
@@ -151,33 +160,33 @@ function Funnel({ steps }: { steps: Data["funnel"] }) {
 }
 
 function Models({ rows }: { rows: ModelRow[] }) {
-  if (rows.length === 0) return <p className="text-sm text-muted">No Auto or Fast traffic and no ratings yet.</p>
+  if (rows.length === 0) return <p className="s-empty-line">No Auto or Fast traffic and no ratings yet.</p>
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-[13px] whitespace-nowrap [&_td:not(:first-child)]:pl-4 [&_th:not(:first-child)]:pl-4">
-        <thead className="text-left text-[11px] font-mono text-muted">
+    <div className="s-table s-table--dense">
+      <table className="whitespace-nowrap">
+        <thead>
           <tr>
-            <th className="py-1 font-medium">Model</th>
-            <th className="py-1 text-right font-medium">Requests</th>
-            <th className="py-1 text-right font-medium">Picked by Auto</th>
-            <th className="py-1 text-right font-medium">Failed</th>
-            <th className="py-1 text-right font-medium">Busy</th>
-            <th className="py-1 text-right font-medium">First token</th>
-            <th className="py-1 text-right font-medium">👍 / 👎</th>
+            <th>Model</th>
+            <th className="text-right">Requests</th>
+            <th className="text-right">Picked by Auto</th>
+            <th className="text-right">Failed</th>
+            <th className="text-right">Busy</th>
+            <th className="text-right">First token</th>
+            <th className="text-right">Up / down</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-line">
+        <tbody>
           {rows.map((r) => (
             <tr key={`${r.provider}/${r.model}`}>
-              <td className="py-2 text-ink">
-                {modelLabel(r.model)} <span className="text-muted">· {providerName(r.provider)}</span>
+              <td className="text-ink">
+                {modelLabel(r.model)} <span className="text-muted">{providerName(r.provider)}</span>
               </td>
-              <td className="py-2 text-right tabular-nums text-ink-2">{r.requests || "—"}</td>
-              <td className="py-2 text-right tabular-nums text-ink-2">{r.requests ? r.viaAuto : "—"}</td>
-              <td className={`py-2 text-right tabular-nums ${r.requests && r.failed / r.requests > 0.1 ? "text-err" : "text-ink-2"}`}>{r.requests ? pct(r.failed, r.requests) : "—"}</td>
-              <td className="py-2 text-right tabular-nums text-ink-2">{r.requests ? pct(r.busy, r.requests) : "—"}</td>
-              <td className="py-2 text-right tabular-nums text-ink-2">{r.ttftMs != null ? `${(r.ttftMs / 1000).toFixed(1)} s` : "—"}</td>
-              <td className="py-2 text-right tabular-nums text-ink-2">
+              <td className="s-col-num">{r.requests || "None"}</td>
+              <td className="s-col-num">{r.requests ? r.viaAuto : "None"}</td>
+              <td className={`s-col-num ${r.requests && r.failed / r.requests > 0.1 ? "text-err" : ""}`}>{r.requests ? pct(r.failed, r.requests) : "None"}</td>
+              <td className="s-col-num">{r.requests ? pct(r.busy, r.requests) : "None"}</td>
+              <td className="s-col-num">{r.ttftMs != null ? `${(r.ttftMs / 1000).toFixed(1)} s` : "None"}</td>
+              <td className="s-col-num">
                 {r.up} / {r.down}
               </td>
             </tr>

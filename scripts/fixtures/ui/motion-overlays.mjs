@@ -14,8 +14,8 @@ c.assistant([text("In `src/cart.ts`: `cartTotal()` adds line items in integer ce
 
 const base = { route: c.route, chats: [c, ...backgroundChats()], files: WORKSPACE_FILES }
 
-const FAST = 120
-const BASE = 180
+const FAST = 150
+const BASE = 250
 const CHAT_MENU = 'button[aria-label="Chat options"]'
 /** The chat ⋯ menu's desktop popover (its label is the chat's title). */
 const CHAT_POPOVER = `div:has(> ${CHAT_MENU}) > [role="dialog"]`
@@ -162,7 +162,7 @@ const scenarios = [
     assert: [
       { composited: ["opacity", "translate"] },
       { style: SCRIM, prop: "transition-property", equals: "translate, opacity, visibility" },
-      { style: `${SCRIM}[data-open="true"]`, prop: "transition-duration", equals: "0.24s, 0.24s, 0s" },
+      { style: `${SCRIM}[data-open="true"]`, prop: "transition-duration", equals: "0.42s, 0.42s, 0s" },
       { style: `${SCRIM}[data-open="true"]`, prop: "opacity", equals: "1" },
       { visible: SCRIM },
     ],
@@ -182,7 +182,7 @@ const scenarios = [
     ],
     assert: [
       { composited: ["opacity", "translate"] },
-      { style: `${SCRIM}[data-open="false"]`, prop: "transition-duration", equals: "0.18s" },
+      { style: `${SCRIM}[data-open="false"]`, prop: "transition-duration", equals: "0.25s" },
       { style: `${SCRIM}[data-open="false"]`, prop: "opacity", equals: "0" },
       { style: `${SCRIM}[data-open="false"]`, prop: "pointer-events", equals: "none" },
       { hidden: SCRIM },
@@ -192,7 +192,7 @@ const scenarios = [
   defineScenario({
     ...base,
     name: "motion-overlays-reduced",
-    description: "M1, reduced motion (page.emulateMedia): the phone sheet and the confirm fade in place; their exit is the fast duration (120 ms).",
+    description: "M1, reduced motion (page.emulateMedia): the phone sheet and the confirm fade in place; their exit is the fast duration (150 ms).",
     steps: [
       { media: { reducedMotion: "reduce" } },
       { presence: { name: "menu", open: { click: CHAT_MENU }, target: `${CHAT_POPOVER}, ${SHEET}`, close: ESC } },
@@ -202,7 +202,10 @@ const scenarios = [
     assert: [
       // Fast exit, nothing travels: a phone sheet fades (no translate); a confirm fades without its scale.
       // `exitMs` is the fast duration itself, read from the CSS; the wall-clock bound is the usual 300 ms (Chromium).
-      { presence: "menu", entered: ["opacity"], notEntered: ["translate", "transform"], exitMs: FAST },
+      // The desktop chat menu is a Sarib raised surface (s-raised): the design system's reduced-motion rule stops every
+      // transition on s- elements, so it neither fades nor travels (sarib-design DESIGN.md §11.0, "Motion").
+      { presence: "menu", entered: [], notEntered: ["opacity", "translate", "transform"], exitMs: 0, widths: [1440] },
+      { presence: "menu", entered: ["opacity"], notEntered: ["translate", "transform"], exitMs: FAST, widths: [390] },
       { presence: "menu-again", skipped: true },
       { presence: "confirm", entered: ["opacity"], notEntered: ["scale"], exitMs: FAST },
     ],

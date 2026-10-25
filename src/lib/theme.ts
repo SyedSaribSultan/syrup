@@ -4,8 +4,8 @@ import { useSyncExternalStore } from "react"
 import { THEME_KEY as KEY } from "./theme-script"
 
 /**
- * Light / dark / follow the system. "system" leaves <html> alone so the
- * prefers-color-scheme rules in globals.css apply; the others set data-theme.
+ * Light / dark / follow the system. "system" sets data-mode="system" on <html> so the
+ * prefers-color-scheme rules apply; the others set data-theme.
  * THEME_SCRIPT (theme-script.ts) applies a saved choice before first paint.
  */
 
@@ -35,8 +35,14 @@ export function setTheme(t: Theme) {
   // Two frames: the first rAF runs before the next style pass, so removing it there would suppress nothing.
   const switching = ++switches
   root.dataset.themeSwitching = ""
-  if (t === "system") delete root.dataset.theme
-  else root.dataset.theme = t
+  // The Sarib tokens follow the OS only under data-mode="system"; a fixed choice is data-theme alone.
+  if (t === "system") {
+    delete root.dataset.theme
+    root.dataset.mode = "system"
+  } else {
+    root.dataset.theme = t
+    delete root.dataset.mode
+  }
   for (const f of subs) f()
   requestAnimationFrame(() =>
     requestAnimationFrame(() => {

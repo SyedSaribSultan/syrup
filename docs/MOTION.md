@@ -177,17 +177,17 @@ Root cause: overlays do `if (!open) return null` or `open && …` (`sheet.tsx:15
 
 ## 3. Tokens
 
-Defined once. Components use names, never numbers.
+Defined once. Components use names, never numbers. The values are the Sarib design system's (`--s-motion-duration-fast/base/slow`, `--s-motion-easing-standard/exit`, 2026-10-25), so syrup moves like syedsarib.com.
 
 | Token | Value | Used for |
 |---|---|---|
-| `--motion-fast` | 120 ms | hover, press, chevrons, crossfades, all exits of small things |
-| `--motion-base` | 180 ms | popovers, menus, dialogs, expand/collapse, notices |
-| `--motion-slow` | 240 ms | sheets, drawer, workspace panel, sidebar ↔ rail |
+| `--motion-fast` | 150 ms | hover, press, chevrons, crossfades, all exits of small things |
+| `--motion-base` | 250 ms | popovers, menus, dialogs, expand/collapse, notices |
+| `--motion-slow` | 420 ms | sheets, drawer, workspace panel, sidebar ↔ rail |
 | `--motion-shift` | 4 px | how far popovers and notices travel. 0 under reduced motion |
-| `--ease-arrive` | `cubic-bezier(0.2, 0, 0, 1)` | entering: fast start, soft landing |
-| `--ease-leave` | `cubic-bezier(0.3, 0, 1, 1)` | leaving: gets out of the way |
-| `--ease-move` | `cubic-bezier(0.2, 0, 0, 1)` | changing size or place on screen |
+| `--ease-arrive` | `cubic-bezier(0.4, 0, 0.2, 1)` | entering (Sarib `standard`) |
+| `--ease-leave` | `cubic-bezier(0.4, 0, 1, 1)` | leaving (Sarib `exit`) |
+| `--ease-move` | `cubic-bezier(0.4, 0, 0.2, 1)` | changing size or place on screen (Sarib `standard`) |
 
 - **Where they live:** plain `:root` (or `@theme static`).
   - Tailwind 4.3 drops theme variables nothing in CSS uses. The built CSS has `--ease-out` but not `--ease-in`.

@@ -1,5 +1,6 @@
 "use client"
 
+import { btnClass } from "./ui/s"
 import { useState } from "react"
 import { useEngine, type PermissionReq, type QuestionReq } from "@/lib/engine-store"
 
@@ -25,10 +26,11 @@ function PermissionCard({ req }: { req: PermissionReq }) {
   const { replyPermission } = useEngine()
   const detail = req.patterns.join("\n") || (typeof req.metadata.command === "string" ? req.metadata.command : "")
   return (
-    <div className="rounded-xl border border-accent/40 bg-accent-soft/40 p-3">
-      <div className="text-[13px] font-medium text-ink">Allow {req.title}?</div>
-      {detail && <pre className="mt-1.5 max-h-40 overflow-auto rounded-lg bg-code-bg p-2 font-mono text-[12px] text-ink-2 whitespace-pre-wrap">{detail}</pre>}
-      <div className="mt-2 flex flex-wrap gap-2 max-medium:flex-col">
+    // A P2w card (things you press): hairline, r20, p16. The question is the title; buttons are verbs.
+    <div className="rounded-xl border border-line bg-well p-4">
+      <div className="text-base text-ink">Allow {req.title}?</div>
+      {detail && <pre className="mt-2 max-h-40 overflow-auto rounded-lg bg-code-bg p-3 font-mono text-xs text-ink-2 whitespace-pre-wrap">{detail}</pre>}
+      <div className="mt-3 flex flex-wrap gap-2 max-medium:flex-col">
         <Btn primary onClick={() => replyPermission(req, "once")}>
           Allow once
         </Btn>
@@ -57,11 +59,11 @@ function QuestionCard({ req }: { req: QuestionReq }) {
   const complete = req.questions.every((_, i) => answers[i].length > 0 || custom[i].trim())
 
   return (
-    <div className="rounded-xl border border-line bg-surface p-3">
+    <div className="rounded-xl border border-line bg-well p-4">
       {req.questions.map((q, qi) => (
         <div key={qi} className={qi > 0 ? "mt-3 border-t border-line pt-3" : ""}>
-          <div className="text-[11px] font-mono text-muted">{q.header}</div>
-          <div className="mt-0.5 text-[14px] text-ink">{q.question}</div>
+          <div className="s-meta">{q.header}</div>
+          <div className="mt-1 text-base text-ink">{q.question}</div>
           <div className="mt-2 grid gap-1.5">
             {q.options.map((o) => {
               const on = answers[qi].includes(o.label)
@@ -70,10 +72,11 @@ function QuestionCard({ req }: { req: QuestionReq }) {
                   key={o.label}
                   type="button"
                   onClick={() => toggle(qi, o.label, q.multiple)}
-                  className={`rounded-lg border px-3 py-2 text-left transition pointer-coarse:py-3 ${on ? "border-accent bg-accent-soft/60" : "border-line hover:border-line-2"}`}
+                  // Chosen = the pressed fill and a firmer border (colour-only states; red stays on the send button).
+                  className={`rounded-lg border px-3 py-2 text-left transition pointer-coarse:py-3 ${on ? "border-line-2 bg-pressed" : "border-line hover:bg-hover"}`}
                 >
-                  <div className="text-[13px] font-medium text-ink">{o.label}</div>
-                  {o.description && <div className="text-[12px] text-muted">{o.description}</div>}
+                  <div className="text-sm text-ink">{o.label}</div>
+                  {o.description && <div className="text-xs text-muted">{o.description}</div>}
                 </button>
               )
             })}
@@ -82,7 +85,7 @@ function QuestionCard({ req }: { req: QuestionReq }) {
                 value={custom[qi]}
                 onChange={(e) => setCustom((c) => c.map((v, i) => (i === qi ? e.target.value : v)))}
                 placeholder="Or type your own…"
-                className="rounded-lg border border-line bg-transparent px-3 py-2 text-[13px] outline-none placeholder:text-muted focus:border-line-2"
+                className="rounded-lg border border-line bg-transparent px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted hover:border-line-2 focus:border-muted"
               />
             )}
           </div>
@@ -104,14 +107,8 @@ function QuestionCard({ req }: { req: QuestionReq }) {
 
 function Btn({ children, onClick, primary, disabled }: { children: React.ReactNode; onClick(): void; primary?: boolean; disabled?: boolean }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className={`rounded-lg px-3 py-1.5 text-xs font-medium transition disabled:opacity-40 pointer-coarse:py-3 pointer-coarse:text-[14px] ${
-        primary ? "bg-accent-fill text-accent-ink" : "border border-line text-ink-2 hover:border-line-2 hover:text-ink"
-      }`}
-    >
+    // s-btn sm (primary / secondary). The label is a direct text child, so `button:text-is(...)` selectors (UI harness) match.
+    <button type="button" onClick={onClick} disabled={disabled} className={btnClass({ variant: primary ? "primary" : "secondary", size: "sm" })}>
       {children}
     </button>
   )

@@ -1,5 +1,6 @@
 "use client"
 
+import { IconButton } from "../ui/s"
 import type { ReactNode } from "react"
 import { usePresence, type Presence } from "@/lib/use-presence"
 import { useModalDialog } from "../ui/sheet"
@@ -31,16 +32,13 @@ function LightboxView({ label, onClose, presence: p, children }: { label: string
       data-layer
       aria-label={label}
       onClick={(e) => e.target === e.currentTarget && onClose()}
-      className="m-0 h-dvh max-h-none w-screen max-w-none overflow-hidden border-0 bg-surface p-0 text-ink motion-dialog backdrop:bg-ink/30 medium:m-auto medium:h-[min(88dvh,900px)] medium:w-[min(1100px,calc(100vw-48px))] medium:rounded-2xl medium:border medium:border-line medium:shadow-card"
+      // P3 raised dialog from medium up (elevated, hairline, r20, elevation-lg); full screen on phones.
+      className="m-0 h-dvh max-h-none w-screen max-w-none overflow-hidden border-0 bg-elevated p-0 text-ink motion-dialog backdrop:bg-ink/30 medium:m-auto medium:h-[min(88dvh,900px)] medium:w-[min(1100px,calc(100vw-48px))] medium:rounded-xl medium:border medium:border-line medium:shadow-panel"
     >
       <div className="flex h-full flex-col pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
-        <div className="flex shrink-0 items-center justify-between border-b border-line px-3 py-1.5">
-          <span className="text-[13px] font-medium text-ink">{label}</span>
-          <button type="button" onClick={onClose} aria-label="Close" className="flex h-9 w-9 items-center justify-center rounded-lg text-ink-2 transition hover:bg-surface-2 hover:text-ink pointer-coarse:h-11 pointer-coarse:w-11">
-            <svg width="12" height="12" viewBox="0 0 12 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden>
-              <path d="M2.5 2.5l7 7M9.5 2.5l-7 7" />
-            </svg>
-          </button>
+        <div className="flex shrink-0 items-center justify-between border-b border-line py-2 pr-2 pl-5">
+          <span className="text-base text-ink">{label}</span>
+          <IconButton icon="close" label="Close" onClick={onClose} />
         </div>
         <div className="min-h-0 flex-1 overflow-auto p-3">{children}</div>
       </div>

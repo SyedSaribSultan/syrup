@@ -1,5 +1,6 @@
 "use client"
 
+import { Button } from "../ui/s"
 import posthog from "posthog-js"
 import { createElement, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode, type RefObject } from "react"
 import { usePanel } from "@/lib/panel"
@@ -333,7 +334,7 @@ export function RichView({ input }: { input: RichInput }) {
   const paper = !!renderer?.paper && scheme === "dark"
   const style: CSSProperties = zoom === "fit" ? { maxWidth: "100%" } : { width: Math.round(r.width * zoom), maxWidth: "none" }
   const z = (v: Zoom, label: string) => (
-    <button type="button" aria-pressed={zoom === v} onClick={() => setZoom(v)} className={`rounded-md px-2.5 py-1 text-[12px] transition pointer-coarse:min-h-11 pointer-coarse:px-3 ${zoom === v ? "bg-surface-2 text-ink" : "text-ink-2 hover:bg-surface-2 hover:text-ink"}`}>
+    <button type="button" aria-pressed={zoom === v} onClick={() => setZoom(v)} className="s-seg__item">
       {label}
     </button>
   )
@@ -342,21 +343,24 @@ export function RichView({ input }: { input: RichInput }) {
       <div className="rich-bar">
         <span className="rich-kind">{KINDS[kind].label}</span>
         <span className="flex-1" />
-        {z("fit", "Fit")}
-        {z(1, "100%")}
-        {z(2, "200%")}
-        <button
-          type="button"
+        {/* Zoom is the Sarib segmented control (s-seg): one selected look, elevated + elevation-sm. */}
+        <div role="group" aria-label="Zoom" className="s-seg">
+          {z("fit", "Fit")}
+          {z(1, "100%")}
+          {z(2, "200%")}
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={() =>
             void navigator.clipboard?.writeText(outcome.source).then(() => {
               setCopied(true)
               setTimeout(() => setCopied(false), 1500)
             })
           }
-          className="rounded-md px-2.5 py-1 text-[12px] text-ink-2 transition hover:bg-surface-2 hover:text-ink pointer-coarse:min-h-11 pointer-coarse:px-3"
         >
           {copied ? "Copied" : "Copy"}
-        </button>
+        </Button>
       </div>
       <div
         className="rich-stage"

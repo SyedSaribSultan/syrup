@@ -1,5 +1,6 @@
 "use client"
 
+import { Icon } from "./ui/s"
 import { memo, useEffect, useState } from "react"
 import type { MessageEntry, PartStream } from "@/lib/engine-store"
 import type { Part } from "@/lib/oc"
@@ -80,7 +81,7 @@ function MessageViewImpl({ entry, streaming, rating = null, onRate, live, checkN
     const files = parts.filter((p) => p.type === "file")
     return (
       <div className="flex justify-end">
-        <div className="max-w-[85%] rounded-2xl rounded-br-md bg-surface-2 px-4 py-2.5 text-[15px] leading-6 text-ink-2 whitespace-pre-wrap">
+        <div className="max-w-[85%] rounded-2xl rounded-br-md bg-surface-2 px-4 py-2.5 text-base leading-6 text-ink-2 whitespace-pre-wrap">
           {text}
           {files.length > 0 && (
             <div className={`flex flex-wrap gap-1.5 ${text ? "mt-2" : ""}`}>
@@ -89,7 +90,7 @@ function MessageViewImpl({ entry, streaming, rating = null, onRate, live, checkN
                   // eslint-disable-next-line @next/next/no-img-element
                   <img key={f.id} src={f.url} alt={f.filename ?? "image"} className="max-h-48 rounded-lg border border-line" />
                 ) : (
-                  <span key={f.id} className="rounded-md border border-line bg-bg px-2 py-0.5 text-xs text-ink-2">
+                  <span key={f.id} className="s-badge">
                     📎 {f.type === "file" ? f.filename ?? f.mime : "file"}
                   </span>
                 ),
@@ -146,15 +147,16 @@ function MessageViewImpl({ entry, streaming, rating = null, onRate, live, checkN
           </div>
         )}
         {err && (
-          <div className="rounded-lg border border-err/30 bg-err/5 px-3 py-2 text-[13px] text-err">
-            {"data" in err && err.data && typeof err.data === "object" && "message" in err.data ? String(err.data.message) : err.name}
+          <div role="alert" className="s-alert s-alert--critical">
+            <Icon name="circle-alert" />
+            <p className="s-alert__desc">{"data" in err && err.data && typeof err.data === "object" && "message" in err.data ? String(err.data.message) : err.name}</p>
           </div>
         )}
       </div>
       {answerText && /\d/.test(answerText) && <NumberNote text={answerText} fresh={visible.some((p) => !!live?.[p.id])} onFix={onFix} />}
-      {note && <div className="mt-1.5 text-[11px] text-muted">{note}</div>}
+      {note && <div className="mt-1.5 text-2xs text-muted">{note}</div>}
       {!streaming && (meta || rateable) && (
-        <div className="mt-1.5 flex items-center gap-2 text-[11px] text-muted">
+        <div className="mt-1.5 flex items-center gap-2 text-2xs text-muted">
           {rateable && <Thumbs value={rating} onRate={(r) => onRate(r, answeredBy)} />}
           {/* Hover-only with a mouse; a touch screen shows it under each turn's last reply, a shared snapshot always. */}
           {meta && <span className={`min-w-0 truncate ${ro ? "" : `opacity-0 transition group-hover:opacity-100 ${onRate ? "pointer-coarse:opacity-100" : ""}`}`}>{meta}</span>}

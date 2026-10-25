@@ -13,7 +13,7 @@ export async function generateStaticParams() {
   return []
 }
 
-// syrup's light palette: the light values of the --s-* roles in src/app/sarib-tokens.css (an image can't read CSS variables).
+// syrup's light palette: the light values of the --s-* roles in src/sarib/tokens.css (an image can't read CSS variables).
 const C = { bg: "#ffffff", ink: "#0f0e0c", ink2: "#605f5c", muted: "rgba(15, 14, 12, 0.5)", line: "#e4e4e1", accent: "#a70d00", accentSoft: "rgba(245, 54, 6, 0.15)", bubble: "#ffebe4" }
 
 /**

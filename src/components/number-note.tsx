@@ -1,5 +1,6 @@
 "use client"
 
+import { btnClass } from "./ui/s"
 import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import type { Finding } from "@/lib/answer-checks"
 
@@ -136,12 +137,12 @@ export function NumberNote({ text, fresh = false, onFix }: { text: string; fresh
       role="note"
       data-number-note
       {...(fresh ? { "data-state": "open", "data-side": "down" } : {})}
-      className={`${fresh ? "motion-notice " : ""}mt-2 rounded-lg border border-line bg-surface px-3 py-2 text-[13px] leading-5 text-ink-2`}
+      className={`${fresh ? "motion-notice " : ""}mt-2 rounded-xl border border-line bg-well px-4 py-3 text-sm text-ink-2`}
     >
       <div className="flex items-start gap-2">
-        <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-warn" aria-hidden />
+        <span className="s-dot s-dot--warning mt-1.5" aria-hidden />
         <div className="min-w-0 flex-1">
-          <p className="font-medium text-ink">{L.noteTitle(issues)}</p>
+          <p className="text-ink">{L.noteTitle(issues)}</p>
           <ul className="mt-0.5 space-y-0.5 [overflow-wrap:anywhere]">
             {issues.map((f) => (
               <li key={f.message}>{f.message}</li>
@@ -158,7 +159,7 @@ export function NumberNote({ text, fresh = false, onFix }: { text: string; fresh
                 setSent(true)
                 fix(L.fixPrompt(issues))
               }}
-              className="mt-1.5 rounded-md border border-line bg-bg px-2.5 py-1 text-[12px] font-medium text-ink transition hover:bg-surface-2 pointer-coarse:px-3 pointer-coarse:py-2"
+              className={btnClass({ variant: "secondary", size: "sm", className: "mt-2" })}
             >
               Fix numbers
             </button>

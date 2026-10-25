@@ -16,7 +16,7 @@ export function RouterProgress({ sessionID, since, active }: { sessionID: string
   const line = describe(attempts.filter((a) => a.ts >= since - 2_000))
   if (!line) return null
   return (
-    <div className="mt-1 text-[12px] leading-snug text-muted" role="status">
+    <div className="s-meta mt-1" role="status">
       {line}
     </div>
   )

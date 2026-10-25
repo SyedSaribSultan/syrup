@@ -12,6 +12,7 @@ import { useNarrow } from "@/lib/use-window-class"
 import { absPath, downloadFile, list, read, type Read, type Target } from "@/lib/workspace-fs"
 import { Brew } from "./brew"
 import { Markdown } from "./markdown"
+import { Button, Icon, IconButton } from "./ui/s"
 import { MenuList, Popover, type MenuItem } from "./ui/sheet"
 
 /**
@@ -122,15 +123,17 @@ export function FilePreview({ target, rel }: { target: Target; rel: string }) {
 
   let content: ReactNode
   if (!res) content = <Center><Brew mood="load" size="md" /></Center>
-  else if ("error" in res) content = <Center><span className="text-warn">{res.error}</span></Center>
+  else if ("error" in res) content = <Center><p className="s-error-line">{res.error}</p></Center>
   else if ("tooBig" in res.read)
     content = (
       <Center>
-        <div className="max-w-[320px] space-y-3">
-          <div>
-            <span className="text-ink">{name}</span> is {fmtBytes(res.read.tooBig)}, too big to preview here.
-          </div>
-          <PrimaryButton onClick={() => void save()}>Download</PrimaryButton>
+        <div className="flex max-w-[320px] flex-col items-center gap-4">
+          <p className="s-empty-line">
+            {name} is {fmtBytes(res.read.tooBig)}, too big to preview here. Download it instead.
+          </p>
+          <Button variant="secondary" size="sm" icon="download" onClick={() => void save()}>
+            Download
+          </Button>
         </div>
       </Center>
     )
@@ -151,38 +154,30 @@ export function FilePreview({ target, rel }: { target: Target; rel: string }) {
           <img src={url} alt={name} className="max-h-full max-w-full object-contain" />
         </div>
       )
-    else if (kind === "pdf" && url) content = <iframe src={url} title={name} className="h-full w-full border-0 bg-surface" />
+    else if (kind === "pdf" && url) content = <iframe src={url} title={name} className="h-full w-full border-0 bg-bg" />
     else if (kind === "csv" || kind === "tsv") content = <TableView text={text} delimiter={kind === "tsv" ? "\t" : ","} />
     else if (kind === "json") content = <CodeView text={pretty(text)} name="x.json" />
     else if (kind === "code") content = <CodeView text={text} name={name} />
     else
       content = (
         <Center>
-          <div className="max-w-[320px] space-y-3">
-            <div>No preview for this kind of file.</div>
-            <PrimaryButton onClick={() => void save()}>Download</PrimaryButton>
+          <div className="flex max-w-[320px] flex-col items-center gap-4">
+            <p className="s-empty-line">No preview for this kind of file. Download it to open it.</p>
+            <Button variant="secondary" size="sm" icon="download" onClick={() => void save()}>
+              Download
+            </Button>
           </div>
         </Center>
       )
   }
 
-  const icon = (d: ReactNode) => (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      {d}
-    </svg>
-  )
   const actions: MenuItem[] = [
-    { label: "Reload", icon: icon(<path d="M11.5 7a4.5 4.5 0 1 1-1.3-3.2M11.5 2.5v2.8H8.7" />), onSelect: () => setRev((r) => r + 1) },
-    ...(narrow && kind === "html" && page?.rel === rel ? [{ label: "Open in new tab", icon: icon(<path d="M8 2.5h3.5V6M11.3 2.7 6.5 7.5M10 8.5v2.3c0 .4-.3.7-.7.7H3.2c-.4 0-.7-.3-.7-.7V4.7c0-.4.3-.7.7-.7h2.3" />), onSelect: () => openInTab(page.src, name), handoff: true }] : []),
-    { label: "Download", icon: icon(<path d="M7 2.5V10M3.8 7 7 10.2 10.2 7M2.5 11.5h9" />), onSelect: () => void save() },
+    { label: "Reload", icon: <Icon name="refresh-cw" />, onSelect: () => setRev((r) => r + 1) },
+    ...(narrow && kind === "html" && page?.rel === rel ? [{ label: "Open in new tab", icon: <Icon name="arrow-up-right" />, onSelect: () => openInTab(page.src, name), handoff: true }] : []),
+    { label: "Download", icon: <Icon name="download" />, onSelect: () => void save() },
     {
       label: "Copy path",
-      icon: icon(
-        <>
-          <rect x="4.5" y="4.5" width="7" height="7.5" rx="1.5" />
-          <path d="M9.5 4.5V3a1 1 0 0 0-1-1H3.5a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h1" />
-        </>,
-      ),
+      icon: <Icon name="copy" />,
       onSelect: () => {
         void copyText(absPath(target, rel))
         setNote("Copied path")
@@ -193,7 +188,7 @@ export function FilePreview({ target, rel }: { target: Target; rel: string }) {
       : [
           {
             label: revealLabel(hostOS()),
-            icon: icon(<path d="M1.8 11.2V3.4c0-.4.3-.7.7-.7h2.8l1.2 1.3h4.9c.4 0 .7.3.7.7v5.8c0 .4-.3.7-.7.7H2.5c-.4 0-.7-.3-.7-.7Z" />),
+            icon: <Icon name="folder-open" />,
             onSelect: () =>
               void localFileAction(target.dir, absPath(target, rel), "reveal").then((err) => {
                 if (err) setNote(err === "missing" ? "It isn't there anymore" : err)
@@ -202,39 +197,35 @@ export function FilePreview({ target, rel }: { target: Target; rel: string }) {
         ]),
   ]
 
+  const parts = rel.split("/")
   return (
     <>
-      <div className="flex shrink-0 items-center gap-1 border-b border-line px-2 py-1.5 pointer-coarse:py-0.5">
-        <span className="min-w-0 flex-1 truncate px-1 font-mono text-[11px] text-ink-2" title={absPath(target, rel)}>
-          {rel}
-          {loaded && "size" in loaded && <span className="ml-2 text-muted">{fmtBytes(loaded.size)}</span>}
-        </span>
+      {/* Path bar (03 B11): the file's path as Code crumbs, its size, View/Source and the file actions. */}
+      <div className="s-pathbar flex shrink-0 items-center gap-2">
+        <nav aria-label="File" title={absPath(target, rel)} className="s-crumbs min-w-0 flex-1 overflow-hidden">
+          <ol className="flex-nowrap">
+            {parts.map((part, i) => (
+              <li key={i} className={i === parts.length - 1 ? "min-w-0" : "shrink-0"}>
+                <span aria-current={i === parts.length - 1 ? "page" : undefined} className="truncate">
+                  {part}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </nav>
+        {loaded && "size" in loaded && <span className="s-meta shrink-0">{fmtBytes(loaded.size)}</span>}
         {canToggle && (
-          <div className="flex shrink-0 rounded-lg border border-line p-0.5 text-[11px] pointer-coarse:text-[13px]">
+          <div role="group" aria-label="Show as" className="s-seg">
             {(["Page", "Source"] as const).map((l) => (
-              <button key={l} type="button" aria-pressed={(l === "Source") === source} onClick={() => setSource(l === "Source")} className={`rounded-md px-1.5 py-0.5 transition pointer-coarse:min-h-10 pointer-coarse:px-3 ${(l === "Source") === source ? "bg-surface-2 text-ink" : "text-muted hover:text-ink"}`}>
+              <button key={l} type="button" aria-pressed={(l === "Source") === source} onClick={() => setSource(l === "Source")} className="s-seg__item">
                 {l === "Page" && kind !== "html" ? "View" : l}
               </button>
             ))}
           </div>
         )}
         <div ref={moreRef} className="relative shrink-0">
-          <button
-            type="button"
-            onClick={() => setMore((v) => !v)}
-            aria-expanded={more}
-            aria-haspopup="menu"
-            aria-label="File actions"
-            title="Reload, download, copy path…"
-            className={`flex items-center justify-center rounded-lg p-1.5 transition pointer-coarse:h-11 pointer-coarse:w-11 ${more ? "bg-surface-2 text-ink" : "text-muted hover:bg-surface-2 hover:text-ink"}`}
-          >
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-              <circle cx="3" cy="7" r="1" />
-              <circle cx="7" cy="7" r="1" />
-              <circle cx="11" cy="7" r="1" />
-            </svg>
-          </button>
-          <Popover open={more} onClose={closeMore} title={name} side="down" className="absolute top-full right-0 z-20 mt-1 w-[220px] rounded-xl border border-line bg-surface shadow-card">
+          <IconButton icon="ellipsis" label="File actions" title="Reload, download, copy path…" aria-expanded={more} aria-haspopup="menu" variant={more ? "secondary" : "ghost"} onClick={() => setMore((v) => !v)} />
+          <Popover open={more} onClose={closeMore} title={name} side="down" className="s-raised s-raised--md absolute top-full right-0 z-dropdown mt-1 w-[220px]">
             <MenuList items={actions} onDone={closeMore} />
           </Popover>
         </div>
@@ -242,7 +233,7 @@ export function FilePreview({ target, rel }: { target: Target; rel: string }) {
       {gui && <GuiNote name={name} onDownload={() => void save()} />}
       <div className="relative min-h-0 min-w-0 flex-1 overflow-auto overscroll-contain">{content}</div>
       {note && (
-        <div role="status" className="shrink-0 truncate border-t border-line px-3 py-2 text-[12px] text-ink-2">
+        <div role="status" className="shrink-0 truncate border-t border-line px-4 py-2 text-sm text-ink-2">
           {note}
         </div>
       )}
@@ -252,18 +243,21 @@ export function FilePreview({ target, rel }: { target: Target; rel: string }) {
 
 function GuiNote({ name, onDownload }: { name: string; onDownload(): void }) {
   return (
-    <div className="mx-3 mt-3 shrink-0 rounded-xl border border-accent/30 bg-accent-soft/40 px-3.5 py-3 text-[13px] leading-relaxed text-ink-2">
-      <div className="font-medium text-ink">This one opens a desktop window.</div>
-      <div>
-        {name} is a desktop app, and your cloud workspace has no screen to show it on. Download it and run it on your computer, or ask for a version that runs in the browser.
-      </div>
-      <div className="mt-2.5 flex flex-wrap gap-2">
-        <PrimaryButton onClick={() => prefillComposer(`Make a web version of ${name} that I can open in the browser: a static index.html (with its CSS and JS next to it) that does the same thing, so I can preview it in the panel.`)}>
-          Ask for a web version
-        </PrimaryButton>
-        <button type="button" onClick={onDownload} className="rounded-lg border border-line bg-surface px-2.5 py-1 text-xs text-ink-2 transition hover:border-line-2 hover:text-ink pointer-coarse:min-h-11 pointer-coarse:px-4 pointer-coarse:text-[13px]">
-          Download
-        </button>
+    <div className="s-alert s-alert--info mx-3 mt-3 shrink-0">
+      <Icon name="info" />
+      <div className="s-alert__body">
+        <p className="s-alert__title">This one opens a desktop window.</p>
+        <p className="s-alert__desc">
+          {name} is a desktop app, and your cloud workspace has no screen to show it on. Download it and run it on your computer, or ask for a version that runs in the browser.
+        </p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <Button size="sm" onClick={() => prefillComposer(`Make a web version of ${name} that I can open in the browser: a static index.html (with its CSS and JS next to it) that does the same thing, so I can preview it in the panel.`)}>
+            Ask for a web version
+          </Button>
+          <Button variant="secondary" size="sm" onClick={onDownload}>
+            Download
+          </Button>
+        </div>
       </div>
     </div>
   )
@@ -334,9 +328,12 @@ function HtmlView({ html, rel, target, onNavigate, onReady }: { html: string; re
   return (
     <div className="flex h-full flex-col">
       {doc.missing.length > 0 && (
-        <div className="shrink-0 truncate border-b border-line bg-warn/5 px-3 py-1.5 text-[11px] text-ink-2" title={doc.missing.join("\n")}>
+        <div className="s-alert s-alert--warning shrink-0 rounded-none px-4 py-2" title={doc.missing.join("\n")}>
+          <Icon name="triangle-alert" />
+          <p className="s-alert__desc min-w-0 flex-1 truncate">
           Not found in the workspace: {doc.missing.slice(0, 3).join(", ")}
           {doc.missing.length > 3 ? ` and ${doc.missing.length - 3} more` : ""}
+          </p>
         </div>
       )}
       {/* Scripts run, but in an opaque origin: no access to syrup, its storage or its cookies. */}
@@ -348,7 +345,8 @@ function HtmlView({ html, rel, target, onNavigate, onReady }: { html: string; re
 const MAX_LINES = 20_000
 const MAX_HIGHLIGHT_LINES = 5_000
 
-const TOK_CLASS: Record<Tok["t"], string> = { "": "", k: "text-accent", s: "text-ok", c: "text-muted italic", n: "text-warn", tag: "text-accent" }
+/** Syntax colours from the status roles: keywords and tags info blue, strings success, numbers warning. Never brand red (rule 11). */
+const TOK_CLASS: Record<Tok["t"], string> = { "": "", k: "text-info", s: "text-ok", c: "text-muted italic", n: "text-warn", tag: "text-info" }
 
 function CodeView({ text, name }: { text: string; name: string }) {
   const { lines, clipped } = useMemo(() => {
@@ -356,11 +354,11 @@ function CodeView({ text, name }: { text: string; name: string }) {
     const shown = all.length > MAX_LINES ? all.slice(0, MAX_LINES).join("\n") : text
     return { lines: highlight(shown, all.length > MAX_HIGHLIGHT_LINES ? null : langOf(name)), clipped: all.length > MAX_LINES ? all.length : 0 }
   }, [text, name])
-  if (!text) return <Center>Empty file.</Center>
+  if (!text) return <Center><p className="s-empty-line">Empty file.</p></Center>
   return (
-    <div className="min-w-max py-2 font-mono text-[12px] leading-[1.6]">
+    <div className="min-w-max py-2 font-mono text-xs leading-[1.6]">
       <div className="flex">
-        <pre aria-hidden className="sticky left-0 shrink-0 bg-surface pr-3 pl-3 text-right text-muted/70 select-none">
+        <pre aria-hidden className="sticky left-0 shrink-0 bg-bg pr-3 pl-4 text-right text-muted select-none">
           {lines.map((_, i) => i + 1).join("\n")}
         </pre>
         <pre className="pr-6 text-ink-2">
@@ -381,7 +379,7 @@ function CodeView({ text, name }: { text: string; name: string }) {
           ))}
         </pre>
       </div>
-      {clipped > 0 && <div className="px-3 pt-2 font-sans text-[12px] text-muted">Showing the first {MAX_LINES.toLocaleString()} of {clipped.toLocaleString()} lines. Download for the rest.</div>}
+      {clipped > 0 && <div className="s-empty-line px-4 pt-2">Showing the first {MAX_LINES.toLocaleString()} of {clipped.toLocaleString()} lines. Download for the rest.</div>}
     </div>
   )
 }
@@ -432,28 +430,28 @@ function parseDelimited(text: string, delimiter: string, maxRows = MAX_ROWS + 1)
 
 function TableView({ text, delimiter }: { text: string; delimiter: string }) {
   const rows = useMemo(() => parseDelimited(text, delimiter), [text, delimiter])
-  if (rows.length === 0) return <Center>Empty file.</Center>
+  if (rows.length === 0) return <Center><p className="s-empty-line">Empty file.</p></Center>
   const [head, ...body] = rows
   const shown = body.slice(0, MAX_ROWS - 1)
   return (
-    <div className="p-3">
-      <table className="w-max min-w-full border-collapse text-[12px]">
-        <thead className="sticky top-0">
+    // s-table, dense, sticky head: hairline rules only, no zebra or outer border (03 A15, B7). The panel is the scroller
+    // in both directions, so the table's own sideways scroll is off (overflow-visible) and its head sticks to the panel.
+    <div className="s-table s-table--dense s-table--sticky s-table--rows overflow-visible px-2 pb-3">
+      <table className="w-max min-w-full">
+        <thead>
           <tr>
-            <th className="border border-line bg-surface-2 px-2 py-1 text-right font-normal text-muted">#</th>
+            <th className="s-col-meta">#</th>
             {head.map((h, i) => (
-              <th key={i} className="border border-line bg-surface-2 px-2 py-1 text-left font-medium text-ink">
-                {h}
-              </th>
+              <th key={i}>{h}</th>
             ))}
           </tr>
         </thead>
         <tbody>
           {shown.map((r, i) => (
-            <tr key={i} className="even:bg-surface-2/40">
-              <td className="border border-line px-2 py-0.5 text-right text-muted tabular-nums">{i + 1}</td>
+            <tr key={i}>
+              <td className="s-col-meta tabular-nums">{i + 1}</td>
               {head.map((_, j) => (
-                <td key={j} className="max-w-[360px] truncate border border-line px-2 py-0.5 text-ink-2" title={r[j]}>
+                <td key={j} className="max-w-[360px] truncate" title={r[j]}>
                   {r[j]}
                 </td>
               ))}
@@ -461,19 +459,11 @@ function TableView({ text, delimiter }: { text: string; delimiter: string }) {
           ))}
         </tbody>
       </table>
-      {body.length >= MAX_ROWS - 1 && <div className="pt-2 text-[12px] text-muted">Showing the first {(MAX_ROWS - 1).toLocaleString()} rows.</div>}
+      {body.length >= MAX_ROWS - 1 && <p className="s-empty-line pt-3">Showing the first {(MAX_ROWS - 1).toLocaleString()} rows. Download for the rest.</p>}
     </div>
   )
 }
 
 function Center({ children }: { children: ReactNode }) {
-  return <div className="flex h-full min-h-[160px] items-center justify-center p-6 text-center text-[13px] text-muted">{children}</div>
-}
-
-function PrimaryButton({ onClick, children }: { onClick(): void; children: ReactNode }) {
-  return (
-    <button type="button" onClick={onClick} className="rounded-lg bg-accent-fill px-2.5 py-1 text-xs font-medium text-accent-ink transition hover:opacity-90 pointer-coarse:min-h-11 pointer-coarse:px-4 pointer-coarse:text-[13px]">
-      {children}
-    </button>
-  )
+  return <div className="flex h-full min-h-[160px] items-center justify-center p-6 text-center">{children}</div>
 }

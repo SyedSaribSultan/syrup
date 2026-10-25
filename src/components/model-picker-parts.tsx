@@ -36,7 +36,7 @@ export const ALIAS_COPY: Record<string, { title: string; subtitle: string; detai
   auto: {
     title: "Auto",
     subtitle: "Best model for each chat from your keys",
-    detail: "Sticks to one model per chat and switches only if it fails. OpenCode Zen models are direct picks — Auto can't route them.",
+    detail: "Sticks to one model per chat and switches only if it fails. OpenCode Zen models are direct picks: Auto can't route them.",
   },
   fast: { title: "Fast", subtitle: "Quickest capable model", detail: "Picks the quickest capable model. Sticks to it per chat, switches only if it fails." },
 }
@@ -233,7 +233,7 @@ type DetailProps = { item: Item | undefined; status: RouterStatus | null; tiers:
 
 export function Detail({ item, status, tiers, nowFor }: DetailProps) {
   if (!item || item.kind === "toggle" || item.kind === "header") {
-    return <div className="text-[11px] text-muted">↑↓ to move · Enter to select · Esc to close · try “free”, “vision”, “fast”</div>
+    return <div className="s-meta">↑↓ to move · Enter to select · Esc to close · try “free”, “vision”, “fast”</div>
   }
   const m = item.m
   if (item.kind === "alias") {
@@ -241,8 +241,8 @@ export function Detail({ item, status, tiers, nowFor }: DetailProps) {
     return (
       <>
         <Line title={ALIAS_COPY[m.id]?.title ?? displayName(m)} id={`syrup/${m.id}`} />
-        <div className="text-[11px] text-ink-2">{ALIAS_COPY[m.id]?.detail}</div>
-        <div className="text-[11px] text-muted">
+        <div className="text-xs text-ink-2">{ALIAS_COPY[m.id]?.detail}</div>
+        <div className="text-xs text-muted">
           {!now ? "Uses any of your provider keys" : now.inChat ? `This chat is on ${now.name} (${now.provider})` : `Last used ${now.name} (${now.provider}) in another chat`}
         </div>
       </>
@@ -256,8 +256,8 @@ export function Detail({ item, status, tiers, nowFor }: DetailProps) {
   return (
     <>
       <Line title={displayName(m)} id={`${m.providerID}/${m.id}`} />
-      <div className="truncate text-[11px] text-ink-2">{facts.filter(Boolean).join(" · ")}</div>
-      <div className="truncate text-[11px] text-muted">
+      <div className="truncate text-xs text-ink-2">{facts.filter(Boolean).join(" · ")}</div>
+      <div className="truncate text-xs text-muted">
         {m.providerID === "opencode" ? "No key needed · direct pick" : `Uses your ${freeTier ? "free-tier " : ""}${providerName(m.providerID)} key`}
         {item.tag ? ` · ${item.tag}` : ""}
         {st ? <span className={st.tone === "err" ? "text-err" : st.tone === "warn" ? "text-warn" : ""}> · {st.text}</span> : null}
@@ -269,8 +269,8 @@ export function Detail({ item, status, tiers, nowFor }: DetailProps) {
 function Line({ title, id }: { title: string; id: string }) {
   return (
     <div className="flex items-baseline gap-2">
-      <span className="shrink-0 text-[12px] font-medium text-ink">{title}</span>
-      <span className="truncate font-mono text-[10.5px] text-muted">{id}</span>
+      <span className="shrink-0 text-sm text-ink">{title}</span>
+      <span className="s-meta truncate">{id}</span>
     </div>
   )
 }
@@ -317,7 +317,8 @@ export function Chevron({ open }: { open: boolean }) {
 
 export function AliasIcon({ id }: { id: string }) {
   return (
-    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-accent">
+    // Neutral avatar tile (s-avatar colours): the brand red stays on the send button, not on every alias row.
+    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-2 text-ink-2">
       <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round">
         {id === "fast" ? <path d="M8 1.5 3 8h4l-1 4.5L11 6H7l1-4.5Z" /> : <path d="M7 1.5v2.2M7 10.3v2.2M1.5 7h2.2M10.3 7h2.2M3.1 3.1l1.5 1.5M9.4 9.4l1.5 1.5M3.1 10.9l1.5-1.5M9.4 4.6l1.5-1.5" />}
       </svg>

@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { Brew, Skel } from "@/components/brew"
+import { Button, Icon } from "@/components/ui/s"
 import { RowMenu } from "@/components/pages/row-menu"
 
 type Source = "syrup" | "claude" | "agents" | "project" | "builtin"
@@ -90,95 +90,100 @@ export default function SkillsPage() {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto w-full max-w-[880px] px-4 py-8 medium:px-6">
-        <h1 className="font-display text-[1.75rem] font-normal text-ink">Skills</h1>
-        <p className="mt-1 max-w-[640px] text-sm text-muted">
-          Skills are folders with a <code className="rounded bg-code-bg px-1 font-mono text-[12px]">SKILL.md</code> that teach the agent a repeatable task. It loads them on demand. Installed skills work in every project.
+        <h1 className="font-display text-heading text-ink">Skills</h1>
+        <p className="mt-2 max-w-[640px] text-base text-ink-2">
+          Skills are folders with a <code className="s-code">SKILL.md</code> that teach the agent a repeatable task. It loads them on demand. Installed skills work in every project.
         </p>
 
-        <div className="@container mt-6 rounded-xl border border-line bg-surface p-4">
-          <div className="mb-3 flex gap-1 text-xs">
+        {/* Install: a P2 card on the canvas; GitHub or paste is an s-seg switch. */}
+        <div className="s-card @container mt-6">
+          <div role="group" aria-label="Install from" className="s-seg self-start">
             {(["git", "paste"] as const).map((m) => (
-              <button key={m} type="button" onClick={() => setMode(m)} className={`rounded-md px-2.5 py-1 transition pointer-coarse:min-h-10 ${mode === m ? "bg-surface-2 text-ink" : "text-muted hover:text-ink"}`}>
+              <button key={m} type="button" aria-pressed={mode === m} onClick={() => setMode(m)} className="s-seg__item">
                 {m === "git" ? "From GitHub" : "Paste SKILL.md"}
               </button>
             ))}
           </div>
           {mode === "git" ? (
             // Narrow: the Install button goes full width under the field.
-            <div className="flex flex-col gap-2 @[480px]:flex-row">
-              <input
-                value={source}
-                onChange={(e) => setSource(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && void install()}
-                placeholder="owner/repo, owner/repo/path/to/skill, or a full URL"
-                className="min-w-0 flex-1 rounded-lg border border-line bg-bg px-3 py-2 font-mono text-[13px] outline-none placeholder:font-sans placeholder:text-muted focus:border-line-2 pointer-coarse:min-h-11"
-              />
-              <button type="button" onClick={() => void install()} disabled={busy || source.trim().length < 3} className={`rounded-lg bg-accent-fill px-3 py-2 text-xs font-medium text-accent-ink pointer-coarse:min-h-11 ${busy ? "" : "disabled:opacity-40"}`}>
-                {busy ? <Brew label="Installing" tone="inherit" /> : "Install"}
-              </button>
+            <div className="flex flex-col gap-3 @[480px]:flex-row">
+              <div className="s-field min-w-0 flex-1">
+                <input
+                  value={source}
+                  onChange={(e) => setSource(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && void install()}
+                  placeholder="owner/repo, owner/repo/path/to/skill, or a full URL"
+                  aria-label="Skill source"
+                  className="s-field__input"
+                />
+              </div>
+              <Button variant="brand" busy={busy} disabled={source.trim().length < 3} onClick={() => void install()}>
+                Install
+              </Button>
             </div>
           ) : (
-            <div>
-              <textarea
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                rows={8}
-                placeholder={"---\nname: my-skill\ndescription: When to use this skill and what it does.\n---\n\nStep-by-step instructions for the agent…"}
-                className="w-full resize-y rounded-lg border border-line bg-bg px-3 py-2 font-mono text-[12.5px] leading-relaxed outline-none placeholder:text-muted focus:border-line-2"
-              />
-              <div className="mt-2 flex justify-end">
-                <button type="button" onClick={() => void install()} disabled={busy || content.trim().length < 10} className={`w-full rounded-lg bg-accent-fill px-3 py-2 text-xs font-medium text-accent-ink pointer-coarse:min-h-11 @[480px]:w-auto ${busy ? "" : "disabled:opacity-40"}`}>
-                  {busy ? <Brew mood="save" tone="inherit" timerAfter={0} /> : "Create skill"}
-                </button>
+            <div className="flex flex-col gap-3">
+              <div className="s-field s-field--multi" data-grown="">
+                <textarea
+                  value={content}
+                  onChange={(e) => setContent(e.target.value)}
+                  rows={8}
+                  aria-label="SKILL.md"
+                  placeholder={"---\nname: my-skill\ndescription: When to use this skill and what it does.\n---\n\nStep-by-step instructions for the agent…"}
+                  className="s-field__input font-mono"
+                />
+              </div>
+              <div className="flex justify-end">
+                <Button variant="brand" busy={busy} disabled={content.trim().length < 10} onClick={() => void install()} className="w-full @[480px]:w-auto">
+                  Create skill
+                </Button>
               </div>
             </div>
           )}
-          <div className="mt-2 text-[11px] text-muted">
+          <p className="s-help">
             Skill packs work too: every folder with a SKILL.md under the path is installed. Installs into <span className="font-mono">{dir || "~/.config/opencode/skills"}</span>.
-          </div>
-          {msg && <div className="mt-2 text-xs text-ok">{msg}</div>}
-          {error && <div className="mt-2 text-xs text-err">{error}</div>}
+          </p>
+          {msg && <p className="text-sm text-ok">{msg}</p>}
+          {error && <p className="s-field-error">{error}</p>}
         </div>
 
         <SaribCard />
 
         <div className="mt-8 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-          <h2 className="text-sm font-medium text-ink">In the agent&apos;s prompt</h2>
-          <span className="text-sm text-muted">
+          <h2 className="text-lg text-ink">In the agent&apos;s prompt</h2>
+          <span className="s-meta">
             {skills ? (
               <>
-                <span className="text-ink-2">
-                  {on.length} of {skills.length} on
-                </span>{" "}
-                · ~{fmt(on.reduce((n, s) => n + s.tokens, 0))} tokens per request
+                {on.length} of {skills.length} on · ~{fmt(on.reduce((n, s) => n + s.tokens, 0))} tokens per request
               </>
             ) : (
-              <Skel className="inline-block h-3 w-44 align-middle" />
+              <span className="s-skeleton s-skeleton--line inline-block w-44 align-middle" />
             )}
           </span>
         </div>
-        <p className="mt-1 max-w-[640px] text-[13px] text-muted">Every request lists the skills that are on, so each one costs tokens even when unused. Changes apply from the next message; running chats finish first.</p>
+        <p className="mt-1 max-w-[640px] text-sm text-ink-2">Every request lists the skills that are on, so each one costs tokens even when unused. Changes apply from the next message; running chats finish first.</p>
 
         {duplicated.length > 0 && (
-          <div className="mt-4 rounded-xl border border-warn/40 bg-warn/5 px-4 py-3 text-[13px] leading-relaxed text-ink-2">
-            <span className="font-medium text-ink">
-              {duplicated.length} skill{duplicated.length === 1 ? " exists" : "s exist"} in more than one folder.
-            </span>{" "}
-            The engine loads one copy per name and may switch to the other after a reload, which makes a skill seem to vanish. Keep one copy of each; the rows below say where the others are.
+          <div className="s-alert s-alert--warning mt-4">
+            <Icon name="triangle-alert" />
+            <div className="s-alert__body">
+              <p className="s-alert__title">
+                {duplicated.length} skill{duplicated.length === 1 ? " exists" : "s exist"} in more than one folder.
+              </p>
+              <p className="s-alert__desc">The engine loads one copy per name and may switch to the other after a reload, which makes a skill seem to vanish. Keep one copy of each; the rows below say where the others are.</p>
+            </div>
           </div>
         )}
 
         {skills && skills.length > 0 && (
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search skills…"
-            className="mt-4 w-full rounded-xl border border-line bg-surface px-4 py-2.5 text-sm outline-none placeholder:text-muted focus:border-line-2"
-          />
+          <div className="s-field mt-4">
+            <Icon name="search" />
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search skills" aria-label="Search skills" className="s-field__input" />
+          </div>
         )}
         {!skills && !error && <SkillsSkeleton />}
-        {skills && skills.length === 0 && <div className="mt-4 rounded-xl border border-dashed border-line p-8 text-center text-sm text-muted">No skills yet.</div>}
-        {skills && skills.length > 0 && shown.length === 0 && <div className="mt-4 rounded-xl border border-dashed border-line p-8 text-center text-sm text-muted">Nothing matches.</div>}
+        {skills && skills.length === 0 && <p className="s-empty-line mt-4 px-2 py-8 text-center">No skills yet. Install one above.</p>}
+        {skills && skills.length > 0 && shown.length === 0 && <p className="s-empty-line mt-4 px-2 py-8 text-center">Nothing matches. Try another word.</p>}
 
         {GROUPS.map((grp) => {
           const all = skills?.filter((s) => s.source === grp.source) ?? []
@@ -188,21 +193,16 @@ export default function SkillsPage() {
           return (
             <section key={grp.source} className="@container mt-6">
               {/* Wraps on phones; "Turn all off" folds into a ⋯ when the column is narrow. */}
-              <div className="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
-                <h3 className="text-[13px] font-medium text-ink">{grp.label}</h3>
-                <span className="text-[12px] text-muted">
+              <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                <h3 className="text-base text-ink">{grp.label}</h3>
+                <span className="s-meta">
                   {groupOn.length}/{all.length} on · ~{fmt(groupOn.reduce((n, s) => n + s.tokens, 0))} tokens
                 </span>
-                <span className="hidden text-[11px] text-muted medium:inline">{grp.hint}</span>
+                <span className="s-help hidden medium:inline">{grp.hint}</span>
                 <span className="flex-1" />
-                <button
-                  type="button"
-                  disabled={groupOn.length === 0}
-                  onClick={() => void toggle(groupOn.map((s) => s.name), false)}
-                  className="hidden text-[12px] text-muted hover:text-ink disabled:opacity-40 disabled:hover:text-muted items-center @[480px]:inline-flex pointer-coarse:min-h-11"
-                >
+                <Button variant="ghost" size="sm" disabled={groupOn.length === 0} onClick={() => void toggle(groupOn.map((s) => s.name), false)} className="hidden @[480px]:inline-flex">
                   Turn all off
-                </button>
+                </Button>
                 <RowMenu
                   className="-my-2 self-center @[480px]:hidden"
                   label={`${grp.label} actions`}
@@ -210,7 +210,7 @@ export default function SkillsPage() {
                   items={[{ label: "Turn all off", onSelect: () => void toggle(groupOn.map((s) => s.name), false), disabled: groupOn.length === 0 }]}
                 />
               </div>
-              <ul className="space-y-2">
+              <ul className="flex flex-col gap-3">
                 {rows.map((s) => (
                   <SkillCard key={s.location} s={s} onChange={load} onToggle={(v) => void toggle([s.name], v)} />
                 ))}
@@ -255,116 +255,112 @@ function SaribCard() {
   const installed = !!st?.command
   if (!st) return null
   return (
-    <div className="mt-6 rounded-xl border border-line bg-surface p-4">
+    <div className="s-card mt-6">
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="font-mono text-[13px] font-medium text-ink">.sarib tools</span>
-            {st && !st.installing && <span className={`rounded px-1 text-[10px] ${installed ? "bg-surface-2 text-ok" : "bg-surface-2 text-ink-2"}`}>{installed ? "installed" : "not installed"}</span>}
+            <span className="font-mono text-base text-ink">.sarib tools</span>
+            {!st.installing && <span className={`s-badge ${installed ? "s-badge--success" : ""}`}>{installed ? "Installed" : "Not installed"}</span>}
           </div>
-          <div className="mt-0.5 text-[13px] text-ink-2">
+          <p className="mt-1 text-sm text-ink-2">
             Lets the agent query and edit{" "}
-            <a href="https://github.com/SyedSaribSultan/sarib-lang" target="_blank" rel="noreferrer" className="underline decoration-line-2 underline-offset-2 hover:text-ink">
+            <a href="https://github.com/SyedSaribSultan/sarib-lang" target="_blank" rel="noreferrer" className="s-link">
               .sarib
             </a>{" "}
             files by id instead of rewriting them. Turns on only in workspaces that contain .sarib files, so other chats pay nothing for it.
-          </div>
+          </p>
         </div>
-        {st && !installed && (
-          <button type="button" onClick={() => void install()} disabled={st.installing || !st.python} className={`shrink-0 rounded-lg bg-accent-fill px-3 py-2 text-xs font-medium text-accent-ink pointer-coarse:min-h-11 ${st.installing ? "" : "disabled:opacity-40"}`}>
-            {st.installing ? <Brew label="Installing" tone="inherit" /> : "Enable"}
-          </button>
+        {!installed && (
+          <Button size="sm" busy={st.installing} disabled={!st.python} onClick={() => void install()}>
+            Enable
+          </Button>
         )}
       </div>
-      {st && !installed && !st.python && (
-        <div className="mt-2 text-[11px] text-muted">
+      {!installed && !st.python && (
+        <p className="s-help">
           Needs Python 3.10+.{" "}
-          <a href="https://www.python.org/downloads/" target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-ink">
+          <a href="https://www.python.org/downloads/" target="_blank" rel="noreferrer" className="s-link">
             Install Python
           </a>
           , then reload this page.
-        </div>
+        </p>
       )}
-      {st?.error && <div className="mt-2 text-xs text-err">{st.error}</div>}
-      {st?.log && (
-        <div className="mt-2">
-          <button type="button" onClick={() => setShowLog((v) => !v)} className="text-[11px] text-muted hover:text-ink pointer-coarse:min-h-11">
-            {showLog ? "Hide" : "Show"} install log
-          </button>
-          {showLog && <pre className="mt-1 max-h-[240px] overflow-auto rounded-lg bg-code-bg p-3 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap text-ink-2">{st.log}</pre>}
+      {st.error && <p className="s-error-line">{st.error}</p>}
+      {st.log && (
+        <div>
+          <Button variant="link-neutral" size="sm" onClick={() => setShowLog((v) => !v)} className="pointer-coarse:min-h-11">
+            {showLog ? "Hide install log" : "Show install log"}
+          </Button>
+          {showLog && <pre className="s-codeblock mt-2 max-h-[240px] overflow-auto whitespace-pre-wrap">{st.log}</pre>}
         </div>
       )}
     </div>
   )
 }
 
+/** One skill: a P2 card; the head toggles the SKILL.md below, the s-switch turns it on or off. */
 function SkillCard({ s, onChange, onToggle }: { s: Skill; onChange(): Promise<void>; onToggle(enabled: boolean): void }) {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
+  // p-0: the whole card head is the expand button, so the card's padding moves onto it (a hit-area reason).
   return (
-    <li className="rounded-xl border border-line bg-surface transition-colors hover:border-line-2">
-      <div className="flex items-start gap-3 pr-4">
-        <button type="button" onClick={() => setOpen((v) => !v)} className="flex min-w-0 flex-1 items-start gap-3 py-3 pl-4 text-left">
+    <li className="s-card s-card--compact p-0">
+      <div className="flex items-center gap-3 pr-5">
+        <button type="button" aria-expanded={open} onClick={() => setOpen((v) => !v)} className="flex min-w-0 flex-1 items-start gap-3 rounded-l-xl py-4 pl-5 text-left">
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <span className={`font-mono text-[13px] font-medium ${s.enabled ? "text-ink" : "text-ink-2"}`}>{s.name}</span>
-              <span className="text-[11px] text-muted">~{fmt(s.tokens)} tokens</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={`font-mono text-sm ${s.enabled ? "text-ink" : "text-ink-2"}`}>{s.name}</span>
+              <span className="s-meta">~{fmt(s.tokens)} tokens</span>
               {s.duplicates.length > 0 && (
-                <span className="rounded bg-warn/15 px-1 py-px text-[10px] font-medium text-warn" title={s.duplicates.join("\n")}>
+                <span className="s-badge s-badge--warning" title={s.duplicates.join("\n")}>
                   {s.duplicates.length + 1} copies
                 </span>
               )}
             </div>
-            <div className={`mt-0.5 line-clamp-2 text-[13px] ${s.enabled ? "text-ink-2" : "text-muted"}`}>{s.description || "No description"}</div>
+            <p className={`mt-1 line-clamp-2 text-sm ${s.enabled ? "text-ink-2" : "text-muted"}`}>{s.description || "No description"}</p>
           </div>
-          <svg width="10" height="10" viewBox="0 0 10 10" className={`mt-1.5 shrink-0 opacity-60 transition ${open ? "rotate-180" : ""}`}>
-            <path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
-          </svg>
+          <Icon name="chevron-down" size={16} className={`mt-1 text-muted transition-transform ${open ? "rotate-180" : ""}`} />
         </button>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={s.enabled}
-          aria-label={`${s.enabled ? "Turn off" : "Turn on"} ${s.name}`}
-          onClick={() => onToggle(!s.enabled)}
-          className={`relative mt-3 h-5 w-9 shrink-0 rounded-full transition pointer-coarse:after:absolute pointer-coarse:after:-inset-3 ${s.enabled ? "bg-accent-fill" : "bg-line-2"}`}
-        >
-          <span className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow transition ${s.enabled ? "translate-x-4" : "translate-x-0"}`} />
-        </button>
+        <label className="s-switch">
+          <input type="checkbox" role="switch" checked={s.enabled} aria-label={`${s.enabled ? "Turn off" : "Turn on"} ${s.name}`} onChange={() => onToggle(!s.enabled)} />
+        </label>
       </div>
       {open && (
-        <div className="border-t border-line px-4 py-3">
+        <div className="flex flex-col gap-3 border-t border-line px-5 py-4">
           {s.duplicates.length > 0 && (
-            <div className="mb-2 rounded-lg border border-warn/30 bg-warn/5 px-3 py-2 text-[12px] leading-relaxed text-ink-2">
-              <span className="font-medium text-warn">Also found at</span>
-              {s.duplicates.map((d) => (
-                <div key={d} className="mt-0.5 truncate font-mono text-[11px]" title={d}>
-                  {d}
-                </div>
-              ))}
-              <div className="mt-1 text-[11px] text-muted">The engine shows one of these at a time. Delete the copies you don&apos;t want so it stays put.</div>
+            <div className="s-alert s-alert--warning">
+              <Icon name="triangle-alert" />
+              <div className="s-alert__body">
+                <p className="s-alert__title">Also found at</p>
+                {s.duplicates.map((d) => (
+                  <p key={d} className="s-alert__desc w-full truncate font-mono" title={d}>
+                    {d}
+                  </p>
+                ))}
+                <p className="s-alert__desc">The engine shows one of these at a time. Delete the copies you don&apos;t want so it stays put.</p>
+              </div>
             </div>
           )}
-          <div className="mb-2 flex items-center gap-3 text-[11px] text-muted">
-            <span className="truncate font-mono">{s.location}</span>
+          <div className="flex items-center gap-3">
+            <span className="s-meta min-w-0 truncate">{s.location}</span>
             <span className="flex-1" />
             {s.managed && (
-              <button
-                type="button"
-                disabled={busy}
+              <Button
+                variant="ghost"
+                size="sm"
+                busy={busy}
                 onClick={async () => {
                   setBusy(true)
                   await fetch(`/api/skills/${s.name}`, { method: "DELETE" })
                   await onChange()
                   setBusy(false)
                 }}
-                className="text-muted hover:text-err disabled:opacity-40 pointer-coarse:min-h-11 pointer-coarse:px-2"
               >
                 Remove
-              </button>
+              </Button>
             )}
           </div>
-          <pre className="max-h-[400px] overflow-auto rounded-lg bg-code-bg p-3 font-mono text-[12px] leading-relaxed whitespace-pre-wrap text-ink-2">{s.content}</pre>
+          <pre className="s-codeblock max-h-[400px] overflow-auto whitespace-pre-wrap">{s.content}</pre>
         </div>
       )}
     </li>
@@ -375,24 +371,20 @@ function SkillCard({ s, onChange, onToggle }: { s: Skill; onChange(): Promise<vo
 function SkillsSkeleton() {
   return (
     <div aria-busy className="skel-in">
-      <Skel className="mt-4 h-[42px] w-full rounded-xl" />
+      <span className="s-skeleton s-skeleton--row mt-4 block w-full" />
       <section className="mt-6">
-        <div className="mb-2 flex items-center gap-3">
-          <Skel className="h-3.5 w-32" />
-          <Skel className="h-3 w-24" />
+        <div className="mb-3 flex items-center gap-3">
+          <span className="s-skeleton s-skeleton--line w-32" />
+          <span className="s-skeleton s-skeleton--line w-24" />
         </div>
-        <ul className="space-y-2">
+        <ul className="flex flex-col gap-3">
           {["w-28", "w-40", "w-24", "w-36"].map((w) => (
-            <li key={w} className="flex items-start gap-3 rounded-xl border border-line bg-surface py-3 pr-4 pl-4">
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <Skel className={`h-3.5 ${w}`} />
-                  <Skel className="h-3 w-16" />
-                </div>
-                <Skel className="mt-2 h-3.5 w-[94%]" />
-                <Skel className="mt-1.5 h-3.5 w-[64%]" />
+            <li key={w} className="s-card s-card--compact">
+              <span className={`s-skeleton s-skeleton--line ${w}`} />
+              <div className="s-skeleton-stack">
+                <span className="s-skeleton s-skeleton--line" />
+                <span className="s-skeleton s-skeleton--line" />
               </div>
-              <Skel className="mt-0.5 h-5 w-9 rounded-full" />
             </li>
           ))}
         </ul>

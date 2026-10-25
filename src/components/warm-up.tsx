@@ -1,5 +1,6 @@
 "use client"
 
+import { IconButton } from "./ui/s"
 import posthog from "posthog-js"
 import { useEffect, useReducer, useRef, useState } from "react"
 import { useEngine } from "@/lib/engine-store"
@@ -110,14 +111,14 @@ export function WarmupStatus({ queued }: { queued?: boolean }) {
   const usual = `usually ~${Math.max(3, Math.round(estimateMs / 1000))} s`
   return (
     <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px]">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
         <Brew mood="wake" label={label} timerAfter={0} />
-        <span className="text-[12px] text-muted">
+        <span className="text-xs text-muted">
           {over ? "Taking longer than usual, still on it" : usual}
           {stage === "workspace" && " · then the engine, ~3 s"}
         </span>
       </div>
-      {queued && <div className="text-[12px] text-muted">Your message is queued and goes out the moment it&apos;s ready.</div>}
+      {queued && <p className="s-meta">Your message is queued and goes out the moment it&apos;s ready.</p>}
       <WarmupGameSlot elapsedMs={elapsedMs} />
     </div>
   )
@@ -287,17 +288,15 @@ function WarmupGame({ onClose }: { onClose(): void }) {
   }, [])
 
   return (
-    <div className="inline-block rounded-xl border border-line bg-surface/70 p-2 text-ink-2 select-none">
-      <div className="mb-1 flex items-center gap-3 px-1 text-[11px] text-muted">
+    <div className="inline-block rounded-xl border border-line p-3 text-ink-2 select-none">
+      <div className="s-meta mb-2 flex items-center gap-3 px-1">
         <span>Hop the spills · space or click</span>
         <span className="flex-1" />
         <span className="tabular-nums">
           {score}
           {best > score ? ` · best ${best}` : ""}
         </span>
-        <button type="button" onClick={onClose} aria-label="Close the game and don't show it again" title="Don't show this again" className="rounded px-1 text-muted transition hover:text-ink">
-          ×
-        </button>
+        <IconButton icon="close" label="Close the game and don't show it again" title="Don't show this again" onClick={onClose} className="-my-2" />
       </div>
       <canvas ref={canvas} style={{ width: W, height: H }} className="block rounded-lg bg-bg/60" aria-label="Warm-up game: a spoon hopping over syrup spills" />
     </div>

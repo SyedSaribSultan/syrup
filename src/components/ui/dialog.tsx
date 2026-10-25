@@ -1,5 +1,6 @@
 "use client"
 
+import { Button } from "./s"
 import { useRef, useState, useSyncExternalStore } from "react"
 import { usePresence, type Presence } from "@/lib/use-presence"
 import { useModalDialog } from "./sheet"
@@ -136,7 +137,6 @@ function DialogBox({
 
   const isPrompt = req.kind === "prompt"
   const canConfirm = !isPrompt || text.trim().length > 0
-  const btn = "rounded-lg px-3.5 py-2 text-[13px] font-medium transition pointer-coarse:min-h-11 pointer-coarse:px-4"
 
   return (
     <dialog
@@ -146,7 +146,8 @@ function DialogBox({
       aria-labelledby={`dlg-${req.id}-title`}
       // A press on the backdrop (the dialog element itself, outside the card) cancels.
       onClick={(e) => e.target === e.currentTarget && finish(false)}
-      className="m-auto w-[min(400px,calc(100vw-32px))] max-w-none rounded-2xl border border-line bg-surface p-0 text-ink shadow-card motion-dialog backdrop:bg-ink/30 max-medium:mt-[15dvh]"
+      // P3 raised dialog (03 B14): elevated surface, hairline, r20, elevation-lg, ink 30% scrim.
+      className="m-auto w-[min(440px,calc(100vw-32px))] max-w-none rounded-xl border border-line bg-elevated p-0 text-ink shadow-panel motion-dialog backdrop:bg-ink/30 max-medium:mt-[15dvh]"
     >
       <form
         method="dialog"
@@ -154,36 +155,35 @@ function DialogBox({
           e.preventDefault()
           if (canConfirm) finish(true)
         }}
-        className="p-5"
+        className="p-6"
       >
-        <h2 id={`dlg-${req.id}-title`} className="text-[15px] font-medium leading-6">
+        <h2 id={`dlg-${req.id}-title`} className="text-xl text-ink">
           {req.title}
         </h2>
-        {req.body && <p className="mt-1.5 whitespace-pre-line text-[13px] leading-5 text-ink-2">{req.body}</p>}
+        {req.body && <p className="mt-2 whitespace-pre-line text-base text-ink-2">{req.body}</p>}
         {isPrompt && (
+          <div className="s-field mt-4">
           <input
             autoFocus
             value={text}
             onChange={(e) => setText(e.target.value)}
             onFocus={(e) => e.currentTarget.select()}
             placeholder={req.placeholder}
-            className="mt-3 w-full rounded-lg border border-line-2 bg-bg px-3 py-2 text-[14px] outline-none focus:border-accent"
+            aria-label={req.title}
+            className="s-field__input"
           />
+          </div>
         )}
-        <div className="mt-5 flex justify-end gap-2">
+        {/* Actions right; stacked below 480 with the confirm on top. Cancel secondary, confirm primary, destructive error. */}
+        <div className="mt-6 flex flex-col-reverse gap-2 min-[480px]:flex-row min-[480px]:justify-end">
           {req.kind !== "alert" && (
-            <button type="button" autoFocus={req.danger} onClick={() => finish(false)} className={`${btn} text-ink-2 hover:bg-surface-2`}>
+            <Button variant="secondary" autoFocus={req.danger} onClick={() => finish(false)}>
               {req.cancelLabel ?? "Cancel"}
-            </button>
+            </Button>
           )}
-          <button
-            type="submit"
-            autoFocus={!isPrompt && !req.danger}
-            disabled={!canConfirm}
-            className={`${btn} disabled:opacity-40 ${req.danger ? "bg-err-fill text-accent-ink hover:opacity-90" : "bg-accent-fill text-accent-ink hover:opacity-90"}`}
-          >
+          <Button type="submit" variant={req.danger ? "error" : "primary"} autoFocus={!isPrompt && !req.danger} disabled={!canConfirm}>
             {req.confirmLabel ?? "OK"}
-          </button>
+          </Button>
         </div>
       </form>
     </dialog>

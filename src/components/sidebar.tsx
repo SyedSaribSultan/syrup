@@ -12,8 +12,9 @@ import { useOverlay } from "@/lib/use-presence"
 import { useAllChats, useWorkspaces } from "@/lib/workspaces"
 import { useLogs } from "./logs-modal"
 import { confirmDialog, promptDialog } from "./ui/dialog"
+import { btnClass, Button, Icon, IconButton, LinkButton } from "./ui/s"
 import { MenuList, Popover, type MenuItem, type Side } from "./ui/sheet"
-import { WorkspaceDot, WorkspaceSwitcher, WorkspaceTile } from "./workspace-switcher"
+import { WorkspaceDot, WorkspaceSwitcher } from "./workspace-switcher"
 
 /**
  * The one sidebar, local and cloud: workspace switcher, every chat from every
@@ -51,182 +52,168 @@ export function Sidebar({ status, footer }: { status?: ReactNode; footer?: React
   }
 
   return (
-    <aside className="flex h-full w-full flex-col border-r border-line bg-surface pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
+    // The Sarib sidebar (s-sidebar, DESIGN.md §11.2): P0 band, no border, p12, sections 24 apart. syrup's AppShell owns the
+    // drawer below its `expanded` breakpoint, so the library's own <1025px drawer is off (--static). In that drawer the
+    // band takes the drawer colour the library gives it (fill-secondary-variant): applied here only because syrup's
+    // drawer breakpoint (840, docs/RESPONSIVE.md) differs from the library's (1025). overflow-visible: the workspace
+    // and settings popovers are wider than the column and must not be clipped; the chat list scrolls on its own.
+    <aside aria-label="Sidebar" className="flex h-full w-full flex-col pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
       {(rail || forced) && <Rail className={rail ? "hidden expanded:flex" : "hidden expanded:max-large:flex"} />}
-      <div className={`flex min-h-0 flex-1 flex-col ${rail ? "expanded:hidden" : forced ? "expanded:max-large:hidden" : ""}`}>
-      <div className="flex items-center justify-between gap-2 pt-4 pr-2 pb-1 pl-4 pointer-coarse:pt-3">
-        <Link href="/" className="font-sans text-[1.35rem] font-medium text-ink">
-          syrup
-        </Link>
-        <div className="flex items-center gap-2">
-          {w.mode === "cloud" && <span className="rounded bg-accent-soft px-1.5 py-0.5 text-[10px] font-medium text-accent">early access</span>}
-          {engine && <span title={engine.connected ? "Connected to engine" : engine.ready ? "Reconnecting…" : "Starting…"} className={`h-2 w-2 rounded-full ${engine.connected ? "bg-ok" : "bg-warn pulse"}`} />}
-          {nav && (
-            <>
-              <SideBtn label={`Collapse sidebar (${SIDEBAR_SHORTCUT})`} onClick={nav.toggleCollapsed} className="hidden expanded:flex">
-                <path d="M5.5 2.5v11M2.5 4a1.5 1.5 0 0 1 1.5-1.5h8A1.5 1.5 0 0 1 13.5 4v8a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 12V4Z" />
-              </SideBtn>
-              <SideBtn label="Close menu" onClick={nav.closeDrawer} className="flex expanded:hidden">
-                <path d="M4 4l8 8M12 4l-8 8" />
-              </SideBtn>
-            </>
-          )}
-        </div>
-      </div>
-
-      <WorkspaceSwitcher controls={footer} />
-      {status}
-
-      <div className="px-3 pb-2">
-        {w.newChatHref ? (
-          <Link href={w.newChatHref} className="flex w-full items-center gap-2 rounded-xl border border-line bg-bg px-3 py-2 text-sm font-medium text-ink transition hover:border-line-2">
-            <span className="text-accent">+</span> New chat
+      <div className={`s-sidebar s-sidebar--static h-auto min-h-0 w-full flex-1 overflow-visible max-expanded:bg-surface ${rail ? "expanded:hidden" : forced ? "expanded:max-large:hidden" : ""}`}>
+        <div className="s-sidebar__head">
+          <Link href="/" className="s-sidebar__brand">
+            syrup
           </Link>
+          <div className="flex items-center gap-2">
+            {w.mode === "cloud" && <span className="s-badge">Early access</span>}
+            {engine && (
+              <span
+                role="img"
+                aria-label={engine.connected ? "Connected to engine" : engine.ready ? "Reconnecting" : "Starting"}
+                title={engine.connected ? "Connected to engine" : engine.ready ? "Reconnecting…" : "Starting…"}
+                className={`s-dot ${engine.connected ? "s-dot--success" : "s-dot--warning pulse"}`}
+              />
+            )}
+            {nav && (
+              <>
+                <IconButton icon="panel-close" label={`Collapse sidebar (${SIDEBAR_SHORTCUT})`} aria-expanded onClick={nav.toggleCollapsed} className="max-expanded:hidden" />
+                <IconButton icon="close" label="Close menu" onClick={nav.closeDrawer} className="expanded:hidden" />
+              </>
+            )}
+          </div>
+        </div>
+
+        {w.newChatHref ? (
+          <LinkButton href={w.newChatHref} variant="secondary" block icon="plus">
+            New chat
+          </LinkButton>
         ) : (
-          <div className="flex w-full items-center gap-2 rounded-xl border border-dashed border-line px-3 py-2 text-sm text-muted">Pick a workspace to chat</div>
+          <Button variant="secondary" block disabled>
+            Pick a workspace to chat
+          </Button>
         )}
-      </div>
 
-      <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-        <div className="px-2 pt-2 pb-1 text-[11px] font-mono text-muted">Chats</div>
-        {chats.length > 6 && (
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search chats"
-            aria-label="Search chats"
-            className="mx-1 mb-1.5 w-[calc(100%-0.5rem)] rounded-lg border border-line bg-surface px-2.5 py-1.5 text-[13px] text-ink outline-none placeholder:text-muted focus:border-line-2"
-          />
-        )}
-        {w.workspaces && chats.length === 0 && <div className="px-2 py-3 text-sm text-muted">No chats yet.</div>}
-        {query && shown.length === 0 && <div className="px-2 py-3 text-sm text-muted">No chats match.</div>}
-        <ul className="space-y-0.5">
-          {shown.map((c) => {
-            const active = activeChat === c.id
-            const mine = c.workspaceId === w.activeId && !!engine?.sessionsLoaded
-            const st = mine ? engine!.status[c.id]?.type : undefined
-            const busy = st === "busy" || st === "retry"
-            return (
-              <li key={c.id} className="group relative">
-                <Link
-                  href={w.chatHref(c)}
-                  onClick={() => c.workspaceId !== w.activeId && w.select(c.workspaceId)}
-                  title={names.get(c.workspaceId)}
-                  className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition pointer-coarse:py-2.5 ${mine ? "pr-14 pointer-coarse:pr-20" : ""} ${active ? "bg-surface-2 text-ink" : "text-ink-2 hover:bg-surface-2/60 hover:text-ink"}`}
-                >
-                  <WorkspaceDot color={colors.get(c.workspaceId) ?? 0} />
-                  <span className="min-w-0 flex-1 truncate">{c.title || "Untitled"}</span>
-                  {busy ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent-fill pulse" /> : <span className={`shrink-0 text-[11px] text-muted ${mine ? "transition group-focus-within:opacity-0 group-hover:opacity-0 pointer-coarse:hidden" : ""}`}>{fmtRelative(c.updated)}</span>}
-                </Link>
-                {mine && (
-                  <div className="absolute top-1/2 right-1.5 flex -translate-y-1/2 items-center gap-0.5 motion-reveal">
-                    <IconBtn title="Rename" onClick={() => void rename(c.id, c.title)}>
-                      <path d="M2.5 11.5h9M8.6 2.9l2 2-6.1 6.1H2.5v-2l6.1-6.1Z" />
-                    </IconBtn>
-                    <IconBtn title="Delete" onClick={() => void remove(c.id, c.title)} danger>
-                      <path d="M3 4h8M5.5 4V2.5h3V4M4 4l.6 7.5h4.8L10 4" />
-                    </IconBtn>
-                  </div>
-                )}
-              </li>
-            )
-          })}
-        </ul>
-      </nav>
+        <div className="flex flex-col gap-1">
+          <WorkspaceSwitcher controls={footer} />
+          {status}
+        </div>
 
-      <AccountRow />
+        <nav aria-label="Chats" className="s-sidebar__section -mx-1 min-h-0 flex-1 overflow-y-auto overscroll-contain px-1">
+          <p className="s-sidebar__label">Chats</p>
+          {chats.length > 6 && (
+            <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search chats" aria-label="Search chats" className="s-search mb-2 w-full min-w-0 max-w-none shrink-0" />
+          )}
+          {w.workspaces && chats.length === 0 && <p className="s-empty-line px-4 py-2">No chats yet. Start one with New chat.</p>}
+          {query && shown.length === 0 && <p className="s-empty-line px-4 py-2">No chats match. Try another word.</p>}
+          <ul className="s-rows">
+            {shown.map((c) => {
+              const active = activeChat === c.id
+              const mine = c.workspaceId === w.activeId && !!engine?.sessionsLoaded
+              const st = mine ? engine!.status[c.id]?.type : undefined
+              const busy = st === "busy" || st === "retry"
+              return (
+                <li key={c.id} className="s-row-item group">
+                  <Link
+                    href={w.chatHref(c)}
+                    onClick={() => c.workspaceId !== w.activeId && w.select(c.workspaceId)}
+                    title={names.get(c.workspaceId)}
+                    aria-current={active ? "page" : undefined}
+                    // Room for the row's actions while they show (hover or focus; always on touch), so they never cover the title.
+                    className={`s-row pointer-coarse:min-h-11 ${mine ? "group-focus-within:pr-20 group-hover:pr-20 pointer-coarse:pr-24" : ""}`}
+                  >
+                    <WorkspaceDot color={colors.get(c.workspaceId) ?? 0} />
+                    <span className="s-row__title flex-1">{c.title || "Untitled"}</span>
+                    {busy ? (
+                      <span className="s-spinner" role="img" aria-label="Working">
+                        <Icon name="loader-circle" />
+                      </span>
+                    ) : (
+                      <span className={`s-row__time ${mine ? "motion-fade group-focus-within:opacity-0 group-hover:opacity-0 pointer-coarse:hidden" : ""}`}>{fmtRelative(c.updated)}</span>
+                    )}
+                  </Link>
+                  {mine && (
+                    <div className="s-row__actions motion-reveal">
+                      <IconButton icon="edit" label="Rename" onClick={() => void rename(c.id, c.title)} />
+                      <IconButton icon="trash-2" label="Delete" onClick={() => void remove(c.id, c.title)} />
+                    </div>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+        </nav>
+
+        <AccountRow />
       </div>
     </aside>
   )
 }
 
-/** Header button in the sidebar: collapse (desktop) or close (drawer). `className` sets its display per breakpoint. */
-function SideBtn({ label, onClick, className, children }: { label: string; onClick(): void; className: string; children: ReactNode }) {
-  return (
-    <button type="button" onClick={onClick} aria-label={label} title={label} className={`h-8 w-8 items-center justify-center rounded-lg text-muted transition hover:bg-surface hover:text-ink pointer-coarse:h-11 pointer-coarse:w-11 ${className}`}>
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-        {children}
-      </svg>
-    </button>
-  )
-}
-
-/** The collapsed desktop sidebar: expand, new chat, the workspace, then settings. */
+/** The collapsed desktop sidebar (s-sidebar--rail, 64 wide): expand, new chat, the workspace, then settings. Ghost md icon buttons. */
 function Rail({ className = "" }: { className?: string }) {
   const w = useWorkspaces()
   const nav = useNav()
   const active = w.workspaces?.find((x) => x.id === w.activeId)
-  const item = "flex h-10 w-10 items-center justify-center rounded-lg text-ink-2 transition hover:bg-surface hover:text-ink"
   const expand = `Expand sidebar (${SIDEBAR_SHORTCUT})`
   return (
-    <div className={`h-full flex-col items-center gap-1 py-3 ${className}`}>
-      <button type="button" onClick={nav?.toggleCollapsed} aria-label={expand} title={expand} className={item}>
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M5.5 2.5v11M2.5 4a1.5 1.5 0 0 1 1.5-1.5h8A1.5 1.5 0 0 1 13.5 4v8a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 12V4Z" />
-        </svg>
-      </button>
-      {w.newChatHref && (
-        <Link href={w.newChatHref} aria-label="New chat" title="New chat" className={item}>
-          <svg width="16" height="16" viewBox="0 0 17 17" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M8 2.5H4A1.5 1.5 0 0 0 2.5 4v9A1.5 1.5 0 0 0 4 14.5h9a1.5 1.5 0 0 0 1.5-1.5V9M12.3 2.2l2.5 2.5L8.5 11H6V8.5l6.3-6.3Z" />
-          </svg>
-        </Link>
-      )}
+    <nav aria-label="Sidebar" className={`s-sidebar s-sidebar--static s-sidebar--rail h-full ${className}`}>
+      <div className="s-sidebar__head">
+        <IconButton icon="panel-open" size="md" label={expand} aria-expanded={false} onClick={nav?.toggleCollapsed} />
+      </div>
+      {w.newChatHref && <LinkButton href={w.newChatHref} variant="ghost" icon="plus" label="New chat" />}
       {active && (
-        <button type="button" onClick={nav?.toggleCollapsed} aria-label={`${active.name}: show chats`} title={`${active.name}: show chats`} className={item}>
-          <WorkspaceTile name={active.name} color={active.color} size={24} />
+        <button type="button" onClick={nav?.toggleCollapsed} aria-label={`${active.name}: show chats`} title={`${active.name}: show chats`} className={btnClass({ variant: "ghost" }, true)}>
+          <span className="s-avatar s-avatar--sm">{active.name.slice(0, 1).toUpperCase()}</span>
         </button>
       )}
       <span className="flex-1" />
       <SettingsTrigger place="bottom-0 left-full ml-2" side="right">
         {(open, toggle) => (
-          <button type="button" onClick={toggle} aria-expanded={open} aria-label="Settings" title="Settings" className={item}>
-            <Avatar size={26} />
+          <button type="button" onClick={toggle} aria-expanded={open} aria-label="Settings" title="Settings" className={btnClass({ variant: "ghost" }, true)}>
+            <Avatar small />
           </button>
         )}
       </SettingsTrigger>
-    </div>
+    </nav>
   )
 }
 
 /**
- * The bottom of the sidebar: who you are and one gear. Memory, Skills, Providers, Usage, Account, Logs,
+ * The bottom of the sidebar: who you are (a B9 lg row) and one gear. Memory, Skills, Providers, Usage, Account, Logs,
  * Admin and Theme live in its menu (docs/RESPONSIVE.md §9): a popover on desktop, a bottom sheet on phones.
  */
 function AccountRow() {
   const { mode, user } = useWorkspaces()
   return (
-    <SettingsTrigger place="bottom-full left-2 mb-1.5" side="up">
+    <SettingsTrigger place="bottom-full left-0 mb-2" side="up">
       {(open, toggle) => (
-        <div className="border-t border-line p-2">
-          <button type="button" onClick={toggle} aria-expanded={open} className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition hover:bg-surface/70 pointer-coarse:py-2.5">
-            <Avatar size={28} />
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-[13px] font-medium text-ink">{user?.name ?? (mode === "local" ? "syrup" : "Signed in")}</span>
-              <span className="block truncate text-[11px] text-muted">{user?.email ?? "Running on this computer"}</span>
+        <div className="s-sidebar__foot">
+          <button type="button" onClick={toggle} aria-expanded={open} className="s-row s-row--lg">
+            <Avatar />
+            <span className="s-row__text">
+              <span className="s-row__title">{user?.name ?? (mode === "local" ? "syrup" : "Signed in")}</span>
+              <span className="s-row__sub">{user?.email ?? "Running on this computer"}</span>
             </span>
-            <svg width="16" height="16" viewBox="0 0 14 14" className="shrink-0 text-muted" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-label="Settings">
-              {ICONS.settings}
-            </svg>
           </button>
+          <IconButton icon="settings" label="Settings" aria-expanded={open} onClick={toggle} />
         </div>
       )}
     </SettingsTrigger>
   )
 }
 
-function Avatar({ size }: { size: number }) {
+/** s-avatar: 32 (md) in the account row, 24 (sm) in the rail. A photo gets the inset hairline; else the initial. */
+function Avatar({ small }: { small?: boolean }) {
   const { user } = useWorkspaces()
+  const size = small ? "s-avatar--sm" : "s-avatar--md"
   if (user?.image)
-    // eslint-disable-next-line @next/next/no-img-element
-    return <img src={user.image} alt="" width={size} height={size} className="shrink-0 rounded-full" referrerPolicy="no-referrer" />
-  const initial = user ? (user.name ?? user.email ?? "?").slice(0, 1).toUpperCase() : "s"
-  return (
-    <span style={{ width: size, height: size }} className={`flex shrink-0 items-center justify-center rounded-full bg-surface text-xs text-ink-2 ${user ? "font-mono" : "font-sans font-medium text-accent"}`}>
-      {initial}
-    </span>
-  )
+    return (
+      <span className={`s-avatar ${size}`}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={user.image} alt="" referrerPolicy="no-referrer" />
+      </span>
+    )
+  return <span className={`s-avatar ${size}`}>{user ? (user.name ?? user.email ?? "?").slice(0, 1).toUpperCase() : "s"}</span>
 }
 
 /** Owns the settings menu's open state and outside-press handling; `place` positions the desktop popover, `side` says where that is. */
@@ -238,7 +225,7 @@ function SettingsTrigger({ place, side, children }: { place: string; side: Side;
   return (
     <div ref={ref} className="relative">
       {children(open, () => setOpen((v) => !v))}
-      <SettingsMenu open={open} onClose={close} side={side} className={`absolute z-30 w-[260px] overflow-hidden rounded-xl border border-line bg-surface shadow-card ${place}`} />
+      <SettingsMenu open={open} onClose={close} side={side} className={`s-raised s-raised--md absolute z-dropdown w-[260px] overflow-hidden ${place}`} />
     </div>
   )
 }
@@ -246,19 +233,14 @@ function SettingsTrigger({ place, side, children }: { place: string; side: Side;
 function SettingsMenu({ open, onClose, side, className }: { open: boolean; onClose(): void; side: Side; className: string }) {
   const { mode, user } = useWorkspaces()
   const { open: openLogs } = useLogs()
-  const icon = (name: keyof typeof ICONS) => (
-    <svg width="15" height="15" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      {ICONS[name]}
-    </svg>
-  )
   const items: MenuItem[] = [
-    { label: "Memory", href: "/memory", icon: icon("memory") },
-    { label: "Skills", href: "/skills", icon: icon("skill") },
-    { label: "Providers", href: "/settings/providers", icon: icon("key") },
-    { label: "Usage & cost", href: "/usage", icon: icon("chart") },
-    ...(mode === "cloud" ? [{ label: "Account & privacy", href: "/settings", icon: icon("settings") }] : []),
-    ...(user?.admin ? [{ label: "Admin", href: "/admin", icon: icon("admin") }] : []),
-    { label: "Logs", onSelect: openLogs, icon: icon("doc") },
+    { label: "Memory", href: "/memory", icon: <Icon name="file-text" /> },
+    { label: "Skills", href: "/skills", icon: <Icon name="sparkle" /> },
+    { label: "Providers", href: "/settings/providers", icon: <Icon name="lock" /> },
+    { label: "Usage & cost", href: "/usage", icon: <Icon name="chart-column" /> },
+    ...(mode === "cloud" ? [{ label: "Account & privacy", href: "/settings", icon: <Icon name="user" /> }] : []),
+    ...(user?.admin ? [{ label: "Admin", href: "/admin", icon: <Icon name="shell" /> }] : []),
+    { label: "Logs", onSelect: openLogs, icon: <Icon name="list" /> },
   ]
   return (
     <Popover open={open} onClose={onClose} title="Settings" side={side} className={className}>
@@ -277,18 +259,18 @@ function LegalLinks({ onDone }: { onDone(): void }) {
     onDone()
   }
   return (
-    <div className="flex gap-4 border-t border-line px-4 py-2.5 text-[11px] text-muted max-expanded:pb-4">
-      <Link href="/legal/terms" onClick={go} className="hover:text-ink">
+    <div className="flex gap-5 border-t border-line px-4 py-3 max-expanded:pb-4">
+      <Link href="/legal/terms" onClick={go} className="s-btn s-btn--link-neutral s-btn--sm">
         Terms
       </Link>
-      <Link href="/legal/privacy" onClick={go} className="hover:text-ink">
+      <Link href="/legal/privacy" onClick={go} className="s-btn s-btn--link-neutral s-btn--sm">
         Privacy
       </Link>
     </div>
   )
 }
 
-/** System / Light / Dark, applied instantly and remembered on this device. */
+/** System / Light / Dark (s-seg), applied instantly and remembered on this device. */
 function ThemeRow() {
   const theme = useTheme()
   const opts: [Theme, string][] = [
@@ -297,65 +279,15 @@ function ThemeRow() {
     ["dark", "Dark"],
   ]
   return (
-    <div className="flex items-center justify-between gap-3 border-t border-line px-4 py-2.5 max-expanded:py-3.5">
-      <span className="text-[13px] text-ink max-expanded:text-[15px]">Theme</span>
-      <div role="radiogroup" aria-label="Theme" className="flex rounded-lg bg-surface-2 p-0.5">
+    <div className="flex items-center justify-between gap-3 border-t border-line px-4 py-2 max-expanded:py-3">
+      <span className="text-sm text-ink">Theme</span>
+      <div role="group" aria-label="Theme" className="s-seg">
         {opts.map(([value, label]) => (
-          <button
-            key={value}
-            type="button"
-            role="radio"
-            aria-checked={theme === value}
-            onClick={() => setTheme(value)}
-            className={`rounded-md px-2.5 py-1 text-[12px] transition pointer-coarse:px-3 pointer-coarse:py-2 ${theme === value ? "bg-elevated text-ink shadow-raised" : "text-ink-2 hover:text-ink"}`}
-          >
+          <button key={value} type="button" aria-pressed={theme === value} onClick={() => setTheme(value)} className="s-seg__item">
             {label}
           </button>
         ))}
       </div>
     </div>
   )
-}
-
-function IconBtn({ title, onClick, danger, children }: { title: string; onClick(): void; danger?: boolean; children: ReactNode }) {
-  return (
-    <button
-      type="button"
-      title={title}
-      onClick={(e) => {
-        e.preventDefault()
-        onClick()
-      }}
-      className={`rounded p-1 text-muted transition hover:bg-surface-2 pointer-coarse:p-2 ${danger ? "hover:text-err" : "hover:text-ink"}`}
-    >
-      <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-        {children}
-      </svg>
-    </button>
-  )
-}
-
-const ICONS: Record<string, ReactNode> = {
-  key: (
-    <>
-      <circle cx="5" cy="9" r="3" />
-      <path d="M7.2 6.8 12 2M10 4l2 2" />
-    </>
-  ),
-  chart: <path d="M2 12h10M3.5 10V6M7 10V3M10.5 10V7.5" />,
-  memory: (
-    <>
-      <path d="M4 2.5h6a1.5 1.5 0 0 1 1.5 1.5v6A1.5 1.5 0 0 1 10 11.5H4A1.5 1.5 0 0 1 2.5 10V4A1.5 1.5 0 0 1 4 2.5Z" />
-      <path d="M5 5.5h4M5 8h2.5" />
-    </>
-  ),
-  skill: <path d="M7 1.5 8.6 5l3.6.4-2.7 2.4.8 3.6L7 9.6l-3.3 1.8.8-3.6L1.8 5.4 5.4 5 7 1.5Z" />,
-  settings: (
-    <>
-      <circle cx="7" cy="7" r="2" />
-      <path d="M7 1.5v1.6M7 10.9v1.6M1.5 7h1.6M10.9 7h1.6M3.1 3.1l1.1 1.1M9.8 9.8l1.1 1.1M3.1 10.9l1.1-1.1M9.8 4.2l1.1-1.1" />
-    </>
-  ),
-  admin: <path d="M7 1.5 12 3.5v3.3c0 2.9-2.1 5.1-5 5.7-2.9-.6-5-2.8-5-5.7V3.5L7 1.5Z" />,
-  doc: <path d="M3 2.5h8v9H3zM5 5h4M5 7h4M5 9h2.5" />,
 }

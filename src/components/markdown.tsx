@@ -67,7 +67,8 @@ export function CodeBlock(props: ComponentProps<"pre">) {
             setTimeout(() => setCopied(false), 1500)
           })
         }
-        className="absolute top-1.5 right-1.5 rounded-md border border-line bg-surface px-2 py-0.5 font-sans text-[11px] text-ink-2 opacity-0 transition group-hover/code:opacity-100 focus-visible:opacity-100 hover:text-ink pointer-coarse:px-3 pointer-coarse:py-1.5 pointer-coarse:opacity-100"
+        // Floats over the code block: the raised surface (elevated + hairline). Revealed on hover or focus, always on touch.
+        className="absolute top-2 right-2 rounded-md border border-line bg-elevated px-2 py-0.5 font-sans text-xs text-ink-2 opacity-0 transition group-hover/code:opacity-100 focus-visible:opacity-100 hover:text-ink pointer-coarse:px-3 pointer-coarse:py-1.5 pointer-coarse:opacity-100"
       >
         {copied ? "Copied" : "Copy"}
       </button>

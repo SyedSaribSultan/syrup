@@ -54,11 +54,11 @@ export function Brew({ mood = "work", label, timerAfter = 5, since, size = "sm",
   const big = size === "md"
   const inherit = tone === "inherit"
   return (
-    <span role="status" aria-label={label ?? words[0]} className={`inline-flex items-center ${inherit ? "gap-1.5" : `gap-2 text-muted ${big ? "text-sm" : "text-[13px]"}`} ${className}`}>
+    <span role="status" aria-label={label ?? words[0]} className={`inline-flex items-center ${inherit ? "gap-1.5" : `gap-2 text-muted ${big ? "text-sm" : "text-sm"}`} ${className}`}>
       <Dots size={big ? 16 : 13} className={inherit ? "text-current" : undefined} />
       <span aria-hidden>{word}…</span>
       {timed && t.secs >= timerAfter && (
-        <span aria-hidden className="tabular-nums text-[11px] opacity-70">
+        <span aria-hidden className="s-count tabular-nums">
           · {fmtWait(t.secs)}
         </span>
       )}
@@ -82,8 +82,8 @@ function fmtWait(s: number): string {
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`
 }
 
-/** Two dots circling each other. Accent-colored; still under reduced motion. */
-export function Dots({ size = 13, className = "text-accent" }: { size?: number; className?: string }) {
+/** Two dots circling each other. Faint, like the system spinner (red is kept for one moment per screen); still under reduced motion. */
+export function Dots({ size = 13, className = "text-muted" }: { size?: number; className?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" aria-hidden className={`shrink-0 ${className}`}>
       <g className="orbit" fill="currentColor">
@@ -96,5 +96,6 @@ export function Dots({ size = 13, className = "text-accent" }: { size?: number; 
 
 /** A placeholder bar shaped like the content it stands in for. Wrap groups in `.skel-in` so fast loads never flash. */
 export function Skel({ className = "", style }: { className?: string; style?: CSSProperties }) {
-  return <span aria-hidden style={style} className={`skel block rounded-md ${className}`} />
+  // The Sarib skeleton (s-skeleton--line: surface-skeleton, 1500ms pulse); callers size it to the content it stands in for.
+  return <span aria-hidden style={style} className={`s-skeleton s-skeleton--line ${className}`} />
 }

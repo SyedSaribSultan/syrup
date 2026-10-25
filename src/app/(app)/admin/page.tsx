@@ -3,15 +3,16 @@
 import { useCallback, useEffect, useState } from "react"
 import { Insights } from "@/components/admin-insights"
 import { alertDialog, confirmDialog } from "@/components/ui/dialog"
+import { Button } from "@/components/ui/s"
 
 type User = { id: string; email: string; name: string | null; createdAt: string; lastSeenAt: string | null; blockedAt: string | null; analyticsOptOut: boolean; keys: number; research: boolean }
 type Req = { id: string; user_id: string; type: string; status: string; requested_at: string }
 type Box = { workspaceId: string; workspace: string; email: string; status: string; region: string; engineVersion: string | null; lastSessionStartedAt: string | null; totalSessionSeconds: number; totalCpuMs: number; lastError: string | null }
 type Pool = { sandboxes: Box[]; running: number; totalCpuMs: number; totalSessionSeconds: number; cpuBudgetMs: number }
 
-const fmt = (s: string | null) => (s ? new Date(s).toLocaleString() : "—")
-/** Cells keep to one line with a gap between columns; the wrapper scrolls. */
-const TABLE = "w-full text-[13px] whitespace-nowrap [&_td:not(:last-child)]:pr-4 [&_th:not(:last-child)]:pr-4"
+const fmt = (s: string | null) => (s ? new Date(s).toLocaleString() : "Never")
+/** s-table, dense: cells keep to one line; the wrapper scrolls sideways on narrow screens. */
+const TABLE = "whitespace-nowrap"
 
 export default function AdminPage() {
   const [admins, setAdmins] = useState<string[]>([])
@@ -45,51 +46,56 @@ export default function AdminPage() {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto w-full max-w-[960px] px-4 py-8 medium:px-6">
-        <h1 className="font-display text-[1.75rem] font-normal text-ink">Admin</h1>
-        <p className="mt-1 text-sm text-muted">
-          Anyone with a verified Google account can sign in. Admins: <span className="font-mono text-ink-2">{admins.join(", ") || "—"}</span>
+        <h1 className="font-display text-heading text-ink">Admin</h1>
+        <p className="mt-2 text-base text-ink-2">
+          Anyone with a verified Google account can sign in. Admins: <span className="font-mono text-ink-2">{admins.join(", ") || "none set"}</span>
         </p>
 
         <Insights />
 
-        <section className="mt-6 rounded-xl border border-line bg-surface p-4">
-          <h2 className="text-sm font-medium text-ink">
-            Users <span className="font-normal text-muted">· {users.length}</span>
+        <section className="s-card mt-6">
+          <h2 className="flex flex-wrap items-baseline gap-x-2 text-lg text-ink">
+            Users <span className="s-meta">{users.length}</span>
           </h2>
           {/* Tables scroll sideways inside their card on narrow screens instead of widening the page. */}
-          <div className="mt-3 overflow-x-auto">
+          <div className="s-table s-table--dense">
             <table className={TABLE}>
-              <thead className="text-left text-[11px] font-mono text-muted">
+              <thead>
                 <tr>
-                  <th className="py-1 font-medium">Email</th>
-                  <th className="py-1 font-medium">Joined</th>
-                  <th className="py-1 font-medium">Last seen</th>
-                  <th className="py-1 font-medium">Keys</th>
-                  <th className="py-1 font-medium">Analytics</th>
-                  <th className="py-1 font-medium">Research</th>
-                  <th className="py-1 font-medium" />
+                  <th>Email</th>
+                  <th>Joined</th>
+                  <th>Last seen</th>
+                  <th>Keys</th>
+                  <th>Analytics</th>
+                  <th>Research</th>
+                  <th />
                 </tr>
               </thead>
-              <tbody className="divide-y divide-line">
+              <tbody>
                 {users.map((u) => (
                   <tr key={u.id}>
-                    <td className="py-2 font-mono text-ink">{u.email}</td>
-                    <td className="py-2 text-ink-2">{fmt(u.createdAt)}</td>
-                    <td className="py-2 text-ink-2">{fmt(u.lastSeenAt)}</td>
-                    <td className="py-2 text-ink-2">{u.keys}</td>
-                    <td className="py-2 text-ink-2">{u.analyticsOptOut ? "opted out" : "on"}</td>
-                    <td className="py-2 text-ink-2">{u.research ? "consented" : "—"}</td>
-                    <td className="py-2 text-right">
+                    <td className="font-mono text-ink">{u.email}</td>
+                    <td className="text-ink-2">{fmt(u.createdAt)}</td>
+                    <td className="text-ink-2">{fmt(u.lastSeenAt)}</td>
+                    <td className="text-ink-2">{u.keys}</td>
+                    <td className="text-ink-2">{u.analyticsOptOut ? "Opted out" : "On"}</td>
+                    <td className="text-ink-2">{u.research ? "Consented" : "None"}</td>
+                    <td className="text-right">
                       {admins.includes(u.email) ? (
-                        <span className="text-[11px] text-muted">admin</span>
+                        <span className="s-badge">Admin</span>
                       ) : u.blockedAt ? (
-                        <button type="button" onClick={() => void setBlocked(u, false)} className="text-xs text-err hover:text-ink pointer-coarse:min-h-11" title={`Blocked ${fmt(u.blockedAt)}`}>
-                          Blocked · Unblock
-                        </button>
+                        <span className="inline-flex items-center gap-2">
+                          <span className="s-badge s-badge--critical" title={`Blocked ${fmt(u.blockedAt)}`}>
+                            Blocked
+                          </span>
+                          <Button variant="secondary" size="sm" onClick={() => void setBlocked(u, false)}>
+                            Unblock
+                          </Button>
+                        </span>
                       ) : (
-                        <button type="button" onClick={() => void setBlocked(u, true)} className="text-xs text-muted hover:text-err pointer-coarse:min-h-11">
+                        <Button variant="ghost" size="sm" onClick={() => void setBlocked(u, true)}>
                           Block
-                        </button>
+                        </Button>
                       )}
                     </td>
                   </tr>
@@ -99,32 +105,34 @@ export default function AdminPage() {
           </div>
         </section>
 
-        <section className="mt-6 rounded-xl border border-line bg-surface p-4">
-          <h2 className="text-sm font-medium text-ink">
-            Sandboxes <span className="font-normal text-muted">· {pool ? `${pool.running} running · ${(pool.totalCpuMs / 60_000).toFixed(1)} CPU-min used of ${pool.cpuBudgetMs / 60_000} this plan · ${Math.round(pool.totalSessionSeconds / 60)} session-min` : "…"}</span>
+        <section className="s-card mt-6">
+          <h2 className="flex flex-wrap items-baseline gap-x-2 text-lg text-ink">
+            Sandboxes <span className="s-meta">{pool ? `${pool.running} running · ${(pool.totalCpuMs / 60_000).toFixed(1)} CPU-min used of ${pool.cpuBudgetMs / 60_000} this plan · ${Math.round(pool.totalSessionSeconds / 60)} session-min` : "…"}</span>
           </h2>
-          <p className="mt-1 text-xs text-muted">Free plan: 5 active-CPU hours per month, 10 concurrent. Informational; nothing is enforced. Vercel&apos;s own dashboard has the authoritative monthly numbers.</p>
-          <div className="mt-3 overflow-x-auto">
+          <p className="s-help">Free plan: 5 active-CPU hours per month, 10 concurrent. Informational; nothing is enforced. Vercel&apos;s own dashboard has the authoritative monthly numbers.</p>
+          <div className="s-table s-table--dense">
             <table className={TABLE}>
-              <thead className="text-left text-[11px] font-mono text-muted">
+              <thead>
                 <tr>
-                  <th className="py-1 font-medium">Workspace</th>
-                  <th className="py-1 font-medium">User</th>
-                  <th className="py-1 font-medium">Status</th>
-                  <th className="py-1 font-medium">CPU</th>
-                  <th className="py-1 font-medium">Sessions</th>
-                  <th className="py-1 font-medium">Last start</th>
+                  <th>Workspace</th>
+                  <th>User</th>
+                  <th>Status</th>
+                  <th>CPU</th>
+                  <th>Sessions</th>
+                  <th>Last start</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-line">
+              <tbody>
                 {pool?.sandboxes.map((b) => (
                   <tr key={b.workspaceId}>
-                    <td className="py-2 text-ink">{b.workspace}</td>
-                    <td className="py-2 font-mono text-ink-2">{b.email}</td>
-                    <td className={`py-2 ${b.status === "running" ? "text-ok" : b.status === "error" ? "text-err" : "text-ink-2"}`} title={b.lastError ?? ""}>{b.status}</td>
-                    <td className="py-2 text-ink-2">{(b.totalCpuMs / 1000).toFixed(0)} s</td>
-                    <td className="py-2 text-ink-2">{Math.round(b.totalSessionSeconds / 60)} min</td>
-                    <td className="py-2 text-ink-2">{fmt(b.lastSessionStartedAt)}</td>
+                    <td className="text-ink">{b.workspace}</td>
+                    <td className="font-mono text-ink-2">{b.email}</td>
+                    <td title={b.lastError ?? ""}>
+                      <span className={`s-badge ${b.status === "running" ? "s-badge--success" : b.status === "error" ? "s-badge--critical" : ""}`}>{b.status}</span>
+                    </td>
+                    <td className="text-ink-2">{(b.totalCpuMs / 1000).toFixed(0)} s</td>
+                    <td className="text-ink-2">{Math.round(b.totalSessionSeconds / 60)} min</td>
+                    <td className="text-ink-2">{fmt(b.lastSessionStartedAt)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -132,20 +140,20 @@ export default function AdminPage() {
           </div>
         </section>
 
-        <section className="mt-6 rounded-xl border border-line bg-surface p-4">
-          <h2 className="text-sm font-medium text-ink">
-            Open data requests <span className="font-normal text-muted">· {requests.length}</span>
+        <section className="s-card mt-6">
+          <h2 className="flex flex-wrap items-baseline gap-x-2 text-lg text-ink">
+            Open data requests <span className="s-meta">{requests.length}</span>
           </h2>
-          <p className="mt-1 text-xs text-muted">Export within 30 days, deletion within 30 days (Privacy Policy §6). Automated fulfilment lands in Phase 3; until then handle these by hand.</p>
-          <ul className="mt-3 divide-y divide-line">
-            {requests.length === 0 && <li className="py-3 text-sm text-muted">None.</li>}
+          <p className="s-help">Export within 30 days, deletion within 30 days (Privacy Policy §6). Automated fulfilment lands in Phase 3; until then handle these by hand.</p>
+          <ul className="s-rows s-rows--divided">
+            {requests.length === 0 && <li className="s-empty-line py-3">No open requests.</li>}
             {requests.map((r) => {
               const u = users.find((x) => x.id === r.user_id)
               return (
-                <li key={r.id} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 py-2 text-[13px]">
-                  <span className="rounded bg-surface-2 px-1.5 text-[10px] font-mono text-ink-2">{r.type}</span>
+                <li key={r.id} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 py-2 text-sm">
+                  <span className="s-badge">{r.type}</span>
                   <span className="min-w-0 flex-1 truncate font-mono text-ink">{u?.email ?? r.user_id}</span>
-                  <span className="text-muted">{fmt(r.requested_at)}</span>
+                  <span className="s-meta">{fmt(r.requested_at)}</span>
                 </li>
               )
             })}

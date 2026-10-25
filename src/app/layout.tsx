@@ -41,8 +41,9 @@ export const viewport: Viewport = {
  */
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    // data-theme may be set by THEME_SCRIPT before React hydrates.
-    <html lang="en" className={`${googleSansFlex.variable} ${googleSansCode.variable} h-full antialiased`} suppressHydrationWarning>
+    // data-mode="system": the Sarib tokens follow the OS. THEME_SCRIPT swaps it for data-theme before React hydrates
+    // when a light or dark choice is saved (lib/theme.ts).
+    <html lang="en" data-mode="system" className={`${googleSansFlex.variable} ${googleSansCode.variable} h-full antialiased`} suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
       </head>
