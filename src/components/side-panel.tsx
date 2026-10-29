@@ -209,7 +209,7 @@ function SidePane() {
         onDoubleClick={() => panel.setWidth(panel.width >= PANEL_WIDE - 40 ? 440 : Math.min(PANEL_WIDE, max()))}
         className={`absolute inset-y-0 -left-[3px] z-sticky w-[6px] cursor-col-resize touch-none transition-colors hover:bg-line pointer-coarse:-left-2 pointer-coarse:w-4 ${live !== null ? "bg-line-2" : ""}`}
       />
-      <header className="flex h-16 shrink-0 items-center gap-2 px-4">
+      <header className="flex h-appbar shrink-0 items-center gap-2 px-4 pointer-coarse:h-16">
         <PanelTabs count={count.files} />
         <div className="flex-1" />
         <IconButton icon="close" label="Close panel" title={`Close (${PANEL_SHORTCUT})`} onClick={() => panel.setOpen(false)} />

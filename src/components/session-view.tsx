@@ -215,7 +215,7 @@ export function SessionView({ id }: { id: string }) {
       {/* Phones and tablets: ☰ · model · new chat · panel · ⋯ (the model lives here, not in the composer). Desktop: title · Changes · Share · Files · ⋯. */}
       {/* The chat's top bar is the P0 band over the P1 log (the origin's chat panel bar): planes, not a rule. */}
       <header className="shrink-0 bg-bg pt-[env(safe-area-inset-top)]">
-        <div className="flex h-16 items-center gap-1 px-2 expanded:gap-2 expanded:px-5">
+        <div className="flex h-appbar items-center gap-1 px-2 pointer-coarse:h-16 expanded:gap-2 expanded:px-4">
           <MenuButton />
           <div className="flex min-w-0 flex-1 items-center expanded:hidden">
             <ModelPicker variant="bar" />

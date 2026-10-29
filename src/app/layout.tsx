@@ -43,8 +43,9 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     // data-mode="system": the Sarib tokens follow the OS. THEME_SCRIPT swaps it for data-theme before React hydrates
-    // when a light or dark choice is saved (lib/theme.ts).
-    <html lang="en" data-mode="system" className={`${googleSansFlex.variable} ${googleSansCode.variable} h-full antialiased`} suppressHydrationWarning>
+    // when a light or dark choice is saved (lib/theme.ts). data-scale="app": sarib-design's app scale (DESIGN.md §4.6),
+    // the dense tool-chrome sizes (14 UI text, 32 rows and buttons, 256 sidebar, 48 bars) for every screen.
+    <html lang="en" data-mode="system" data-scale="app" className={`${googleSansFlex.variable} ${googleSansCode.variable} h-full antialiased`} suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
       </head>

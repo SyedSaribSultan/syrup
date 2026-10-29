@@ -107,6 +107,8 @@
      reads --spacing-drawer*, never var(--s-…) inline: any class containing "s-" matches the library's reduced-motion
      [class*="s-"] rule and would change the drawer's transitions (motion-reduced scenario). */
   --spacing-sidebar: var(--s-sidebar-w);
+  /* Top bars line up with the sidebar head: both are the library's app-bar height (64, app scale 48). */
+  --spacing-appbar: var(--s-appbar-h);
   --spacing-rail: var(--s-rail-w);
   --spacing-drawer: var(--s-drawer-w-menu);
   --spacing-drawer-gap: var(--s-drawer-gap);
@@ -201,7 +203,7 @@ body {
   input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"]),
   textarea,
   select {
-    font-size: var(--s-font-size-body-md);
+    font-size: var(--s-input-touch-size);
   }
 }
 
