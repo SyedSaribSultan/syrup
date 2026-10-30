@@ -45,7 +45,7 @@
     "mermaid": "11.17.2",
     "next": "16.4.3",
     "next-auth": "5.0.0-beta.32",
-    "posthog-js": "^1.438.21",
+    "posthog-js": "^1.439.0",
     "posthog-node": "^5.57.2",
     "react": "19.3.1",
     "react-dom": "19.3.1",
