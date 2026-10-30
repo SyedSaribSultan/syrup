@@ -1,14 +1,27 @@
 import type { Metadata, Viewport } from "next"
-import { Google_Sans_Code, Google_Sans_Flex } from "next/font/google"
+import localFont from "next/font/local"
 import { DialogHost } from "@/components/ui/dialog"
 import { Tips } from "@/components/ui/tips"
 import { ViewportSync } from "@/components/ui/viewport-sync"
 import { THEME_SCRIPT } from "@/lib/theme-script"
 import "./globals.css"
 
-// The Sarib design system's two faces (globals.css maps them to font-sans and font-display / font-mono).
-const googleSansFlex = Google_Sans_Flex({ variable: "--font-google-sans-flex", subsets: ["latin"], display: "swap" })
-const googleSansCode = Google_Sans_Code({ variable: "--font-google-sans-code", subsets: ["latin"], style: ["normal", "italic"], display: "swap" })
+// The Sarib design system's two faces (globals.css maps them to font-sans and font-display / font-mono), from the
+// design system's own vendored files (src/sarib/fonts: Google's latin woff2 subsets, OFL). next/font/local keeps the
+// preload and the size-adjusted fallback next/font/google gave, without fetching from Google at build time.
+const googleSansFlex = localFont({
+  variable: "--font-google-sans-flex",
+  src: [{ path: "../sarib/fonts/flex-latin.woff2", weight: "1 1000", style: "normal" }],
+  display: "swap",
+})
+const googleSansCode = localFont({
+  variable: "--font-google-sans-code",
+  src: [
+    { path: "../sarib/fonts/code-latin.woff2", weight: "300 800", style: "normal" },
+    { path: "../sarib/fonts/code-italic-latin.woff2", weight: "300 800", style: "italic" },
+  ],
+  display: "swap",
+})
 
 export const metadata: Metadata = {
   title: "syrup",

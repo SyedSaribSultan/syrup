@@ -3,7 +3,22 @@
     {
       "file": "src/app/globals.css",
       "pattern": "--s-font-family",
-      "reason": "sarib-design fonts.md (a): next/font self-hosts Google Sans Flex and Code under hashed family names, so the font-family tokens point at its CSS variables (the same override syedsarib.com makes)."
+      "reason": "sarib-design fonts.md (a): next/font/local loads the vendored Google Sans Flex and Code under hashed family names, so the font-family tokens point at its CSS variables (the same override syedsarib.com makes)."
+    },
+    {
+      "file": "src/app/globals.css",
+      "pattern": "--motion-",
+      "reason": "syrup's motion tokens (docs/MOTION.md §3) are literal ms because src/lib/motion.ts mirrors them for JS exit timeouts and scripts/check-motion.mjs fails when the two differ; the values are the design system's fast/base/slow."
+    },
+    {
+      "file": "src/app/globals.css",
+      "pattern": ".skel-in",
+      "reason": "The skeleton's 160ms don't-flash wait before it appears: a threshold, not a motion pattern (MOTION.md §1)."
+    },
+    {
+      "file": "src/app/c/[id]/opengraph-image.tsx",
+      "pattern": "fonts.googleapis.com",
+      "reason": "Server-side only: the OG image renderer (Satori) needs TTF/OTF, which the vendored woff2 set can't supply; no browser ever requests Google."
     }
   ]
 }
