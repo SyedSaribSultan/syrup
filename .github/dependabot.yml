@@ -5,6 +5,10 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      # Types track the Node runtime (22/24), not the newest Node.
+      - dependency-name: "@types/node"
+        versions: [">=25"]
     groups:
       minor-and-patch:
         update-types: [minor, patch]
