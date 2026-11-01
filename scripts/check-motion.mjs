@@ -19,8 +19,7 @@
  *   - inside the motion block: a transition of anything but opacity, transform (translate, scale, rotate), visibility and
  *     colours, from a transition-property or a transition shorthand (MOTION.md §8: `all`, layout properties, filter,
  *     backdrop-filter, box-shadow fail), outside ALLOW.layoutTransition's { utility, props } entries (§6.2, from M3)
- *   - a motion-* utility whose exit isn't one step faster than its entrance (slow → base, base → fast, fast stays fast;
- *     MOTION.md §3), read from its open, closed and plain rules, ::backdrop on its own, reduced motion aside
+ *   - a motion-* utility whose exit doesn't run at its entrance's duration (MOTION.md §3, sarib-design v2.9), read from its open, closed and plain rules, ::backdrop on its own, reduced motion aside
  *   - --motion-* / --ease-* declared anywhere but the motion block's token :root (once), or the reduced-motion :root
  *     (--motion-shift: 0px only); --default-transition-* outside the block's @theme; --tw-duration / --tw-ease / --tw-delay
  *   - inline transition / animation styles in components, outside ALLOW.inlineStyle: style objects, `.style.transition… =`
@@ -468,7 +467,7 @@ function checkCss(file, css) {
         fail(file, line, `${selector} { ${d.prop}: ${d.value} }: transitions ${p}. MOTION.md §8: opacity, transform and colours only, never backdrop-filter (§6.2's layout three go in ALLOW.layoutTransition as { utility, props })`)
       }
     }
-    // Exits one step faster than entrances (MOTION.md §3): collect each motion-* utility's durations, reduced motion aside.
+    // Exits at the entrance's duration (MOTION.md §3): collect each motion-* utility's durations, reduced motion aside.
     if (inBlock && utility?.startsWith("motion-") && !d.chain.some((p) => /^@(media|starting-style)\b/.test(p))) {
       const rules = d.chain.slice(1).join(" ")
       const key = `${utility}${/::backdrop/.test(rules) ? "::backdrop" : ""}`
@@ -494,8 +493,7 @@ function checkCss(file, css) {
     const enter = s.open ?? s.plain
     const exit = s.closed ?? s.plain
     if (!s.states || enter === null || exit === null) continue
-    const want = Math.max(1, enter - 1)
-    if (exit !== want) fail(file, s.line, `${key}: its exit runs on --motion-${RANK_NAME[exit]} after an entrance on --motion-${RANK_NAME[enter]}: exits are one step faster, so --motion-${RANK_NAME[want]} (MOTION.md §3)`)
+    if (exit !== enter) fail(file, s.line, `${key}: its exit runs on --motion-${RANK_NAME[exit]} after an entrance on --motion-${RANK_NAME[enter]}: exits run at the same duration (MOTION.md §3)`)
   }
   return isTokens ? plain.slice(begin, endMark) : null
 }
@@ -587,11 +585,11 @@ const SELF_TEST = [
   {
     name: "an exit slower than its entrance",
     css: block('@utility motion-x { transition-duration: var(--motion-base); &[data-state="closed"] { transition-duration: var(--motion-slow); } }'),
-    fails: /one step faster/,
+    fails: /same duration/,
   },
   {
-    name: "a backdrop exit as slow as its entrance",
-    css: block('@utility motion-x { transition-duration: var(--motion-slow); &::backdrop { transition-duration: var(--motion-slow); } &[data-state="closed"] { transition-duration: var(--motion-base); } &[data-state="closed"]::backdrop { transition-duration: var(--motion-slow); } }'),
+    name: "a backdrop exit faster than its entrance",
+    css: block('@utility motion-x { transition-duration: var(--motion-slow); &::backdrop { transition-duration: var(--motion-slow); } &[data-state="closed"] { transition-duration: var(--motion-slow); } &[data-state="closed"]::backdrop { transition-duration: var(--motion-base); } }'),
     fails: /motion-x::backdrop: its exit/,
   },
   { name: "regex after =>", src: `const re = (s) => /"duration-200"/.test(s)`, passes: true },
@@ -612,8 +610,8 @@ const SELF_TEST = [
         ".skel-in { animation: skel-appear var(--motion-slow) var(--ease-arrive) 160ms both; }",
         "@media (prefers-reduced-motion: reduce) { .skel-in { animation-timing-function: step-start; } }",
         ":root[data-theme-switching] * { transition: none !important; }",
-        "@utility motion-y { transition-property: translate, opacity, visibility; transition-duration: var(--motion-base); &:where([data-open=\"true\"], [data-state=\"open\"]) { transition-duration: var(--motion-slow), var(--motion-slow), 0s; } }",
-        '@utility motion-z { transition-property: opacity, scale; transition-duration: var(--motion-base); &[data-state="closed"] { transition-duration: var(--motion-fast); } &[data-backdrop="instant"][data-state="open"]::backdrop { transition-duration: 0s; } }',
+        "@utility motion-y { transition-property: translate, opacity, visibility; transition-duration: var(--motion-slow); &:where([data-open=\"true\"], [data-state=\"open\"]) { transition-duration: var(--motion-slow), var(--motion-slow), 0s; } }",
+        '@utility motion-z { transition-property: opacity, scale; transition-duration: var(--motion-fast); &[data-state="closed"] { transition-duration: var(--motion-fast); } &[data-backdrop="instant"][data-state="open"]::backdrop { transition-duration: 0s; } }',
         '@utility motion-w { transition-property: opacity; transition-duration: var(--motion-fast); &[data-state="closed"] { opacity: 0; } @media (prefers-reduced-motion: reduce) { &[data-state="closed"] { transition-duration: var(--motion-fast); } } }',
         ".tab { transition-property: color, background-color, border-color; }",
       ].join("\n"),

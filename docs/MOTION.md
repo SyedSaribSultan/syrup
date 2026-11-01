@@ -182,7 +182,7 @@ Defined once. Components use names, never numbers. The values are the Sarib desi
 | Token | Value | Used for |
 |---|---|---|
 | `--motion-fast` | 150 ms | hover, press, chevrons, crossfades, all exits of small things |
-| `--motion-base` | 250 ms | popovers, menus, dialogs, expand/collapse, notices |
+| `--motion-base` | 250 ms | expand/collapse, notices, view swaps |
 | `--motion-slow` | 420 ms | sheets, drawer, workspace panel, sidebar ↔ rail |
 | `--motion-shift` | 4 px | how far popovers and notices travel. 0 under reduced motion |
 | `--ease-arrive` | `cubic-bezier(0.4, 0, 0.2, 1)` | entering (Sarib `standard`) |
@@ -192,7 +192,8 @@ Defined once. Components use names, never numbers. The values are the Sarib desi
 - **Where they live:** plain `:root` (or `@theme static`).
   - Tailwind 4.3 drops theme variables nothing in CSS uses. The built CSS has `--ease-out` but not `--ease-in`.
   - `usePresence` also needs the durations in JS, so there is **one source**: `src/lib/motion.ts` exports the numbers, and `globals.css` mirrors them. A check script (§9) keeps them in sync.
-- **Exits are one step faster than entrances:** slow → base, base → fast.
+- **Exits run at the same duration as entrances** (decided 2026-11-02, following syedsarib.com and sarib-design v2.9). Drawers, sheets and panels leave on `--ease-move`, as the site closes its drawers; menus, dialogs and toasts leave on `--ease-leave`.
+- **Popovers, menus and dialogs open at fast (150 ms)**, like every other Sarib app (decided 2026-11-02; was base, 250 ms, from 2026-10-07).
 - **Tailwind defaults:** set `--default-transition-duration` and `--default-transition-timing-function` in `@theme`. That moves all 111 existing `transition` classes onto the system in one edit. It also changes chevron rotations and hover reveals, which is intended.
   - Checked: both variables exist in Tailwind 4.3.3 (`node_modules/tailwindcss/theme.css:492-493`).
 - **Named utilities via `@utility`:** `motion-pop`, `motion-dialog`, `motion-sheet`, `motion-layer`, `motion-fade`, `motion-reveal`, `motion-collapse`, `motion-notice`. A component says what it is, not how long it takes.
@@ -327,11 +328,11 @@ Defined once. Components use names, never numbers. The values are the Sarib desi
 
 | Surface | In | Out |
 |---|---|---|
-| Dialog | backdrop fades to 40 %; card fades and scales 0.98 → 1, base, arrive | fade, fast, leave |
-| Sheet (phone) | rises from below its own height, slow, arrive; backdrop fades | slides down, base, leave; continues a drag |
-| Popover, model picker panel, PointerMenu | fade + shift from its `side`, base, arrive | fade, fast, leave |
-| Logs viewer | fade the layer (never animate the blur radius), base; phones add a small rise | fast |
-| Drawer | slides, move onto slow + arrive; scrim fades with it | base + leave |
+| Dialog | backdrop fades to 40 %; card fades and scales 0.98 → 1, fast, arrive | fade, fast, leave |
+| Sheet (phone) | rises from below its own height, slow, arrive; backdrop fades | slides down, slow, move; continues a drag |
+| Popover, model picker panel, PointerMenu | fade + shift from its `side`, fast, arrive | fade, fast, leave |
+| Logs viewer | fade the layer (never animate the blur radius), fast; phones add a small rise | fast |
+| Drawer | slides, move onto slow + arrive; scrim fades with it | slow + move |
 | Toast | fade + shift, fast | fast |
 | Notices, banners, status strips, attachments row, phone permission tray, warm-up status and mini-game | `<Collapse>` + fade, base (the tray rises from the composer) | fast |
 | Expanders (§2.4) | `<Collapse>`, base, move; chevron keeps rotating, fast | same |
@@ -422,7 +423,7 @@ Defined once. Components use names, never numbers. The values are the Sarib desi
     - **Token declarations outside the block's one `:root`.** The reduced-motion `:root` may only set `--motion-shift: 0px`.
   - **Tightened after the M1 review (2026-10-08).** Inside the motion block it now also fails on:
     - **A `transition-property` (or `transition` shorthand) naming anything but** opacity, transform, translate, scale, rotate, visibility or a colour. So `all`, layout properties, `filter`, `backdrop-filter` and `box-shadow` fail (§8). §6.2's three go in `ALLOW.layoutTransition` as `{ utility, props }` in M3.
-    - **A `motion-*` utility whose exit isn't one step faster than its entrance** (slow → base, base → fast; fast stays fast; §3). The harness's `exitMs` checks the same at runtime.
+    - **A `motion-*` utility whose exit doesn't run at its entrance's duration** (§3). The harness's `exitMs` checks the same at runtime.
   - **A self-test** plants each of those forms, plus look-alikes that must pass, on every run. If the checker stops catching one, it fails before it checks `src`.
 - **Migrate the three raw timings:** `sheet.tsx:61`, `app-shell.tsx:62`, `usage/page.tsx:80`.
 - **New overlays must use Dialog, Sheet or Popover. New expanders use `<Collapse>`, new notices use `Notice`.** That's where the motion lives.

@@ -346,12 +346,12 @@ body {
  * and fails on raw timings anywhere else.
  */
 :root {
-  --motion-fast: 150ms; /* hover, press, chevrons, crossfades, all exits of small things */
-  --motion-base: 250ms; /* popovers, menus, dialogs, expand/collapse, notices */
-  --motion-slow: 420ms; /* sheets, drawer, workspace panel, sidebar ↔ rail */
+  --motion-fast: 150ms; /* hover, press, chevrons, crossfades, popovers, menus, dialogs, toasts */
+  --motion-base: 250ms; /* expand/collapse, notices, view swaps */
+  --motion-slow: 420ms; /* sheets, drawer, workspace panel, sidebar ↔ rail; in and out */
   --motion-shift: 4px; /* how far popovers and notices travel */
   --ease-arrive: var(--s-motion-easing-standard); /* entering: fast start, soft landing */
-  --ease-leave: var(--s-motion-easing-exit); /* leaving: gets out of the way */
+  --ease-leave: var(--s-motion-easing-exit); /* small things leaving (menus, dialogs, toasts); drawers and sheets leave on move */
   --ease-move: var(--s-motion-easing-standard); /* changing size or place on screen */
 }
 
@@ -425,7 +425,7 @@ body {
 
 /*
  * A bottom sheet (components/ui/sheet.tsx, a native <dialog>): rises from below its own height, slow, arrive; its
- * backdrop fades with it. Out: slides down, base, leave. A drag's offset is an inline translate with no transition, so
+ * backdrop fades with it. Out: slides down, slow, move (as syedsarib.com closes its drawers). A drag's offset is an inline translate with no transition, so
  * the snap-back after a short drag, and the exit after a long one, continue from the finger.
  * Reduced motion: nothing travels. It fades in place, fast; translate is not transitioned, so a drag's offset snaps away.
  */
@@ -441,13 +441,11 @@ body {
   &[data-state="closed"] {
     translate: 0 100%;
     pointer-events: none;
-    transition-duration: var(--motion-base);
-    transition-timing-function: var(--ease-leave);
+    transition-timing-function: var(--ease-move);
   }
   &[data-state="closed"]::backdrop {
     opacity: 0;
-    transition-duration: var(--motion-base);
-    transition-timing-function: var(--ease-leave);
+    transition-timing-function: var(--ease-move);
   }
   &[data-layer-swap] {
     display: block;
@@ -473,16 +471,16 @@ body {
 
 /*
  * A centred dialog (components/ui/dialog.tsx, a native <dialog>): the backdrop fades to its 40 %; the card fades and
- * scales 0.98 → 1, base, arrive. Out: fades, fast, leave. `data-backdrop="instant"`: a queued dialog that replaces the
+ * scales 0.98 → 1, fast, arrive. Out: fades, fast, leave. `data-backdrop="instant"`: a queued dialog that replaces the
  * one before it keeps the backdrop where it is (MOTION.md §4.3). Reduced motion: no scale, fades only, fast.
  */
 @utility motion-dialog {
   transition-property: opacity, scale;
-  transition-duration: var(--motion-base);
+  transition-duration: var(--motion-fast);
   transition-timing-function: var(--ease-arrive);
   &::backdrop {
     transition-property: opacity;
-    transition-duration: var(--motion-base);
+    transition-duration: var(--motion-fast);
     transition-timing-function: var(--ease-arrive);
   }
   &[data-state="closed"] {
@@ -516,13 +514,13 @@ body {
 /*
  * Popovers, menus, the model picker panel, PointerMenu and the Logs viewer: fade, plus --motion-shift of travel from
  * `data-side` (up: rises from its trigger below; down: drops from its trigger above; right: slides out of the rail; none:
- * fade only), base, arrive. transform-origin follows the side. Out: fades in place, fast, leave.
+ * fade only), fast, arrive. transform-origin follows the side. Out: fades in place, fast, leave.
  * The travel is `transform`, not `translate`, so it adds to a caller's own translate classes instead of replacing them.
  * Reduced motion: --motion-shift is 0, so it only fades, fast.
  */
 @utility motion-pop {
   transition-property: opacity, transform;
-  transition-duration: var(--motion-base);
+  transition-duration: var(--motion-fast);
   transition-timing-function: var(--ease-arrive);
   &[data-side="up"] {
     transform-origin: bottom;
@@ -613,7 +611,7 @@ body {
  * A full-height layer that slides in from an edge and is off-screen when closed: the phone drawer (app-shell.tsx). Its
  * scrim uses it too, so it fades on the drawer's timing (it is transparent when closed, so it only fades).
  * Open is `data-open="true"` or `data-state="open"`; closed is `data-open="false"` or `data-state="closed"`.
- * In: slow, arrive. Out: one step faster, base, leave.
+ * In: slow, arrive. Out: slow, move (as syedsarib.com closes its drawers).
  * - Opening turns visibility on at once (0s). A hidden → visible transition is still `hidden` in its first frame,
  *   so the layer could not take the focus its opener gives it, and Chromium, with nothing painted, could not run the
  *   slide on the compositor. Closing keeps it visible until the slide ends.
@@ -624,8 +622,8 @@ body {
  */
 @utility motion-layer {
   transition-property: translate, opacity, visibility;
-  transition-duration: var(--motion-base);
-  transition-timing-function: var(--ease-leave);
+  transition-duration: var(--motion-slow);
+  transition-timing-function: var(--ease-move);
   &:where([data-open="false"], [data-state="closed"]) {
     pointer-events: none;
   }

@@ -8,7 +8,8 @@
  * utility). JS reads these only where it must time something itself, e.g. a fallback timeout for an exit that
  * fires no transitionend (a 0 ms duration under reduced motion fires none).
  *
- * Exits are one step faster than entrances: slow → base, base → fast.
+ * Exits run at the same duration as entrances, as in the design system (v2.9): drawers and sheets out on move,
+ * small things (menus, dialogs, toasts) out on leave.
  */
 
 /** Durations in milliseconds, and how far popovers and notices travel in px (0 under reduced motion, in CSS). */

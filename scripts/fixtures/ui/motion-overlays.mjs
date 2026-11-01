@@ -1,6 +1,6 @@
 /**
  * Motion Phase M1, overlays (docs/MOTION.md §4.1–§4.6, §5): every kind of overlay opens with its entrance, stays
- * mounted with data-state="closed" (inert, no pointer events) while it leaves, and is gone within about 300 ms.
+ * mounted with data-state="closed" (inert, no pointer events) while it leaves, and is gone within about 300 ms (sheets and drawers, which close at slow, within 500).
  * A menu item that opens another overlay or navigates closes the menu without its exit (§4.3). Reduced motion
  * closes within the fast duration.
  *
@@ -15,7 +15,7 @@ c.assistant([text("In `src/cart.ts`: `cartTotal()` adds line items in integer ce
 const base = { route: c.route, chats: [c, ...backgroundChats()], files: WORKSPACE_FILES }
 
 const FAST = 150
-const BASE = 250
+const SLOW = 420
 const CHAT_MENU = 'button[aria-label="Chat options"]'
 /** The chat ⋯ menu's desktop popover (its label is the chat's title). */
 const CHAT_POPOVER = `div:has(> ${CHAT_MENU}) > [role="dialog"]`
@@ -129,12 +129,12 @@ const scenarios = [
   defineScenario({
     ...base,
     name: "motion-sheet",
-    description: "M1, phones: the chat ⋯ sheet rises from below with its backdrop, and slides out (base) on Escape.",
+    description: "M1, phones: the chat ⋯ sheet rises from below with its backdrop, and slides out (slow) on Escape.",
     widths: [390],
     // Opened from the keyboard: Safari doesn't focus a button on a tap, so only then is there a focus to give back.
     steps: [{ presence: { name: "sheet", open: [{ focus: `${CHAT_MENU} >> visible=true` }, { press: "Enter" }], target: SHEET, close: ESC } }],
     assert: [
-      { presence: "sheet", entered: ["translate"], backdrop: true, exitMs: BASE },
+      { presence: "sheet", entered: ["translate"], backdrop: true, exitMs: SLOW, within: 500 },
       // After the exit and close(), focus is back on the button that opened it (MOTION.md §4.2).
       { focused: `${CHAT_MENU} >> visible=true` },
     ],
@@ -186,7 +186,7 @@ const scenarios = [
     ],
     assert: [
       { composited: ["opacity", "translate"] },
-      { style: `${SCRIM}[data-open="false"]`, prop: "transition-duration", equals: "0.25s" },
+      { style: `${SCRIM}[data-open="false"]`, prop: "transition-duration", equals: "0.42s" },
       { style: `${SCRIM}[data-open="false"]`, prop: "opacity", equals: "0" },
       { style: `${SCRIM}[data-open="false"]`, prop: "pointer-events", equals: "none" },
       { hidden: SCRIM },
@@ -256,7 +256,7 @@ scenarios.push(
     ],
     assert: [
       { ...midEntrance("menu", null, null, FAST, ["opacity", "transform"]).check, widths: [1440] },
-      { ...midEntrance("menu", null, null, BASE, ["translate"]).check, widths: [390] },
+      { ...midEntrance("menu", null, null, SLOW, ["translate"]).check, widths: [390] },
       midEntrance("confirm", null, null, FAST, ["opacity", "scale"]).check,
     ],
   }),

@@ -6,9 +6,8 @@
 import { backgroundChats, defineScenario, WORKSPACE_FILES } from "./_kit.mjs"
 
 const FAST = "0.15s"
-const BASE = "0.25s"
+const SLOW = "0.42s"
 const MOVE = "cubic-bezier(0.4, 0, 0.2, 1)"
-const LEAVE = "cubic-bezier(0.4, 0, 1, 1)"
 const DRAWER = 'div[aria-label="Navigation"]'
 /** A sidebar chat row's Rename / Delete buttons (only on chats of the open workspace). */
 const ACTIONS = 'div:has(> button[data-s-tip="Rename"])'
@@ -34,10 +33,10 @@ const scenarios = [
       // Tailwind's defaults now read the tokens: every bare `transition` is fast + move.
       { style: 'button[aria-label="Send"]', prop: "transition-duration", equals: FAST },
       { style: 'button[aria-label="Send"]', prop: "transition-timing-function", equals: MOVE },
-      // Phones: the closed drawer leaves on base + leave, and takes no taps while it does (MOTION.md §4.1).
+      // Phones: the closed drawer leaves on slow + move (as syedsarib.com), and takes no taps while it does (MOTION.md §4.1).
       // Desktop: a column, no transition at all (sidebar ↔ rail is M3), and it must take clicks.
-      { style: DRAWER, prop: "transition-duration", equals: BASE, widths: [390] },
-      { style: DRAWER, prop: "transition-timing-function", equals: LEAVE, widths: [390] },
+      { style: DRAWER, prop: "transition-duration", equals: SLOW, widths: [390] },
+      { style: DRAWER, prop: "transition-timing-function", equals: MOVE, widths: [390] },
       { style: DRAWER, prop: "transition-property", equals: "translate, opacity, visibility", widths: [390] },
       { style: `${DRAWER}[data-open="false"]`, prop: "pointer-events", equals: "none", widths: [390] },
       { style: DRAWER, prop: "transition-duration", equals: "0s", widths: [1440] },
