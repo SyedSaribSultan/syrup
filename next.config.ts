@@ -12,6 +12,7 @@ import type { NextConfig } from "next"
  * talks to:
  * - 'self': pages, /_next assets (KaTeX fonts are bundled there), the API.
  * - https://e.syedsarib.com: the shared PostHog proxy (analytics events and its lazily loaded scripts).
+ * - https://analytics.syedsarib.com: the shared tracking add-on (/t/plus.js) and its network lookup (/api/net).
  * - https://*.vercel.run: each workspace's sandbox (OpenCode over fetch and SSE, src/lib/oc.ts; Sandbox#domain()).
  * - img https: the Google profile picture and images in rendered Markdown; data:/blob: for agent SVG and file previews.
  * - form-action accounts.google.com: "Continue with Google" posts a server action that redirects there.
@@ -22,11 +23,11 @@ const DEV = process.env.NODE_ENV !== "production"
 const CSP_ENFORCED = ["frame-ancestors 'none'", "base-uri 'self'", "object-src 'none'"].join("; ")
 const CSP_REPORT_ONLY = [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline' https://e.syedsarib.com${DEV ? " 'unsafe-eval'" : ""}`,
+  `script-src 'self' 'unsafe-inline' https://e.syedsarib.com https://analytics.syedsarib.com${DEV ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https:",
   "font-src 'self' data:",
-  `connect-src 'self' https://*.vercel.run https://e.syedsarib.com${DEV ? " ws: http://127.0.0.1:* http://localhost:*" : ""}`,
+  `connect-src 'self' https://*.vercel.run https://e.syedsarib.com https://analytics.syedsarib.com${DEV ? " ws: http://127.0.0.1:* http://localhost:*" : ""}`,
   "frame-src 'self' blob:",
   "worker-src 'self' blob:",
   "manifest-src 'self'",

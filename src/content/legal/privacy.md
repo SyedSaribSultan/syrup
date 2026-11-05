@@ -1,4 +1,4 @@
-> **Draft, version 2026-09-28.2.** Not yet reviewed by a lawyer. Items in [brackets] are placeholders. This policy explains what syrup.syedsarib.com collects and why, in plain language. We wrote it to be read.
+> **Draft, version 2026-11-06.** Not yet reviewed by a lawyer. Items in [brackets] are placeholders. This policy explains what syrup.syedsarib.com collects and why, in plain language. We wrote it to be read.
 
 ## 1. Controller
 
@@ -34,6 +34,8 @@ Legal basis: performance of a contract (GDPR Art. 6(1)(b)); for consent and audi
 ### 3b. Product analytics (understanding how syrup is used)
 
 We use **PostHog** (EU-hosted) to record events such as "signed in", "created workspace", "sent message", "sandbox started", feature usage, the outcome of each agent reply (duration, success, token counts and model), share links and exports (counts and sizes), page views, error types, and timing. Events never contain chat text, file contents, key labels or skill names. We also record session replays of the interface **with all text and inputs masked**, so prompts, code and keys never appear in a recording.
+
+Once per visit we also record technical details about your device and connection: your IP address and the network it belongs to (looked up with ipinfo.io), the approximate location derived from it, your browser's timezone and languages, screen and window size, device model and operating system version, graphics card, CPU cores, memory and connection type. We also record whether there was real input on the page (a scroll, tap, key or mouse movement, never what you typed) and how long each page was visible. We use these to tell real visitors from bots and to understand how syrup is used.
 
 When you are signed in, these events are linked to your account (account id, email and name) so we can understand how each account uses syrup.
 

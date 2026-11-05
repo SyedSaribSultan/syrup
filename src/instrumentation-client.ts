@@ -45,6 +45,15 @@ if (key && typeof window !== "undefined" && !sharePage) {
             history.replaceState(history.state, "", u.pathname + (u.search || "") + u.hash)
           }
         } catch {}
+        // Add-on (../analytics/TRACKING.md): machine, network, human and time-on-page signals, from one shared file.
+        // It reads no page text and does nothing when capture is opted out (DNT, Settings).
+        try {
+          ;(window as unknown as { posthog: unknown }).posthog = ph
+          const s = document.createElement("script")
+          s.src = "https://analytics.syedsarib.com/t/plus.js"
+          s.async = true
+          document.head.appendChild(s)
+        } catch {}
       },
     })
   } catch {
