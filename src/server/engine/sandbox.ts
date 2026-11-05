@@ -256,7 +256,9 @@ function sessionOpen(row: SandboxRow): boolean {
  * was last touched (the heartbeat touches it whenever it extends the sandbox), or now. An upper bound, never under.
  */
 function sessionEndEstimate(row: SandboxRow, now = Date.now()): number {
-  const start = row.lastSessionStartedAt!.getTime()
+  // A workspace that never started an engine has no session: nothing to estimate.
+  if (!row.lastSessionStartedAt) return now
+  const start = row.lastSessionStartedAt.getTime()
   return Math.min(now, start + SESSION_CAP_MS, Math.max(row.updatedAt.getTime(), start) + IDLE_MS)
 }
 
@@ -417,8 +419,9 @@ export async function openWorkspace(userId: string, workspaceId: string, opts: {
       password = crypto.randomBytes(24).toString("base64url")
       // Saved before the sidecar starts: its ingest token is bound to this stamp, and the relay checks it from the first call.
       const sessionStart = new Date()
-      // The previous engine session, if a heartbeat or stop never accounted it, ends now at the latest.
-      await closeSession(userId, workspaceId, row, sessionEndEstimate(row))
+      // The previous engine session, if a heartbeat or stop never accounted it, ends now at the latest. A brand-new
+      // workspace has no previous session (lastSessionStartedAt is null), so there is nothing to close.
+      if (sessionOpen(row)) await closeSession(userId, workspaceId, row, sessionEndEstimate(row))
       await saveSandbox(userId, workspaceId, { lastSessionStartedAt: sessionStart })
       await startEngine(sb, ws, userId, password, sessionStart.getTime())
       version = (await waitHealthy(baseUrl, password, 60_000)).version
