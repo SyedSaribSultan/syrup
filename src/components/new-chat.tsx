@@ -160,15 +160,10 @@ export function NewChat({ hrefFor, noKeys, error, onRetry }: Props) {
                 <div className="s-alert__body">
                 <p className="s-alert__title">No API keys yet.</p>
                 <p className="s-alert__desc">
-                {providers.length > 0 ? (
-                  <>
-                    {freeCount} free models work out of the box, but <span className="font-mono">Auto</span> and <span className="font-mono">Fast</span> need at least one provider key to route to.
-                  </>
-                ) : (
-                  "The agent needs at least one provider key."
-                )}{" "}
+                <span className="font-mono">Auto</span> and <span className="font-mono">Fast</span> use{" "}
+                {providers.length > 0 ? `the ${freeCount} free models` : "the free models"} for now. For stronger and faster models,{" "}
                 <Link href="/settings/providers" className="s-link">
-                  Add a key
+                  add a key
                 </Link>
                 . Google AI Studio is free and takes a minute.
                 </p>

@@ -4,7 +4,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useReducer,
 import posthog from "posthog-js"
 import { clog, installClientLogging } from "./clientlog"
 import { localHomePath } from "./home"
-import { useKeyTiers } from "./use-key-tiers"
+import { useHasRoutableKey, useKeyTiers } from "./use-key-tiers"
+import { isZenAlias, zenRanking } from "./zen-fallback"
 import { oc, ocRaw, type Connection, type Message, type Model, type Part, type Provider, type Session, type SessionStatus } from "./oc"
 
 /**
@@ -764,6 +765,8 @@ export function EngineProvider({ children, connection, remote }: { children: Rea
     for (const resolve of w) resolve()
   }, [ready, state.directory, conn, state.model])
   const whenReady = useCallback(() => (live.current.dir ? Promise.resolve() : new Promise<void>((resolve) => waiters.current.push(resolve))), [])
+  // Whether Auto/Fast must go to OpenCode Zen (no routable key), and the providers to rank; set further down.
+  const routing = useRef<{ zenOnly: boolean; providers: Provider[] }>({ zenOnly: false, providers: [] })
 
   const createSession = useCallback(async () => {
     await whenReady()
@@ -784,7 +787,18 @@ export function EngineProvider({ children, connection, remote }: { children: Rea
   const send = useCallback(
     async (sessionID: string, text: string, files: { name: string; mime: string; url: string }[] = []) => {
       await whenReady()
-      const { dir, conn, model } = live.current
+      const { dir, conn, model: picked } = live.current
+      // Auto/Fast with no key the router can use: send to the best OpenCode Zen free model for the alias instead
+      // (lib/zen-fallback.ts). The router cannot proxy Zen, but OpenCode calling it directly works.
+      let model = picked
+      if (picked?.providerID === "syrup" && isZenAlias(picked.modelID) && routing.current.zenOnly) {
+        const zen = routing.current.providers.find((p) => p.id === "opencode")
+        const id = zen ? zenRanking(picked.modelID, Object.values(zen.models))[0] : undefined
+        if (id) {
+          model = { providerID: "opencode", modelID: id }
+          clog("alias.zen", { alias: picked.modelID, modelID: id }, { sessionId: sessionID, directory: dir })
+        }
+      }
       dispatch({ type: "error", sessionID, error: undefined })
       const parts: ({ type: "text"; text: string } | { type: "file"; mime: string; filename: string; url: string })[] = []
       if (text) parts.push({ type: "text", text })
@@ -898,6 +912,12 @@ export function EngineProvider({ children, connection, remote }: { children: Rea
   const engineHasKeys = useMemo(() => state.providers.some((p) => p.id !== "opencode" && p.id !== "syrup"), [state.providers])
   const hasKeys = engineHasKeys || (tiers?.size ?? 0) > 0
   const keysKnown = engineHasKeys || tiers !== null
+  // Zen-only once it is settled that no stored key is routable and the engine holds none of its own (local env keys).
+  const hasRoutableKey = useHasRoutableKey()
+  const zenOnly = hasRoutableKey === false && !engineHasKeys
+  useEffect(() => {
+    routing.current = { zenOnly, providers: state.providers }
+  }, [zenOnly, state.providers])
 
   const value: Ctx = {
     ...state,
