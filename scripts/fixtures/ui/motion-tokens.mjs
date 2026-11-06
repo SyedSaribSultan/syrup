@@ -107,7 +107,7 @@ const scenarios = [
   defineScenario({
     ...base,
     name: "motion-theme-switch",
-    description: "M0: System (light) → Dark from the settings menu starts no transition (one-frame suppression, MOTION.md §4.8); the dark new-chat screen.",
+    description: "M0: Light → Dark from the settings menu starts no transition (one-frame suppression, MOTION.md §4.8); the dark new-chat screen.",
     steps: [
       { tap: OPEN_MENU, widths: [390] },
       { wait: 400, widths: [390] },

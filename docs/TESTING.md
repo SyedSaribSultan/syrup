@@ -253,7 +253,7 @@ All play in one fictional project, `acme-shop` (`C:\Users\dev\code\acme-shop`), 
 | `motion-row-actions-keyboard` | `/`, 1440 px only | Shift+Tab from a row's link skips the row above's hidden Rename/Delete; Tab then reaches them |
 | `motion-switcher-actions` | `/` + workspace switcher, 1440 px only | Only the hovered row's actions show; the others are invisible |
 | `motion-drawer-open` | `/`, 390 px only | ☰: the drawer takes the focus, and its slide runs on the compositor (Chromium trace) |
-| `motion-theme-switch` | `/` + settings menu | System → Dark starts no transition (the one-frame suppression); the dark screen |
+| `motion-theme-switch` | `/` + settings menu | Light → Dark starts no transition (the one-frame suppression); the dark screen |
 | `motion-reduced`, `motion-reduced-open` | `/`, 390 px only | Reduced motion: the closed drawer sits in place at opacity 0 and takes no taps; `translate` isn't transitioned; `.skel-in` keeps its 160 ms wait. ☰ fades the drawer in on the compositor, and it takes the focus |
 | `motion-popovers` | a chat, 1440 px only | Motion M1 (`motion-overlays.mjs`): chat ⋯, composer +, Share, settings, workspace switcher and model picker each fade in from their side and leave on a 120 ms exit, gone within 300 ms |
 | `motion-panel-popovers` | chat + Preview, 1440 px only | The preview ⋯ and the file tree ⋯ drop from their buttons |

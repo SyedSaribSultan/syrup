@@ -35,17 +35,14 @@ export const metadata: Metadata = {
  * resizes-content makes the on-screen keyboard shrink the layout (and dvh) on Android; iOS
  * Safari ignores it for now. Zoom stays allowed: inputs are 16px on touch (globals.css), so
  * iOS never zooms on focus and nobody loses pinch-zoom. theme-color tints the browser bars
- * to match the page (--bg).
+ * to match the light page (--bg), the default whatever the OS theme.
  */
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
   interactiveWidget: "resizes-content",
-  themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
-    { media: "(prefers-color-scheme: dark)", color: "#0f0e0c" },
-  ],
+  themeColor: "#ffffff",
 }
 
 /**
@@ -55,10 +52,10 @@ export const viewport: Viewport = {
  */
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    // data-mode="system": the Sarib tokens follow the OS. THEME_SCRIPT swaps it for data-theme before React hydrates
-    // when a light or dark choice is saved (lib/theme.ts). data-scale="app": sarib-design's app scale (DESIGN.md §4.6),
+    // No data-mode or data-theme: every device starts in light, whatever the OS theme. THEME_SCRIPT sets
+    // data-theme="dark" before React hydrates when dark is saved (lib/theme.ts). data-scale="app": sarib-design's app scale (DESIGN.md §4.6),
     // the dense tool-chrome sizes (14 UI text, 32 rows and buttons, 256 sidebar, 48 bars) for every screen.
-    <html lang="en" data-mode="system" data-scale="app" className={`${googleSansFlex.variable} ${googleSansCode.variable} h-full antialiased`} suppressHydrationWarning>
+    <html lang="en" data-scale="app" className={`${googleSansFlex.variable} ${googleSansCode.variable} h-full antialiased`} suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
       </head>

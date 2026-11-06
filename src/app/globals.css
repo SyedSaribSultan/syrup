@@ -44,8 +44,8 @@
   --s-font-family-body: var(--font-google-sans-flex), system-ui, sans-serif;
   --s-font-family-label: var(--font-google-sans-flex), system-ui, sans-serif;
   --s-font-family-code: var(--font-google-sans-code), ui-monospace, monospace;
-  /* Native controls, scrollbars and form widgets follow the theme too. */
-  color-scheme: light dark;
+  /* Native controls, scrollbars and form widgets follow the theme too: light unless dark is chosen. */
+  color-scheme: light;
   --bg: var(--s-color-background);
   --surface: var(--s-color-fill-secondary-variant);
   --surface-2: var(--s-color-fill-secondary);

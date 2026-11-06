@@ -382,7 +382,7 @@ This is the coding-agent part Gemini doesn't have. It's where "fit everything in
 **Settings menu (replaces the 7-link sidebar nav at every size).** It opens from the gear in the account row, and from the avatar in the phone top bar on the new-chat screen.
 - **Phone and tablet:** a **bottom sheet** of icon + label rows (Gemini's avatar sheet).
 - **Desktop:** the same rows in a popover above the account row.
-- **Rows:** Memory · Skills · Providers · Usage & cost · Account & privacy (cloud) · Shared links · Logs · Admin (admin only) · **Theme ▸** (System / Light / Dark).
+- **Rows:** Memory · Skills · Providers · Usage & cost · Account & privacy (cloud) · Shared links · Logs · Admin (admin only) · **Theme ▸** (Light / Dark).
   - Theme sets the existing `data-theme` hook in `globals.css`, which nothing sets today.
 - Each row goes to its page. The page has a phone top bar (`☰` · page name) and a big left-aligned title, like Gemini's Library page.
 

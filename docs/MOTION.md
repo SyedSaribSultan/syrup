@@ -114,7 +114,7 @@ Root cause: overlays do `if (!open) return null` or `open && …` (`sheet.tsx:15
 - **Phone panel button's changed-file badge:** `side-panel.tsx:62-66`. Appearing and disappearing fades, fast, with no scale. The number changing stays instant (live data).
 - **Toggle-switch knobs:** `privacy-settings.tsx:183-186`, `skills/page.tsx:330-332`. The knob moves by `left`, which `transition` doesn't animate. **The knob snaps while the track fades.**
 - **Hover-revealed row actions** in the sidebar and workspace switcher: `sidebar.tsx:119-122`, `workspace-switcher.tsx:151`. They toggle `display` and snap. The switcher's "n chats" label (`:146-148`) hides with `invisible`, which also snaps. Every other hover reveal fades.
-- **Segmented controls:** theme System/Light/Dark (`sidebar.tsx:291-304`), logs level filter (`logs-modal.tsx:183-194`), file preview Page/Source (`file-preview.tsx:213-219`), skills GitHub/Paste (`skills/page.tsx:99-104`), provider key free/paid (`settings/providers/page.tsx:322-328`), usage 7d/30d/90d (`usage/page.tsx:71-77`). **Colour only (§10.5):** keep the existing colour fade, no sliding marker, same as the panel tabs.
+- **Segmented controls:** theme Light/Dark (`sidebar.tsx:291-304`), logs level filter (`logs-modal.tsx:183-194`), file preview Page/Source (`file-preview.tsx:213-219`), skills GitHub/Paste (`skills/page.tsx:99-104`), provider key free/paid (`settings/providers/page.tsx:322-328`), usage 7d/30d/90d (`usage/page.tsx:71-77`). **Colour only (§10.5):** keep the existing colour fade, no sliding marker, same as the panel tabs.
 - **Theme switch:** `sidebar.tsx:281-307` → `lib/theme.ts:25-33`. About 100 elements fade their colours (and shadows, §2.1) over 150 ms while the rest snap: **a two-speed repaint**.
 
 ### 2.7 Lists
