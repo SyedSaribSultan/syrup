@@ -51,7 +51,7 @@ export async function track(userId: string, event: string, properties: Record<st
   const ph = client()
   if (!ph || (await isOptedOut(userId))) return
   try {
-    ph.capture({ distinctId: userId, event, properties: { ...properties, mode: env.mode } })
+    ph.capture({ distinctId: userId, event, properties: { ...properties, site: "syrup", mode: env.mode } })
     await ph.flush()
   } catch {
     // Analytics never breaks a request.
