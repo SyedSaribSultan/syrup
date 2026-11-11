@@ -184,6 +184,15 @@ function mergeRead(loaded: MessageEntry, mine: MessageEntry | undefined, s: Stat
   return { info: mine && newer(loaded.info.id) ? mine.info : loaded.info, parts }
 }
 
+/** Sessions with a part frozen by a dropped stream. */
+function frozenSessions(s: State): string[] {
+  const out: string[] = []
+  for (const [sid, sm] of Object.entries(s.messages)) {
+    if (sm.order.some((mid) => sm.byId[mid]?.parts.some((p) => s.live[p.id] === "frozen"))) out.push(sid)
+  }
+  return out
+}
+
 function reducer(s: State, a: Action): State {
   switch (a.type) {
     case "connected": {
@@ -254,7 +263,17 @@ function reducer(s: State, a: Action): State {
           }
         }
       }
-      return { ...s, messages: { ...s.messages, [a.sessionID]: { order, byId, loaded: true, readSeq: a.seq } } }
+      // A frozen part the read returns finished got its final update while the stream was down: it is whole now.
+      let live = s.live
+      for (const id of order) {
+        for (const p of byId[id].parts) {
+          if (live[p.id] === "frozen" && !isOpenPart(p)) {
+            if (live === s.live) live = { ...live }
+            delete live[p.id]
+          }
+        }
+      }
+      return { ...s, live, messages: { ...s.messages, [a.sessionID]: { order, byId, loaded: true, readSeq: a.seq } } }
     }
     case "message": {
       const sm = s.messages[a.info.sessionID] ?? empty
@@ -405,6 +424,9 @@ const EngineContext = createContext<Ctx | null>(null)
 const MODEL_KEY = "syrup.model"
 const MODEL_KEY_CLOUD = "syrup.model.cloud"
 const DIR_KEY = "syrup.directory"
+/** How long a send waits for the engine to come up before it fails back to the composer. */
+const READY_TIMEOUT_MS = 3 * 60_000
+const NOT_READY_MESSAGE = "Your workspace didn't start in time, so the message wasn't sent. It is still in the box; send it again once the workspace is up."
 
 // Raw event payloads we care about. Typed loosely: the v1 SDK types lag the server.
 type RawEvent = { type: string; properties: Record<string, unknown> }
@@ -482,6 +504,10 @@ export function EngineProvider({ children, connection, remote }: { children: Rea
 
   // Event stream for the current workspace. Reconnects on drop.
   const reconnects = useRef(0)
+  const stateRef = useRef(state)
+  useEffect(() => {
+    stateRef.current = state
+  }, [state])
   const loadedSessions = useRef(new Set<string>())
   // A listener set, not state: file events come in bursts and only the Files panel cares.
   const fileListeners = useRef(new Set<() => void>())
@@ -497,7 +523,8 @@ export function EngineProvider({ children, connection, remote }: { children: Rea
     async function resync() {
       const list = await oc(dir, conn).session.list()
       if (list.data) dispatch({ type: "sessions", sessions: list.data })
-      for (const id of loadedSessions.current) {
+      // Chats on screen, plus any holding a part the drop froze: its final update may have been sent meanwhile.
+      for (const id of new Set([...loadedSessions.current, ...frozenSessions(stateRef.current)])) {
         const at = seq.current
         const res = await oc(dir, conn).session.messages({ path: { id } })
         if (res.data) dispatch({ type: "messages", sessionID: id, entries: res.data, seq: at })
@@ -764,7 +791,24 @@ export function EngineProvider({ children, connection, remote }: { children: Rea
     waiters.current = []
     for (const resolve of w) resolve()
   }, [ready, state.directory, conn, state.model])
-  const whenReady = useCallback(() => (live.current.dir ? Promise.resolve() : new Promise<void>((resolve) => waiters.current.push(resolve))), [])
+  // A send queued before the engine is up gives up after a while (the open keeps failing): the caller keeps the draft.
+  const whenReady = useCallback(
+    () =>
+      live.current.dir
+        ? Promise.resolve()
+        : new Promise<void>((resolve, reject) => {
+            const done = () => {
+              clearTimeout(t)
+              resolve()
+            }
+            const t = setTimeout(() => {
+              waiters.current = waiters.current.filter((w) => w !== done)
+              reject(new Error(NOT_READY_MESSAGE))
+            }, READY_TIMEOUT_MS)
+            waiters.current.push(done)
+          }),
+    [],
+  )
   // Whether Auto/Fast must go to OpenCode Zen (no routable key), and the providers to rank; set further down.
   const routing = useRef<{ zenOnly: boolean; providers: Provider[] }>({ zenOnly: false, providers: [] })
 
@@ -786,7 +830,12 @@ export function EngineProvider({ children, connection, remote }: { children: Rea
 
   const send = useCallback(
     async (sessionID: string, text: string, files: { name: string; mime: string; url: string }[] = []) => {
-      await whenReady()
+      try {
+        await whenReady()
+      } catch (err) {
+        dispatch({ type: "error", sessionID, error: engineError(err) })
+        throw err
+      }
       const { dir, conn, model: picked } = live.current
       // Auto/Fast with no key the router can use: send to the best OpenCode Zen free model for the alias instead
       // (lib/zen-fallback.ts). The router cannot proxy Zen, but OpenCode calling it directly works.

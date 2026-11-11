@@ -17,6 +17,8 @@ type Props = {
   busy?: boolean
   autoFocus?: boolean
   placeholder?: string
+  /** Keeps the typed text in sessionStorage under this key until it is sent, so leaving the page does not lose it. */
+  draftKey?: string
 }
 
 const MAX_BYTES = 10 * 1024 * 1024
@@ -36,7 +38,7 @@ function readAsDataUrl(file: File): Promise<string> {
  * sends, the keyboard doesn't pop up on arrival, and the model picker lives in the top bar instead
  * (below the expanded breakpoint).
  */
-export function Composer({ onSend, onStop, busy, autoFocus, placeholder }: Props) {
+export function Composer({ onSend, onStop, busy, autoFocus, placeholder, draftKey }: Props) {
   const [text, setText] = useState("")
   const [files, setFiles] = useState<Attachment[]>([])
   const [sending, setSending] = useState(false)
@@ -50,6 +52,28 @@ export function Composer({ onSend, onStop, busy, autoFocus, placeholder }: Props
     // Only on mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // The draft survives leaving the page: restored on arrival, saved as it changes, dropped once sent.
+  const restored = useRef(false)
+  useEffect(() => {
+    if (!draftKey) return
+    let saved: string | null = null
+    try {
+      saved = sessionStorage.getItem(draftKey)
+    } catch {}
+    const t = setTimeout(() => {
+      restored.current = true
+      if (saved) setText((cur) => cur || saved)
+    }, 0)
+    return () => clearTimeout(t)
+  }, [draftKey])
+  useEffect(() => {
+    if (!draftKey || !restored.current) return
+    try {
+      if (text) sessionStorage.setItem(draftKey, text)
+      else sessionStorage.removeItem(draftKey)
+    } catch {}
+  }, [draftKey, text])
 
   // Text handed over from elsewhere (the Files panel's "ask for a web version").
   useEffect(() => {

@@ -113,7 +113,7 @@ export function NewChat({ hrefFor, noKeys, error, onRetry }: Props) {
             )}
           </div>
           <div className={`order-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] expanded:order-2 expanded:pb-0 ${pending ? "hidden" : ""}`}>
-            <Composer onSend={onSend} autoFocus />
+            <Composer onSend={onSend} autoFocus draftKey={`syrup.draft.new.${activeId ?? ""}`} />
           </div>
           {!pending && <div className="order-4 mt-4 hidden justify-center text-xs text-muted expanded:order-3 expanded:flex">{where}</div>}
           <div className="order-2 space-y-3 pb-3 empty:hidden expanded:order-4 expanded:pb-0">
