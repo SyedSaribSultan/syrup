@@ -253,12 +253,14 @@ const db = {
 const SESSION = Date.now() - 60_000
 const sessions = { u1: { w1: { startedAt: SESSION, live: true }, w9: { startedAt: SESSION, live: true } }, u2: { w2: { startedAt: SESSION, live: true } } }
 const dbState = { loads: 0, fail: false, delayMs: 0, hang: false }
+/** Accounts blocked or pending deletion (users.blocked_at / deleted_at). */
+const blockedUsers = new Set()
 async function loadKeys(userId) {
   dbState.loads++
   if (dbState.delayMs) await sleep(dbState.delayMs)
   if (dbState.hang) await new Promise(() => {})
   if (dbState.fail) throw new Error("database unreachable")
-  return { keys: new Map(Object.entries(db[userId] ?? {}).map(([p, k]) => [p, { id: k.id, secret: k.secret, tier: k.tier }])), sessions: new Map(Object.entries(sessions[userId] ?? {}).map(([w, s]) => [w, { ...s }])) }
+  return { keys: new Map(Object.entries(db[userId] ?? {}).map(([p, k]) => [p, { id: k.id, secret: k.secret, tier: k.tier }])), sessions: new Map(Object.entries(sessions[userId] ?? {}).map(([w, s]) => [w, { ...s }])), blocked: blockedUsers.has(userId) }
 }
 /** The relay key cache's clock runs ahead by this much (tests move it instead of waiting). */
 const kclk = { offset: 0 }
@@ -1099,6 +1101,26 @@ await scenario("13) tokens are bound to a sandbox session: stopping, deleting or
     cache = newCache()
   }
   eq(R.verifyIngestToken(TOK).s, SESSION, "the stamp is signed into the token")
+})
+
+await scenario("13b) a blocked account: its live session's token is refused with 403 once the cache re-reads, and works again after unblocking", async () => {
+  const relay = relayWith()
+  const call = async () => record(await relay(mkReq("POST", { token: TOK, body: chatBody() }), "google", ["chat", "completions"]))
+  cache = newCache()
+  try {
+    blockedUsers.add("u1")
+    const res = await call()
+    eq(res.status, 403, "blocked")
+    eq((await res.json()).error.type, "syrup_relay_blocked", "error type")
+    blockedUsers.delete("u1")
+    cache = newCache()
+    const back = await call()
+    eq(back.status, 200, "unblocked")
+    await back.text()
+  } finally {
+    blockedUsers.delete("u1")
+    cache = newCache()
+  }
 })
 
 await scenario("14) the sidecar's expected key: the relay never uses another key without reading the database first", async () => {

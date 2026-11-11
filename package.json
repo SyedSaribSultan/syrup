@@ -15,6 +15,7 @@
     "sidecar:build": "node sidecar/build.mjs",
     "test:router": "node scripts/test-router.mjs",
     "test:llm-proxy": "node scripts/test-llm-proxy.mjs",
+    "test:cloud": "node sidecar/build.mjs && node scripts/test-cloud.mjs",
     "test:transcript": "node scripts/test-transcript.mjs",
     "test:diffs": "node scripts/test-diffs.mjs",
     "test:guard": "node scripts/test-guard.mjs",
@@ -57,6 +58,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.16",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^24",
     "@types/react": "^19",
