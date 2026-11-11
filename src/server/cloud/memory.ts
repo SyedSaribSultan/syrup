@@ -92,15 +92,18 @@ function memoryRows(userId: string) {
       const now = new Date()
       await withUser(userId, (tx) => tx.update(m).set({ deletedAt: now, updatedAt: now }).where(and(live, eq(m.id, id))))
     },
-    /** Changes whenever any of the user's memories is added, edited or forgotten (forgetting bumps updated_at too). */
+    /**
+     * Changes whenever any of the user's memories is added, edited or forgotten (forgetting bumps updated_at too). The
+     * count of all rows as well as live ones: an add and a forget landing at the same instant still move the stamp.
+     */
     async version() {
       const [row] = await withUser(userId, (tx) =>
         tx
-          .select({ at: sql<string | null>`max(${m.updatedAt})::text`, n: sql<number>`(count(*) filter (where ${m.deletedAt} is null))::int` })
+          .select({ at: sql<string | null>`max(${m.updatedAt})::text`, n: sql<number>`(count(*) filter (where ${m.deletedAt} is null))::int`, all: sql<number>`count(*)::int` })
           .from(m)
           .where(eq(m.userId, userId)),
       )
-      return `${row?.at ?? "0"}|${row?.n ?? 0}`
+      return `${row?.at ?? "0"}|${row?.n ?? 0}|${row?.all ?? 0}`
     },
   }
 }
