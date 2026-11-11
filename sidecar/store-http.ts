@@ -3,6 +3,7 @@ import { BASE_URL } from "../src/server/router/backends"
 import { catalogFrom } from "../src/server/router/catalog"
 import type { ActiveKey, Catalog, RouterEvent, RouterStore } from "../src/server/router/store"
 import type { Log } from "../src/server/shared/log"
+import { IngestError, Outbox } from "./outbox"
 
 /**
  * provider id -> the user's active key for it: id and tier only. The sidecar
@@ -57,7 +58,7 @@ export function relayBaseURLs(cfg: Pick<SidecarConfig, "ingestUrl">): Record<str
   return Object.fromEntries(Object.keys(BASE_URL).map((p) => [p, `${cfg.ingestUrl}/api/ingest/llm/${p}`]))
 }
 
-/** POST JSON to the syrup app. Throws on non-2xx. */
+/** POST JSON to the syrup app. Throws an IngestError carrying the status on non-2xx. */
 export async function ingest<T = unknown>(cfg: SidecarConfig, path: string, body: unknown, init: { method?: string } = {}): Promise<T> {
   const res = await fetch(`${cfg.ingestUrl}${path}`, {
     method: init.method ?? "POST",
@@ -65,7 +66,7 @@ export async function ingest<T = unknown>(cfg: SidecarConfig, path: string, body
     body: init.method === "GET" ? undefined : JSON.stringify(body),
     signal: AbortSignal.timeout(15_000),
   })
-  if (!res.ok) throw new Error(`ingest ${path} → ${res.status} ${(await res.text()).slice(0, 200)}`)
+  if (!res.ok) throw new IngestError(`ingest ${path} → ${res.status} ${(await res.text()).slice(0, 200)}`, res.status)
   return (await res.json().catch(() => ({}))) as T
 }
 
@@ -90,6 +91,9 @@ export type HttpRouterStoreOptions = {
   keysRefreshMs?: number
   /** Least time between refreshes triggered by a rejected key. */
   authRefreshGapMs?: number
+  /** Router-event writes: batch window and first retry delay (Outbox). */
+  batchMs?: number
+  retryMs?: number
 }
 
 export class HttpRouterStore implements RouterStore {
@@ -98,6 +102,8 @@ export class HttpRouterStore implements RouterStore {
   private refreshing: Promise<void> | null = null
   private lastAuthRefresh = 0
   private authRefreshGapMs: number
+  /** router_events is the record of real spend and what other sandboxes seed cooldowns from: written in order, retried. */
+  private ledger: Outbox<RouterEvent>
 
   constructor(
     private cfg: SidecarConfig,
@@ -106,6 +112,7 @@ export class HttpRouterStore implements RouterStore {
   ) {
     this.meta = cfg.keyMeta
     this.authRefreshGapMs = opts.authRefreshGapMs ?? 5_000
+    this.ledger = new Outbox({ send: (events) => ingest(cfg, "/api/ingest/router", { events }), log, name: "ledger", maxBatch: 200, maxQueue: 5_000, batchMs: opts.batchMs ?? 250, retryMs: opts.retryMs ?? 1_000 })
     setInterval(() => void this.refreshKeys("interval"), opts.keysRefreshMs ?? 60_000).unref()
   }
 
@@ -180,11 +187,12 @@ export class HttpRouterStore implements RouterStore {
       this.lastAuthRefresh = Date.now()
       void this.refreshKeys("auth")
     }
-    try {
-      await ingest(this.cfg, "/api/ingest/router", { events: [e] })
-    } catch (err) {
-      this.log("router", "ledger.write_failed", err, { level: "warn" })
-    }
+    this.ledger.push(e)
+  }
+
+  /** Writes every queued router event now (before exit). */
+  flush(): Promise<void> {
+    return this.ledger.flush()
   }
 }
 

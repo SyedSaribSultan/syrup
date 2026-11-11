@@ -137,6 +137,6 @@ server.listen(cfg.port, "127.0.0.1", () => {
 for (const sig of ["SIGTERM", "SIGINT"] as const) {
   process.on(sig, () => {
     log.fn("sidecar", "stopping", { signal: sig })
-    void Promise.all([tap.flush(), log.flush()]).finally(() => process.exit(0))
+    void Promise.all([tap.flush(), store.flush(), log.flush()]).finally(() => process.exit(0))
   })
 }
