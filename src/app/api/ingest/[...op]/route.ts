@@ -1,7 +1,7 @@
 import { z } from "zod"
 import { applyEvents, recentRouterEvents, recordRouterEvents } from "@/server/cloud/history"
 import { verifyIngestToken, type IngestClaims } from "@/server/cloud/ingest"
-import { activeKeyMeta } from "@/server/cloud/keys"
+import { activeKeyMeta, ingestRefusal } from "@/server/cloud/keys"
 import { pgMemoryStore } from "@/server/cloud/memory"
 import { BASE_URL } from "@/server/router/backends"
 import { internalError } from "@/server/cloud/session"
@@ -16,7 +16,8 @@ export const dynamic = "force-dynamic"
  *   GET  /api/ingest/router/keys     { keys: { [provider]: { id, tier } } }: key metadata, never a secret
  *   GET  /api/ingest/memory/version  { version } that changes whenever the user's memories do
  *   GET  /api/ingest/router/recent?since=<epoch ms>  the user's router attempts since then (a new sandbox's router seeds its health memory)
- * The token binds every call to one user and one workspace; RLS does the rest.
+ * The token binds every call to one user, one workspace and one engine start; RLS does the rest. A blocked or deleting
+ * account, or a session that has ended (stopped, replaced, workspace deleted), is refused (ingestRefusal).
  * (/api/ingest/logs and the LLM relay, /api/ingest/llm/<provider>/..., have their own routes.)
  */
 
@@ -84,6 +85,8 @@ async function memory(op: string, claims: IngestClaims, body: Record<string, unk
 export async function GET(req: Request, ctx: { params: Promise<{ op: string[] }> }) {
   const claims = verifyIngestToken(req.headers.get("authorization")?.replace(/^Bearer /, ""))
   if (!claims) return Response.json({ error: "invalid ingest token" }, { status: 401 })
+  const refused = await ingestRefusal(claims).catch((err: unknown) => internalError(err, "ingest"))
+  if (refused) return refused
   const { op } = await ctx.params
   if (op.join("/") === "memory/version") {
     try {
@@ -114,6 +117,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ op: string[] }>
 export async function POST(req: Request, ctx: { params: Promise<{ op: string[] }> }) {
   const claims = verifyIngestToken(req.headers.get("authorization")?.replace(/^Bearer /, ""))
   if (!claims) return Response.json({ error: "invalid ingest token" }, { status: 401 })
+  const refused = await ingestRefusal(claims).catch((err: unknown) => internalError(err, "ingest"))
+  if (refused) return refused
   const { op } = await ctx.params
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>
   try {

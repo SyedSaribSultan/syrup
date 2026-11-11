@@ -14,12 +14,19 @@ export default async function SettingsPage() {
     await signOut({ redirectTo: "/signin" })
   }
 
+  /** After a deletion request: the account is deactivated, so this device signs out at once. */
+  async function deletedOut() {
+    "use server"
+    const { signOut } = await import("@/auth")
+    await signOut({ redirectTo: "/signin?error=deleted" })
+  }
+
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto w-full max-w-[760px] px-4 py-8 medium:px-6">
         <h1 className="font-display text-heading font-normal text-ink">Account & privacy</h1>
         <p className="mt-2 max-w-[600px] text-base text-ink-2">Every promise in the Privacy Policy has a control here. Changes take effect immediately and are recorded in your account&apos;s audit log.</p>
-        <PrivacySettings />
+        <PrivacySettings onDeleted={deletedOut} />
         <SharedLinks />
         <Connections />
         <section className="s-settings__group mt-6">

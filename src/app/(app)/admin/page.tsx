@@ -6,7 +6,7 @@ import { alertDialog, confirmDialog } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/s"
 
 type User = { id: string; email: string; name: string | null; createdAt: string; lastSeenAt: string | null; blockedAt: string | null; analyticsOptOut: boolean; keys: number; research: boolean }
-type Req = { id: string; user_id: string; type: string; status: string; requested_at: string }
+type Req = { id: string; user_id: string; type: string; status: string; requested_at: string; attempts: number; last_error: string | null }
 type Box = { workspaceId: string; workspace: string; email: string; status: string; region: string; engineVersion: string | null; lastSessionStartedAt: string | null; totalSessionSeconds: number; totalCpuMs: number; lastError: string | null }
 type Pool = { sandboxes: Box[]; running: number; totalCpuMs: number; totalSessionSeconds: number; cpuBudgetMs: number }
 
@@ -40,6 +40,12 @@ export default function AdminPage() {
     if (blocked && !(await confirmDialog({ title: `Block ${u.email}?`, body: "They can't sign in or use syrup until you unblock them, and their running sandboxes stop now.", confirmLabel: "Block", danger: true }))) return
     const r = await fetch("/api/admin/users", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ userId: u.id, blocked }) })
     if (!r.ok) await alertDialog({ title: "That didn't work", body: (await r.json().catch(() => null))?.error })
+    await load()
+  }
+
+  async function act(r: Req, action: "done" | "retry") {
+    const res = await fetch("/api/admin/data-requests", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: r.id, action }) })
+    if (!res.ok) await alertDialog({ title: "That didn't work", body: (await res.json().catch(() => null))?.error })
     await load()
   }
 
@@ -144,7 +150,7 @@ export default function AdminPage() {
           <h2 className="flex flex-wrap items-baseline gap-x-2 text-lg text-ink">
             Open data requests <span className="s-meta">{requests.length}</span>
           </h2>
-          <p className="s-help">Export within 30 days, deletion within 30 days (Privacy Policy §6). Automated fulfilment lands in Phase 3; until then handle these by hand.</p>
+          <p className="s-help">Export within 30 days, deletion within 30 days (Privacy Policy §6). Deletions run in the nightly job after the grace period and are retried up to 3 times. Exports are handled by hand: mark one done once sent.</p>
           <ul className="s-rows s-rows--divided">
             {requests.length === 0 && <li className="s-empty-line py-3">No open requests.</li>}
             {requests.map((r) => {
@@ -153,7 +159,19 @@ export default function AdminPage() {
                 <li key={r.id} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 py-2 text-sm">
                   <span className="s-badge">{r.type}</span>
                   <span className="min-w-0 flex-1 truncate font-mono text-ink">{u?.email ?? r.user_id}</span>
+                  <span className="text-ink-2">{r.status}</span>
                   <span className="s-meta">{fmt(r.requested_at)}</span>
+                  {r.type === "export" && r.status === "requested" && (
+                    <Button variant="link-neutral" size="sm" onClick={() => void act(r, "done")}>
+                      Mark done
+                    </Button>
+                  )}
+                  {r.status === "failed" && (
+                    <Button variant="link-neutral" size="sm" onClick={() => void act(r, "retry")}>
+                      Retry
+                    </Button>
+                  )}
+                  {r.last_error && <span className="basis-full text-err">{r.last_error}</span>}
                 </li>
               )
             })}

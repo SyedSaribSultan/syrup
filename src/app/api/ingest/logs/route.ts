@@ -1,6 +1,7 @@
 import { ulid } from "ulid"
 import { z } from "zod"
 import { verifyIngestToken } from "@/server/cloud/ingest"
+import { ingestRefusal } from "@/server/cloud/keys"
 import { capLogData } from "@/server/cloud/logs"
 import { pg, pgReady, pgSchema } from "@/server/db/pg"
 
@@ -16,10 +17,15 @@ const Row = z.object({
 })
 const Body = z.object({ rows: z.array(Row).max(500) })
 
-/** Log rows shipped by a sandbox sidecar. The token binds them to one user and workspace. */
+/**
+ * Log rows shipped by a sandbox sidecar. The token binds them to one user and workspace. A blocked account is refused;
+ * an ended session is not, so a sidecar's last rows (written as its sandbox stops) still arrive.
+ */
 export async function POST(req: Request) {
   const claims = verifyIngestToken(req.headers.get("authorization")?.replace(/^Bearer /, ""))
   if (!claims) return Response.json({ error: "invalid ingest token" }, { status: 401 })
+  const refused = await ingestRefusal(claims).catch(() => null)
+  if (refused?.status === 403) return refused
   const parsed = Body.safeParse(await req.json().catch(() => ({})))
   if (!parsed.success) return Response.json({ error: "invalid rows" }, { status: 400 })
   await pgReady()

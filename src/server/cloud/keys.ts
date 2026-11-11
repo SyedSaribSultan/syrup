@@ -2,11 +2,13 @@ import { and, desc, eq, isNull, sql } from "drizzle-orm"
 import { after } from "next/server"
 import { ulid } from "ulid"
 import { KeyCache, type RelayKeyInfo, type RelayLookup, type RelaySession, type RelaySnapshot } from "../../app/api/ingest/llm/relay"
-import { pg, pgReady, pgSchema, withUser } from "../db/pg"
+import { pg, pgReady, pgSchema, withUser, type PgTx } from "../db/pg"
+import { engineLive } from "../engine/sandbox-state"
 import { slog } from "../log"
 import { BUILT_IN, CURATED, isRoutable, type KeyInfo, type ProviderInfo, type Tier } from "../providers"
 import { audit } from "./audit"
 import { hint, openWith, sealWith, userDek } from "./crypto"
+import type { IngestClaims } from "./ingest"
 import { UserError } from "../user-error"
 
 /**
@@ -56,9 +58,15 @@ export async function listProviders(userId: string): Promise<{ providers: Provid
   return { providers, default: {} }
 }
 
+/** One key change per user and provider at a time, so two at once cannot both leave a key active. */
+async function lockProvider(tx: PgTx, userId: string, providerId: string) {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`provider-key:${userId}:${providerId}`}))`)
+}
+
 export async function addKey(userId: string, providerId: string, key: string, label: string, tier: Tier): Promise<KeyInfo> {
   if (BUILT_IN.has(providerId)) throw new UserError(`${providerId} is built in and does not take a key`)
   const info = await withUser(userId, async (tx) => {
+    await lockProvider(tx, userId, providerId)
     const dek = await userDek(tx, userId)
     const id = ulid()
     await tx.update(pgSchema.providerKeys).set({ active: false }).where(and(eq(pgSchema.providerKeys.userId, userId), eq(pgSchema.providerKeys.providerId, providerId)))
@@ -75,6 +83,7 @@ export async function addKey(userId: string, providerId: string, key: string, la
 
 export async function activateKey(userId: string, providerId: string, keyId: string): Promise<void> {
   await withUser(userId, async (tx) => {
+    await lockProvider(tx, userId, providerId)
     const [row] = await tx.select().from(pgSchema.providerKeys).where(and(eq(pgSchema.providerKeys.id, keyId), eq(pgSchema.providerKeys.providerId, providerId)))
     if (!row) throw new UserError("key not found", 404)
     await tx.update(pgSchema.providerKeys).set({ active: false }).where(and(eq(pgSchema.providerKeys.userId, userId), eq(pgSchema.providerKeys.providerId, providerId)))
@@ -86,6 +95,7 @@ export async function activateKey(userId: string, providerId: string, keyId: str
 
 export async function removeKey(userId: string, providerId: string, keyId: string): Promise<void> {
   await withUser(userId, async (tx) => {
+    await lockProvider(tx, userId, providerId)
     const [row] = await tx.select().from(pgSchema.providerKeys).where(and(eq(pgSchema.providerKeys.id, keyId), eq(pgSchema.providerKeys.providerId, providerId)))
     if (!row) return
     await tx.delete(pgSchema.providerKeys).where(eq(pgSchema.providerKeys.id, keyId))
@@ -111,7 +121,8 @@ export async function activeKeyMeta(userId: string): Promise<Record<string, KeyM
     tx
       .select({ providerId: k.providerId, id: k.id, tier: k.tier })
       .from(k)
-      .where(and(eq(k.userId, userId), eq(k.active, true), eq(k.enabled, true))),
+      .where(and(eq(k.userId, userId), eq(k.active, true), eq(k.enabled, true)))
+      .orderBy(k.createdAt),
   )
   const out: Record<string, KeyMeta> = {}
   for (const r of rows) out[r.providerId] = { id: r.id, tier: r.tier }
@@ -134,16 +145,19 @@ async function loadRelaySnapshot(userId: string): Promise<RelaySnapshot> {
   const ws = pgSchema.workspaces
   return pg().transaction(async (tx) => {
     await tx.execute(sql`select set_config('app.user_id', ${userId}, true)`)
-    const [rows, boxes] = await Promise.all([
+    const u = pgSchema.users
+    const [rows, boxes, [account]] = await Promise.all([
       tx
         .select({ providerId: k.providerId, id: k.id, tier: k.tier, secretEnc: k.secretEnc })
         .from(k)
-        .where(and(eq(k.userId, userId), eq(k.active, true), eq(k.enabled, true))),
+        .where(and(eq(k.userId, userId), eq(k.active, true), eq(k.enabled, true)))
+        .orderBy(k.createdAt),
       tx
-        .select({ workspaceId: sb.workspaceId, status: sb.status, startedAt: sb.lastSessionStartedAt })
+        .select({ workspaceId: sb.workspaceId, status: sb.status, startUntil: sb.startUntil, lastSessionStartedAt: sb.lastSessionStartedAt, lastSessionEndedAt: sb.lastSessionEndedAt, idleUntil: sb.idleUntil, updatedAt: sb.updatedAt })
         .from(sb)
         .innerJoin(ws, eq(ws.id, sb.workspaceId))
         .where(and(eq(sb.userId, userId), isNull(ws.deletedAt))),
+      tx.select({ blockedAt: u.blockedAt, deletedAt: u.deletedAt }).from(u).where(eq(u.id, userId)),
     ])
     const keys = new Map<string, RelayKeyInfo>()
     if (rows.length > 0) {
@@ -151,8 +165,9 @@ async function loadRelaySnapshot(userId: string): Promise<RelaySnapshot> {
       for (const r of rows) keys.set(r.providerId, { id: r.id, secret: openWith(dek, r.secretEnc), tier: r.tier })
     }
     const sessions = new Map<string, RelaySession>()
-    for (const b of boxes) sessions.set(b.workspaceId, { startedAt: b.startedAt?.getTime() ?? null, live: b.status === "starting" || b.status === "running" })
-    return { keys, sessions }
+    // Live by the same rule as everywhere else (engine/sandbox-state.ts): a lapsed start lease or a session past its end is not.
+    for (const b of boxes) sessions.set(b.workspaceId, { startedAt: b.lastSessionStartedAt?.getTime() ?? null, live: engineLive(b) })
+    return { keys, sessions, blocked: !account || !!account.blockedAt || !!account.deletedAt }
   })
 }
 
@@ -195,4 +210,22 @@ export function relayLookup(userId: string, opts: { reload?: boolean } = {}): Pr
 /** After a key is added, switched or removed: this instance's relay reads the database on its next call. Other instances re-read when the sidecar's expected key id differs from theirs. */
 export function forgetRelayKeys(userId: string): void {
   g.__syrupRelayKeys?.forget(userId)
+}
+
+/**
+ * Every ingest call from a sandbox sidecar goes through this (history, router events, memory, key metadata): the
+ * account must be active, and the token's engine session must still be the workspace's current, live one, the same
+ * rule the LLM relay applies. A stopped, replaced or deleted workspace's sidecar is refused. Null when allowed.
+ */
+export async function ingestRefusal(claims: IngestClaims): Promise<Response | null> {
+  let snap = (await relayLookup(claims.u)).value
+  const ok = (s: RelaySnapshot) => {
+    const sess = s.sessions.get(claims.w)
+    return !s.blocked && !!sess && sess.live && typeof claims.s === "number" && sess.startedAt === claims.s
+  }
+  // A cached read may predate this session's start: read again before refusing.
+  if (!ok(snap)) snap = (await relayLookup(claims.u, { reload: true })).value
+  if (snap.blocked) return Response.json({ error: "this account is suspended" }, { status: 403 })
+  if (!ok(snap)) return Response.json({ error: "this sandbox session has ended" }, { status: 401 })
+  return null
 }

@@ -5,6 +5,7 @@ import { env } from "@/server/env"
 
 const ERRORS: Record<string, string> = {
   blocked: "This account has been suspended. If you think that's a mistake, open an issue on syrup's GitHub.",
+  deleted: "This account is being deleted, as you asked. Everything is erased within 30 days.",
   unverified: "Google reports this email as unverified. Verify it with Google and try again.",
   email: "Google did not share an email address for this account.",
   OAuthAccountNotLinked: "This email is already linked to another sign-in method.",

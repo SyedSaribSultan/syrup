@@ -20,6 +20,7 @@ const KINDS = ["fact", "preference", "project", "reference", "note"]
 
 export default function MemoryPage() {
   const [rows, setRows] = useState<Memory[] | null>(null)
+  const [forgotten, setForgotten] = useState<Memory[]>([])
   const [q, setQ] = useState("")
   const [adding, setAdding] = useState(false)
 
@@ -27,6 +28,7 @@ export default function MemoryPage() {
     const r = await fetch(`/api/memory?q=${encodeURIComponent(query)}&limit=200`, { cache: "no-store" })
     const j = await r.json()
     setRows(j.memories)
+    setForgotten(j.forgotten ?? [])
   }, [])
 
   // Debounced search; state is set from the response callback.
@@ -77,6 +79,31 @@ export default function MemoryPage() {
             <MemoryCard key={m.id} m={m} onChange={() => load(q)} />
           ))}
         </ul>
+
+        {forgotten.length > 0 && (
+          <section className="mt-8">
+            <h2 className="text-lg text-ink">Recently forgotten</h2>
+            <p className="s-help">Forgotten by you or the agent. Restore one within 30 days; after that it is erased.</p>
+            <ul className="s-rows s-rows--divided">
+              {forgotten.map((m) => (
+                <li key={m.id} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 py-2 text-sm">
+                  <span className="min-w-0 flex-1 truncate text-ink">{m.title}</span>
+                  <span className="s-meta">{fmtRelative(m.updatedAt)}</span>
+                  <Button
+                    variant="link-neutral"
+                    size="sm"
+                    onClick={async () => {
+                      await fetch(`/api/memory/${m.id}`, { method: "POST" })
+                      await load(q)
+                    }}
+                  >
+                    Restore
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
       </div>
     </div>
   )

@@ -16,7 +16,8 @@ type Me = {
   requests: { id: string; type: string; status: string; requestedAt: string }[]
 }
 
-export function PrivacySettings() {
+/** `onDeleted`: signs this device out once a deletion request is recorded (the account is deactivated from then on). */
+export function PrivacySettings({ onDeleted }: { onDeleted(): Promise<void> }) {
   const [me, setMe] = useState<Me | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
@@ -54,8 +55,22 @@ export function PrivacySettings() {
     if (!ok) return
     setBusy(type)
     const r = await fetch("/api/data-requests", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type }) })
-    const j = await r.json()
-    setMsg(j.duplicate ? "That request is already open." : type === "delete" ? "Deletion requested. We'll confirm by email." : "Export requested. We'll email a download link.")
+    const j = await r.json().catch(() => ({}))
+    if (!r.ok) {
+      setMsg(j.error ?? "That didn't work. Try again.")
+      setBusy(null)
+      return
+    }
+    if (type === "delete" && !j.duplicate) return onDeleted()
+    setMsg(j.duplicate ? "That request is already open." : "Export requested. We'll email a download link.")
+    await load()
+    setBusy(null)
+  }
+
+  async function cancel(id: string) {
+    setBusy(id)
+    const r = await fetch(`/api/data-requests?id=${encodeURIComponent(id)}`, { method: "DELETE" })
+    if (!r.ok) setMsg((await r.json().catch(() => null))?.error ?? "That didn't work. Try again.")
     await load()
     setBusy(null)
   }
@@ -128,6 +143,11 @@ export function PrivacySettings() {
                 <span className="s-badge">{r.type}</span>
                 <span className="text-ink-2">{r.status}</span>
                 <span className="s-meta">{new Date(r.requestedAt).toLocaleString()}</span>
+                {r.type === "export" && r.status === "requested" && (
+                  <Button variant="link-neutral" size="sm" disabled={!!busy} onClick={() => void cancel(r.id)}>
+                    Cancel
+                  </Button>
+                )}
               </li>
             ))}
           </ul>

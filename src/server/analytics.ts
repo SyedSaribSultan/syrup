@@ -4,11 +4,11 @@ import { env } from "./env"
 /**
  * Server-side product analytics (docs/PLAN.md §6, layer B). Events only,
  * never content: no prompts, code, file names or keys go through here.
- * Callers pass the user id; opt-out is checked by the caller when it has the
- * user row, and enforced again here through a small cache.
+ * Callers pass the user id; opt-out is enforced here for every capture and
+ * identify, through a cache that expires (isOptedOut).
  */
 
-const g = globalThis as unknown as { __syrupPosthog?: PostHog | null; __syrupOptOut?: Map<string, boolean> }
+const g = globalThis as unknown as { __syrupPosthog?: PostHog | null; __syrupOptOut?: Map<string, { out: boolean; at: number }> }
 
 function client(): PostHog | null {
   if (g.__syrupPosthog !== undefined) return g.__syrupPosthog
@@ -18,21 +18,27 @@ function client(): PostHog | null {
   return g.__syrupPosthog
 }
 
+/**
+ * The user's analytics choice, cached per process for a minute. The row (users.analytics_opt_out) is the one owner:
+ * an opt-out made on another instance reaches this one within OPT_OUT_TTL_MS, and every capture and identify goes
+ * through isOptedOut().
+ */
+const OPT_OUT_TTL_MS = 60_000
 const optOut = (g.__syrupOptOut ??= new Map())
 
-/** Remember a user's analytics choice for this process so hot paths need no DB read. */
+/** Remember a user's analytics choice (just read or just changed) so hot paths need no DB read. */
 export function setOptOut(userId: string, value: boolean) {
-  optOut.set(userId, value)
+  optOut.set(userId, { out: value, at: Date.now() })
 }
 
 /**
- * Whether this user opted out of analytics. The cache answers when it can; on a miss (a fresh serverless
- * instance) the cloud reads the user row once, so an opted-out user is never tracked just because their
- * settings weren't loaded in this process yet. A failed read counts as opted out.
+ * Whether this user opted out of analytics. The cache answers while fresh; otherwise (a fresh serverless instance, or
+ * an answer over a minute old) the cloud reads the user row, so an opted-out user is never tracked just because this
+ * process saw an older choice. A failed read counts as opted out.
  */
 async function isOptedOut(userId: string): Promise<boolean> {
   const known = optOut.get(userId)
-  if (known !== undefined) return known
+  if (known && Date.now() - known.at < OPT_OUT_TTL_MS) return known.out
   if (!env.isCloud) return false
   try {
     const { eq } = await import("drizzle-orm")
@@ -40,7 +46,7 @@ async function isOptedOut(userId: string): Promise<boolean> {
     await pgReady()
     const [row] = await pg().select({ out: pgSchema.users.analyticsOptOut }).from(pgSchema.users).where(eq(pgSchema.users.id, userId))
     const out = row ? row.out : true
-    optOut.set(userId, out)
+    setOptOut(userId, out)
     return out
   } catch {
     return true
@@ -60,7 +66,7 @@ export async function track(userId: string, event: string, properties: Record<st
 
 export async function identify(userId: string, properties: Record<string, unknown>): Promise<void> {
   const ph = client()
-  if (!ph || optOut.get(userId)) return
+  if (!ph || (await isOptedOut(userId))) return
   try {
     ph.identify({ distinctId: userId, properties })
     await ph.flush()

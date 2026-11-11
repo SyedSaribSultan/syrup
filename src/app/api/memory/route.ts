@@ -12,7 +12,10 @@ export const GET = handler(async (req: Request) => {
   if (env.isCloud) {
     const me = await requireUser()
     const { cloudMemories } = await import("@/server/cloud/memory")
-    return Response.json({ memories: await cloudMemories(me.id).list(q, limit) })
+    const store = cloudMemories(me.id)
+    // Forgotten ones can be restored for a while (cloud only; local mode deletes for good).
+    const [memories, forgotten] = await Promise.all([store.list(q, limit), q ? [] : store.forgotten(20)])
+    return Response.json({ memories, forgotten })
   }
   const rows = q ? await searchMemories(q, limit) : await listMemories(limit)
   return Response.json({ memories: rows })

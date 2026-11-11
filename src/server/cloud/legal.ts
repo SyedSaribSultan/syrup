@@ -43,14 +43,30 @@ export async function legalDocId(kind: LegalKind): Promise<string> {
   return again?.id ?? id
 }
 
+/**
+ * Records consent to the current version of each kind. A kind whose latest row already grants this version is skipped,
+ * so granting twice leaves one live row.
+ */
 export async function recordConsent(userId: string, kinds: LegalKind[], meta: { ipHash: string | null; userAgent: string | null }): Promise<void> {
   const ids = Object.fromEntries(await Promise.all(kinds.map(async (k) => [k, await legalDocId(k)] as const)))
   await withUser(userId, async (tx) => {
+    const c = pgSchema.consents
+    const added: LegalKind[] = []
     for (const kind of kinds) {
-      await tx.insert(pgSchema.consents).values({ id: ulid(), userId, kind, legalDocumentId: ids[kind], ipHash: meta.ipHash, userAgent: meta.userAgent })
+      const [latest] = await tx.select({ doc: c.legalDocumentId, revokedAt: c.revokedAt }).from(c).where(and(eq(c.userId, userId), eq(c.kind, kind))).orderBy(desc(c.grantedAt)).limit(1)
+      if (latest && !latest.revokedAt && latest.doc === ids[kind]) continue
+      await tx.insert(c).values({ id: ulid(), userId, kind, legalDocumentId: ids[kind], ipHash: meta.ipHash, userAgent: meta.userAgent })
+      added.push(kind)
     }
-    await audit(tx, { userId, actor: "user", action: "consent.grant", data: { kinds }, ipHash: meta.ipHash })
+    if (added.length) await audit(tx, { userId, actor: "user", action: "consent.grant", data: { kinds: added }, ipHash: meta.ipHash })
   })
+}
+
+/** At sign-in (which is acceptance, as at sign-up): Terms and Privacy move to their current versions where the person stands on an older one. */
+export async function consentAtSignIn(userId: string, meta: { ipHash: string | null; userAgent: string | null }): Promise<void> {
+  const now = await currentConsents(userId)
+  const stale = (["terms", "privacy"] as const).filter((k) => !now[k].current)
+  if (stale.length) await recordConsent(userId, stale, meta)
 }
 
 export async function revokeConsent(userId: string, kind: LegalKind, meta: { ipHash: string | null }): Promise<void> {

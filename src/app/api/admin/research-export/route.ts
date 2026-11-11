@@ -14,8 +14,8 @@ const RESEARCH_FORMAT = "syrup.research"
 
 /**
  * The research dataset (PLAN §6 layer C) as JSON Lines, one chat per line.
- * Only users whose research consent is live and whose account is not deleted
- * are included, checked at export time so a revoked consent drops out of the
+ * Only users whose latest research consent row is unrevoked and whose account
+ * is active (not blocked, not pending deletion) are included, checked at export time so a revoked consent drops out of the
  * next export. Every chat goes through the share-link sanitizer (secrets, the
  * user's keys and email, paths); attachments are dropped; user and chat ids
  * are replaced by stable pseudonyms; each reply carries its thumbs rating.
@@ -27,7 +27,8 @@ export const GET = handler(async () => {
   const users = (
     await db.execute<{ id: string; email: string }>(sql`
       select u.id, u.email from users u
-      where u.deleted_at is null and exists (select 1 from consents c where c.user_id = u.id and c.kind = 'research' and c.revoked_at is null)`)
+      where u.deleted_at is null and u.blocked_at is null
+        and (select c.revoked_at is null from consents c where c.user_id = u.id and c.kind = 'research' order by c.granted_at desc limit 1)`)
   ).rows
   await audit(null, { userId: admin.id, actor: "admin", action: "research.export", data: { users: users.length } })
 

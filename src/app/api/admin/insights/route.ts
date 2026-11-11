@@ -56,7 +56,7 @@ export const GET = handler(async () => {
       from message_feedback where updated_at > now() - interval '30 days'
       group by 1, 2`),
     one<{ consenting: number; chats: number; messages: number; rated: number }>(sql`
-      with c as (select distinct user_id from consents where kind = 'research' and revoked_at is null and user_id in ${live})
+      with c as (select user_id from (select distinct on (user_id) user_id, revoked_at from consents where kind = 'research' order by user_id, granted_at desc) latest where revoked_at is null and user_id in ${live})
       select
         (select count(*)::int from c) as "consenting",
         (select count(*)::int from chat_sessions where user_id in (select user_id from c) and deleted_at is null) as "chats",

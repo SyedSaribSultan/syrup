@@ -71,8 +71,8 @@ export type RelayClaims = { u: string; w: string; s?: number }
 export type RelayKeyInfo = { id: string; secret: string; tier: "free" | "paid" }
 /** One workspace's sandbox as the database last said: when its engine started, and whether it may still be running. */
 export type RelaySession = { startedAt: number | null; live: boolean }
-/** Everything the relay needs about one user, loaded in one database read and cached per instance. */
-export type RelaySnapshot = { keys: ReadonlyMap<string, RelayKeyInfo>; sessions: ReadonlyMap<string, RelaySession> }
+/** Everything the relay needs about one user, loaded in one database read and cached per instance. `blocked`: the account is blocked or pending deletion. */
+export type RelaySnapshot = { keys: ReadonlyMap<string, RelayKeyInfo>; sessions: ReadonlyMap<string, RelaySession>; blocked?: boolean }
 /** `hit`: served from this instance's cache (no database work in this request). `ageMs`: how old that read is. */
 export type RelayLookup = { value: RelaySnapshot; hit: boolean; ageMs: number }
 export type RelayLog = (event: string, data: Record<string, unknown>, level?: "info" | "warn" | "error") => void
@@ -220,6 +220,10 @@ export function createRelay(deps: RelayDeps) {
     if (err || !found) {
       log("relay.key_failed", { provider, workspaceId, message: causeOf(err) }, "error")
       return fail(503, "unavailable", "syrup_relay_unavailable", "could not read your key, try again shortly", { "retry-after": "2" })
+    }
+    if (found.value.blocked) {
+      log("relay.account_blocked", { provider, workspaceId }, "warn")
+      return fail(403, "token", "syrup_relay_blocked", "this account is suspended")
     }
     const sess = found.value.sessions.get(workspaceId)
     if (!sess || !sess.live || sess.startedAt !== sessionStart) {

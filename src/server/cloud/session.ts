@@ -30,31 +30,35 @@ async function opsViewer(): Promise<Viewer | null> {
   return u ? { id: u.id, email, name: u.name, admin: true } : null
 }
 
-// Blocked accounts (users.blocked_at). Sessions are JWTs, so the check is a DB read, cached per instance for a minute.
+// Accounts that may not use the app: blocked by an admin (users.blocked_at) or pending deletion (users.deleted_at).
+// Sessions are JWTs, so the check is a DB read, cached per instance for a minute.
+type AccountState = "active" | "blocked" | "deleting"
 const BLOCK_TTL_MS = 60_000
-const blockCache = new Map<string, { blocked: boolean; at: number }>()
+const blockCache = new Map<string, { state: AccountState; at: number }>()
 
-async function isBlocked(userId: string): Promise<boolean> {
+async function accountState(userId: string): Promise<AccountState> {
   const hit = blockCache.get(userId)
-  if (hit && Date.now() - hit.at < BLOCK_TTL_MS) return hit.blocked
+  if (hit && Date.now() - hit.at < BLOCK_TTL_MS) return hit.state
   await pgReady()
-  const [u] = await pg().select({ blockedAt: pgSchema.users.blockedAt }).from(pgSchema.users).where(eq(pgSchema.users.id, userId))
-  const blocked = !!u?.blockedAt
-  blockCache.set(userId, { blocked, at: Date.now() })
-  return blocked
+  const [u] = await pg().select({ blockedAt: pgSchema.users.blockedAt, deletedAt: pgSchema.users.deletedAt }).from(pgSchema.users).where(eq(pgSchema.users.id, userId))
+  const state: AccountState = !u || u.deletedAt ? "deleting" : u.blockedAt ? "blocked" : "active"
+  blockCache.set(userId, { state, at: Date.now() })
+  return state
 }
 
-/** Forget the cached answer so a block or unblock applies at once on this instance (others catch up within a minute). */
+/** Forget the cached answer so a block, unblock or deletion request applies at once on this instance (others catch up within a minute). */
 export function forgetBlocked(userId: string) {
   blockCache.delete(userId)
 }
 
-/** The signed-in user, or a thrown 401 Response for route handlers to return. Blocked accounts get a 403. */
+/** The signed-in user, or a thrown 401 Response for route handlers to return. Blocked and deleting accounts get a 403. */
 export async function requireUser(): Promise<Viewer> {
   const session = await auth()
   const u = session?.user
   if (u?.id && u.email) {
-    if (await isBlocked(u.id)) throw Response.json({ error: "this account is suspended" }, { status: 403 })
+    const state = await accountState(u.id)
+    if (state === "blocked") throw Response.json({ error: "this account is suspended" }, { status: 403 })
+    if (state === "deleting") throw Response.json({ error: "this account is being deleted", code: "account_deleting" }, { status: 403 })
     return { id: u.id, email: u.email, name: u.name ?? null, admin: !!u.admin || isAdmin(u.email) }
   }
   const ops = await opsViewer()

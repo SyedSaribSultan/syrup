@@ -6,7 +6,7 @@ import { authConfig } from "./auth.config"
 import { track } from "./server/analytics"
 import { audit } from "./server/cloud/audit"
 import { ipHash } from "./server/cloud/crypto"
-import { recordConsent } from "./server/cloud/legal"
+import { consentAtSignIn, recordConsent } from "./server/cloud/legal"
 import { pg, pgReady, pgSchema } from "./server/db/pg"
 
 /**
@@ -42,8 +42,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth(async () => {
         if (!email) return "/signin?error=email"
         // Google reports whether it verified the address; refuse unverified ones.
         if (profile && "email_verified" in profile && profile.email_verified === false) return "/signin?error=unverified"
-        const [existing] = await pg().select({ blockedAt: pgSchema.users.blockedAt }).from(pgSchema.users).where(eq(pgSchema.users.email, email))
+        const [existing] = await pg().select({ blockedAt: pgSchema.users.blockedAt, deletedAt: pgSchema.users.deletedAt }).from(pgSchema.users).where(eq(pgSchema.users.email, email))
         if (existing?.blockedAt) return "/signin?error=blocked"
+        if (existing?.deletedAt) return "/signin?error=deleted"
         return true
       },
     },
@@ -61,7 +62,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth(async () => {
         const meta = await requestMeta()
         await pg().update(pgSchema.users).set({ lastSeenAt: new Date() }).where(eq(pgSchema.users.id, user.id))
         await audit(null, { userId: user.id, actor: "user", action: "signin", ipHash: meta.ipHash })
-        if (!isNewUser) await track(user.id, "user_signed_in", { method: "google" })
+        if (isNewUser) return
+        // Signing in under the notice accepts the current Terms and Privacy Policy, as at sign-up: a person on an older
+        // version moves to the current one here.
+        await consentAtSignIn(user.id, meta)
+        await track(user.id, "user_signed_in", { method: "google" })
       },
       async signOut(message) {
         const uid = "token" in message ? (message.token?.uid as string | undefined) : undefined

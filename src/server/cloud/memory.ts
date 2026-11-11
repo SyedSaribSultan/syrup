@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, sql } from "drizzle-orm"
+import { and, desc, eq, gt, isNotNull, isNull, sql } from "drizzle-orm"
 import { ulid } from "ulid"
 import { pgSchema, withUser } from "../db/pg"
 import { KINDS, type MemoryKind, type MemoryRecord, type MemoryStore } from "../memory/tools"
@@ -8,7 +8,13 @@ import { KINDS, type MemoryKind, type MemoryRecord, type MemoryStore } from "../
  * tsvector (see drizzle-pg/*_rls_history.sql). Memories are shared across all
  * of a user's workspaces. Used by /api/ingest/memory (the sidecar's
  * MemoryStore) and by /api/memory (the Memory page).
+ *
+ * States: live, forgotten (deleted_at set; restorable from the Memory page for
+ * FORGOTTEN_DAYS), purged (the nightly cron deletes the row after that).
  */
+
+/** How long a forgotten memory can be restored before the cron purges it. */
+export const FORGOTTEN_DAYS = 30
 
 type Row = typeof pgSchema.memories.$inferSelect
 
@@ -92,6 +98,15 @@ function memoryRows(userId: string) {
       const now = new Date()
       await withUser(userId, (tx) => tx.update(m).set({ deletedAt: now, updatedAt: now }).where(and(live, eq(m.id, id))))
     },
+    /** Forgotten in the last FORGOTTEN_DAYS, most recent first: what the Memory page can still restore. */
+    forgotten(limit: number) {
+      const since = new Date(Date.now() - FORGOTTEN_DAYS * 86_400_000)
+      return withUser(userId, (tx) => tx.select().from(m).where(and(eq(m.userId, userId), isNotNull(m.deletedAt), gt(m.deletedAt, since))).orderBy(desc(m.deletedAt)).limit(limit))
+    },
+    async restore(id: string) {
+      const [row] = await withUser(userId, (tx) => tx.update(m).set({ deletedAt: null, updatedAt: new Date() }).where(and(eq(m.userId, userId), eq(m.id, id), isNotNull(m.deletedAt))).returning())
+      return row
+    },
     /**
      * Changes whenever any of the user's memories is added, edited or forgotten (forgetting bumps updated_at too). The
      * count of all rows as well as live ones: an add and a forget landing at the same instant still move the stamp.
@@ -139,7 +154,17 @@ export function cloudMemories(userId: string) {
       return r ? toView(r) : undefined
     },
     delete: (id: string) => rows.delete(id),
+    forgotten: async (limit: number) => (await rows.forgotten(limit)).map(toView),
+    restore: async (id: string) => {
+      const r = await rows.restore(id)
+      return r ? toView(r) : undefined
+    },
   }
+}
+
+/** Undoes a forget (the Memory page's Restore). */
+export async function restoreMemory(userId: string, id: string): Promise<MemoryView | undefined> {
+  return cloudMemories(userId).restore(id)
 }
 
 /** The MEMORY.md the agent loads as instructions; same text as local mode's writeIndex(). */

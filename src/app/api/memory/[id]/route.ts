@@ -34,3 +34,12 @@ export const DELETE = handler(async (_req: Request, ctx: Ctx) => {
   }
   return Response.json({ ok: true })
 })
+
+/** Restores a forgotten memory (cloud: forgetting keeps the row for FORGOTTEN_DAYS). */
+export const POST = handler(async (_req: Request, ctx: Ctx) => {
+  if (!env.isCloud) return Response.json({ error: "Forgotten memories can't be restored in local mode." }, { status: 404 })
+  const me = await requireUser()
+  const { id } = await ctx.params
+  const m = await (await import("@/server/cloud/memory")).restoreMemory(me.id, id)
+  return m ? Response.json(m) : Response.json({ error: "Not found" }, { status: 404 })
+})
