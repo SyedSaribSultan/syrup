@@ -1,5 +1,5 @@
-import { and, asc, desc, eq, gte, isNull, sql } from "drizzle-orm"
-import { pgSchema, withUser } from "../db/pg"
+import { and, asc, desc, eq, gte, isNull, lte, sql } from "drizzle-orm"
+import { pgSchema, withUser, type PgTx } from "../db/pg"
 import type { RouterEvent } from "../router/store"
 import { invalidateShare } from "../share-cache"
 
@@ -28,6 +28,15 @@ type PartInfo = { id: string; messageID: string; sessionID: string; type: string
 export type EngineEvent = { type: string; properties: Record<string, unknown> }
 
 const ms = (n?: number) => (n ? new Date(n) : undefined)
+
+/** A chat the user deleted: a late batch must not add messages to it. */
+async function chatDeleted(tx: PgTx, sessionId: string): Promise<boolean> {
+  const [cs] = await tx.select({ deletedAt: pgSchema.chatSessions.deletedAt }).from(pgSchema.chatSessions).where(eq(pgSchema.chatSessions.id, sessionId))
+  return !!cs?.deletedAt
+}
+
+/** A part update replaces the stored part, except that a finished tool part (completed or error) is never set back to running by an older update. */
+const TERMINAL = sql.raw(`('completed', 'error')`)
 
 export async function applyEvents(userId: string, workspaceId: string, events: EngineEvent[]): Promise<{ applied: number }> {
   let applied = 0
@@ -65,6 +74,7 @@ export async function applyEvents(userId: string, workspaceId: string, events: E
           if (!info?.id || !info.sessionID) break
           // A message can arrive before its session event; make sure the session row exists.
           await tx.insert(pgSchema.chatSessions).values({ id: info.sessionID, userId, workspaceId }).onConflictDoNothing()
+          if (await chatDeleted(tx, info.sessionID)) break
           const t = info.tokens ?? {}
           const row = {
             id: info.id,
@@ -90,7 +100,14 @@ export async function applyEvents(userId: string, workspaceId: string, events: E
           const { id: _id, parts: _p, ...set } = { ...row, parts: undefined }
           void _id
           void _p
-          await tx.insert(pgSchema.messages).values(row).onConflictDoUpdate({ target: pgSchema.messages.id, set })
+          // A finished reply stays finished: a replayed in-progress update (a resync after the engine restarted) keeps the
+          // stored completion and info, including an interruption recorded when the engine session ended.
+          const m = pgSchema.messages
+          const kept = sql`${m.completedAt} is not null and excluded.completed_at is null`
+          await tx
+            .insert(m)
+            .values(row)
+            .onConflictDoUpdate({ target: m.id, set: { ...set, completedAt: sql`coalesce(excluded.completed_at, ${m.completedAt})`, info: sql`case when ${kept} then ${m.info} else excluded.info end` } })
           await tx.update(pgSchema.chatSessions).set({ updatedAt: new Date() }).where(eq(pgSchema.chatSessions.id, info.sessionID))
           applied++
           break
@@ -100,10 +117,15 @@ export async function applyEvents(userId: string, workspaceId: string, events: E
           if (!part?.id || !part.messageID) break
           // Merge this part into the message's parts object (jsonb concatenation keeps the others).
           await tx.insert(pgSchema.chatSessions).values({ id: part.sessionID, userId, workspaceId }).onConflictDoNothing()
+          if (await chatDeleted(tx, part.sessionID)) break
+          const m = pgSchema.messages
+          const stored = sql`${m.parts} -> ${part.id}`
+          const incoming = (part.state as { status?: unknown } | undefined)?.status
+          const older = typeof incoming === "string" && !["completed", "error"].includes(incoming) ? sql`(${stored} -> 'state' ->> 'status') in ${TERMINAL}` : sql`false`
           await tx
-            .insert(pgSchema.messages)
+            .insert(m)
             .values({ id: part.messageID, userId, workspaceId, sessionId: part.sessionID, role: "unknown", parts: { [part.id]: part } })
-            .onConflictDoUpdate({ target: pgSchema.messages.id, set: { parts: sql`${pgSchema.messages.parts} || ${JSON.stringify({ [part.id]: part })}::jsonb` } })
+            .onConflictDoUpdate({ target: m.id, set: { parts: sql`case when ${older} then ${m.parts} else ${m.parts} || ${JSON.stringify({ [part.id]: part })}::jsonb end` } })
           applied++
           break
         }
@@ -126,6 +148,24 @@ export async function applyEvents(userId: string, workspaceId: string, events: E
   })
   for (const id of revokedShares) invalidateShare(id)
   return { applied }
+}
+
+/**
+ * The engine session of a workspace ended (stop, idle, cap, a new start): replies it never finished end here, marked
+ * interrupted, and their running tool calls become errors, so history does not show them in progress forever.
+ */
+export async function interruptOpenReplies(tx: PgTx, userId: string, workspaceId: string, endAt: Date): Promise<void> {
+  const m = pgSchema.messages
+  const error = JSON.stringify({ error: { name: "MessageInterruptedError", data: { message: "The workspace stopped before this reply finished." } } })
+  const toolError = JSON.stringify({ status: "error", error: "Interrupted: the workspace stopped before this step finished." })
+  await tx
+    .update(m)
+    .set({
+      completedAt: endAt,
+      info: sql`coalesce(${m.info}, '{}'::jsonb) || ${error}::jsonb`,
+      parts: sql`coalesce((select jsonb_object_agg(k, case when v ->> 'type' = 'tool' and v -> 'state' ->> 'status' in ('pending', 'running') then jsonb_set(v, '{state}', (v -> 'state') || ${toolError}::jsonb) else v end) from jsonb_each(${m.parts}) as e(k, v)), '{}'::jsonb)`,
+    })
+    .where(and(eq(m.userId, userId), eq(m.workspaceId, workspaceId), eq(m.role, "assistant"), isNull(m.completedAt), lte(m.createdAt, endAt)))
 }
 
 export async function recordRouterEvents(userId: string, workspaceId: string, events: RouterEvent[]): Promise<void> {

@@ -1,7 +1,7 @@
-import { and, desc, eq, isNull } from "drizzle-orm"
+import { and, desc, eq, isNull, sql } from "drizzle-orm"
 import { ulid } from "ulid"
 import { LIMIT_MESSAGE, MAX_WORKSPACES, nextColor } from "@/lib/workspace-limits"
-import { pgSchema, withUser } from "../db/pg"
+import { pgSchema, withUser, type PgTx } from "../db/pg"
 import { invalidateShare } from "../share-cache"
 import { audit } from "./audit"
 import { githubToken, inspectGithubRepo } from "./github"
@@ -51,6 +51,11 @@ export async function listWorkspaces(userId: string): Promise<(Workspace & { san
 
 export const HOME_NAME = "Home"
 
+/** One workspace create per user at a time, so the cap and the color pick see every live workspace. */
+async function lockUserWorkspaces(tx: PgTx, userId: string) {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`workspaces:${userId}`}))`)
+}
+
 /**
  * Creates the user's Home workspace if it does not exist yet. Safe to race:
  * the partial unique index workspaces_home_idx admits one live Home per user,
@@ -60,6 +65,7 @@ export const HOME_NAME = "Home"
  */
 export async function ensureHome(userId: string): Promise<Workspace> {
   return withUser(userId, async (tx) => {
+    await lockUserWorkspaces(tx, userId)
     const [existing] = await tx.select().from(pgSchema.workspaces).where(and(eq(pgSchema.workspaces.userId, userId), eq(pgSchema.workspaces.isHome, true), isNull(pgSchema.workspaces.deletedAt)))
     if (existing) return existing
     const [ws] = await tx.insert(pgSchema.workspaces).values({ id: ulid(), userId, name: HOME_NAME, source: "empty", color: 0, isHome: true }).onConflictDoNothing().returning()
@@ -98,6 +104,7 @@ export async function createWorkspace(userId: string, input: { name?: string; re
     defaultBranch = info?.defaultBranch ?? null
   }
   return withUser(userId, async (tx) => {
+    await lockUserWorkspaces(tx, userId)
     const live = await tx.select({ color: pgSchema.workspaces.color }).from(pgSchema.workspaces).where(and(eq(pgSchema.workspaces.userId, userId), isNull(pgSchema.workspaces.deletedAt)))
     if (live.length >= MAX_WORKSPACES) throw Response.json({ error: LIMIT_MESSAGE }, { status: 409 })
     const color = nextColor(live.map((w) => w.color))
@@ -114,7 +121,12 @@ export async function renameWorkspace(userId: string, id: string, name: string):
   })
 }
 
-/** Soft-deletes the row; Home is never deleted. The caller destroys the sandbox first (engine/sandbox.ts destroyWorkspaceSandbox). */
+/**
+ * Soft-deletes the row; Home is never deleted. From this moment no open can finish starting it and its sidecar's
+ * ingest token is refused; the caller then destroys the sandbox (engine/sandbox.ts destroyWorkspaceSandbox), and the
+ * nightly cron retries that until the VM is gone. The row is purged after the grace period; it is not restorable,
+ * since its VM and files are destroyed with it.
+ */
 export async function deleteWorkspace(userId: string, id: string): Promise<void> {
   const revoked = await withUser(userId, async (tx) => {
     const del = await tx.update(pgSchema.workspaces).set({ deletedAt: new Date() }).where(and(eq(pgSchema.workspaces.id, id), eq(pgSchema.workspaces.userId, userId), eq(pgSchema.workspaces.isHome, false))).returning({ id: pgSchema.workspaces.id })

@@ -69,8 +69,8 @@ export const POST = handler(async (req: Request) => {
   const stopped = parsed.data.keep ? null : await stopWorkspace(me.id, workspaceId)
   const row = await getWorkspace(me.id, workspaceId)
   if (temporary && parsed.data.cleanup !== false) {
-    await destroyWorkspaceSandbox(me.id, workspaceId)
     await deleteWorkspace(me.id, workspaceId)
+    await destroyWorkspaceSandbox(me.id, workspaceId)
   }
   return Response.json({
     workspaceId,

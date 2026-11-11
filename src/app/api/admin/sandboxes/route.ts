@@ -1,6 +1,7 @@
 import { desc, eq } from "drizzle-orm"
 import { handler, requireAdmin } from "@/server/cloud/session"
 import { pgAdmin, pgReady, pgSchema } from "@/server/db/pg"
+import { liveStatus } from "@/server/engine/sandbox-state"
 
 export const dynamic = "force-dynamic"
 
@@ -17,6 +18,9 @@ export const GET = handler(async () => {
       workspace: pgSchema.workspaces.name,
       email: pgSchema.users.email,
       status: pgSchema.sandboxes.status,
+      startUntil: pgSchema.sandboxes.startUntil,
+      idleUntil: pgSchema.sandboxes.idleUntil,
+      updatedAt: pgSchema.sandboxes.updatedAt,
       region: pgSchema.sandboxes.region,
       engineVersion: pgSchema.sandboxes.engineVersion,
       lastSessionStartedAt: pgSchema.sandboxes.lastSessionStartedAt,
@@ -31,7 +35,8 @@ export const GET = handler(async () => {
     .innerJoin(pgSchema.users, eq(pgSchema.users.id, pgSchema.sandboxes.userId))
     .orderBy(desc(pgSchema.sandboxes.updatedAt))
     .limit(500)
-  const live = rows.filter((r) => !r.deletedAt)
+  // Status as derived from the row (a lapsed start or a session past its end reads as stopped), like the user's own view.
+  const live = rows.filter((r) => !r.deletedAt).map(({ startUntil: _s, idleUntil: _i, updatedAt: _u, ...r }) => ({ ...r, status: liveStatus({ ...r, startUntil: _s, idleUntil: _i, updatedAt: _u }) }))
   const totalCpuMs = live.reduce((n, r) => n + r.totalCpuMs, 0)
   return Response.json({
     sandboxes: live,

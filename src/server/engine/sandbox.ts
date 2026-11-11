@@ -1,8 +1,8 @@
 import crypto from "node:crypto"
 import fs from "node:fs"
 import path from "node:path"
-import { Sandbox } from "@vercel/sandbox"
-import { and, eq, gte, isNull, lt, or, sql } from "drizzle-orm"
+import { APIError, Sandbox } from "@vercel/sandbox"
+import { and, eq, gte, isNull, lt, ne, or, sql, type SQL } from "drizzle-orm"
 import { track } from "../analytics"
 import { audit } from "../cloud/audit"
 import { openWith, sealWith, userDek } from "../cloud/crypto"
@@ -15,8 +15,10 @@ import { egressPolicy } from "./egress"
 import { sidecarStale, STOP_ENGINE_SCRIPT } from "./sidecar-version"
 import { OPENCODE_VERSION, SANDBOX_CONFIG_DIRS } from "./config-dirs"
 import { syrupEngineConfig } from "./opencode"
+import { engineLive, IDLE_MS, SESSION_CAP_MS, sessionEndEstimate, sessionOpen, START_LEASE_MS, starting } from "./sandbox-state"
 import { getWorkspace, touchWorkspace, type SandboxRow, type Workspace } from "../cloud/workspaces"
-import { pgSchema, withUser } from "../db/pg"
+import { interruptOpenReplies } from "../cloud/history"
+import { pgSchema, withUser, type PgTx } from "../db/pg"
 import { env } from "../env"
 import { slog } from "../log"
 import { UserError } from "../user-error"
@@ -37,8 +39,7 @@ export { OPENCODE_VERSION }
 const PORT = 4096
 const IMAGE = "vercel/sandbox/universal"
 const REGION = "fra1"
-/** Sandbox auto-stops this long after the last heartbeat/extend. */
-export const IDLE_MS = 10 * 60_000
+export { IDLE_MS, SESSION_CAP_MS }
 const SNAPSHOT_TTL_MS = 7 * 24 * 60 * 60_000
 /** Universal image: HOME and cwd are /vercel, user ubuntu (probed 2026-09-24). */
 const HOME = "/vercel"
@@ -55,6 +56,8 @@ export type Connection = {
   /** "cold" = fresh sandbox, "warm" = resumed snapshot, "hot" = engine already answering. */
   start: "cold" | "warm" | "hot"
   ms: number
+  /** The engine start this connection belongs to; the heartbeat reports the current one, so a tab can tell it was replaced. */
+  sessionStartedAt: string | null
 }
 
 function basic(password: string) {
@@ -240,80 +243,74 @@ async function startEngine(sb: Sandbox, ws: Workspace, userId: string, password:
   })
 }
 
-async function saveSandbox(userId: string, workspaceId: string, patch: Partial<typeof pgSchema.sandboxes.$inferInsert>) {
+const sb_ = pgSchema.sandboxes
+
+/** Not mid-start under a live lease. Writes that end or overwrite a start take this guard, so they cannot stomp one. */
+const notStarting = (): SQL => or(ne(sb_.status, "starting"), isNull(sb_.startUntil), lt(sb_.startUntil, sql`now()`))!
+/** The workspace is not deleted and the account is neither blocked nor pending deletion. Every start and finish checks it. */
+const mayRun = (): SQL =>
+  sql`exists (select 1 from workspaces w where w.id = ${sb_.workspaceId} and w.deleted_at is null) and not exists (select 1 from users u where u.id = ${sb_.userId} and (u.blocked_at is not null or u.deleted_at is not null))`
+
+async function saveSandbox(userId: string, workspaceId: string, patch: Partial<typeof sb_.$inferInsert>, guard?: SQL) {
   await withUser(userId, async (tx) => {
-    await tx.update(pgSchema.sandboxes).set({ ...patch, updatedAt: new Date() }).where(eq(pgSchema.sandboxes.workspaceId, workspaceId))
+    await tx.update(sb_).set({ ...patch, updatedAt: new Date() }).where(and(eq(sb_.workspaceId, workspaceId), guard))
   })
-}
-
-/** True while the row's last engine session has not been accounted (no end recorded after its start). */
-function sessionOpen(row: SandboxRow): boolean {
-  return !!row.lastSessionStartedAt && (!row.lastSessionEndedAt || row.lastSessionEndedAt < row.lastSessionStartedAt)
-}
-
-/**
- * When an unaccounted session ended, or will end at the latest: the 45-minute cap, or the idle timeout after the row
- * was last touched (the heartbeat touches it whenever it extends the sandbox), or now. An upper bound, never under.
- */
-function sessionEndEstimate(row: SandboxRow, now = Date.now()): number {
-  // A workspace that never started an engine has no session: nothing to estimate.
-  if (!row.lastSessionStartedAt) return now
-  const start = row.lastSessionStartedAt.getTime()
-  return Math.min(now, start + SESSION_CAP_MS, Math.max(row.updatedAt.getTime(), start) + IDLE_MS)
 }
 
 /**
  * Accounts one finished engine session exactly once: adds its seconds to total_session_seconds and writes a
  * `sandbox.session` audit row, which the daily cap sums. The update is conditional on the session still being open,
- * so two requests closing the same session (heartbeat and stop) count it once.
+ * so two requests closing the same session (heartbeat and stop) count it once. Replies the engine never finished are
+ * marked interrupted. A patch that sets a status never lands on a live start.
  */
-async function closeSession(userId: string, workspaceId: string, row: SandboxRow, endAt: number, patch: Partial<typeof pgSchema.sandboxes.$inferInsert> = {}) {
+async function closeSession(userId: string, workspaceId: string, row: SandboxRow, endAt: number, patch: Partial<typeof sb_.$inferInsert> = {}) {
+  const guard = patch.status ? notStarting() : undefined
   if (!sessionOpen(row)) {
-    if (Object.keys(patch).length) await saveSandbox(userId, workspaceId, patch)
+    if (Object.keys(patch).length) await saveSandbox(userId, workspaceId, patch, guard)
     return
   }
   const startedAt = row.lastSessionStartedAt!
   const end = Math.max(startedAt.getTime(), Math.min(endAt, startedAt.getTime() + SESSION_CAP_MS))
   const seconds = Math.round((end - startedAt.getTime()) / 1000)
   await withUser(userId, async (tx) => {
-    const s = pgSchema.sandboxes
     const done = await tx
-      .update(s)
-      .set({ ...patch, lastSessionEndedAt: new Date(end), totalSessionSeconds: sql`${s.totalSessionSeconds} + ${seconds}`, updatedAt: new Date() })
-      .where(and(eq(s.workspaceId, workspaceId), eq(s.lastSessionStartedAt, startedAt), or(isNull(s.lastSessionEndedAt), lt(s.lastSessionEndedAt, s.lastSessionStartedAt))))
-      .returning({ id: s.id })
-    if (done.length) await audit(tx, { userId, actor: "system", action: "sandbox.session", target: workspaceId, data: { seconds, startedAt: startedAt.toISOString() } })
-    else if (Object.keys(patch).length) await tx.update(s).set({ ...patch, updatedAt: new Date() }).where(eq(s.workspaceId, workspaceId))
+      .update(sb_)
+      .set({ ...patch, lastSessionEndedAt: new Date(end), totalSessionSeconds: sql`${sb_.totalSessionSeconds} + ${seconds}`, updatedAt: new Date() })
+      .where(and(eq(sb_.workspaceId, workspaceId), eq(sb_.lastSessionStartedAt, startedAt), or(isNull(sb_.lastSessionEndedAt), lt(sb_.lastSessionEndedAt, sb_.lastSessionStartedAt)), guard))
+      .returning({ id: sb_.id })
+    if (done.length) {
+      await audit(tx, { userId, actor: "system", action: "sandbox.session", target: workspaceId, data: { seconds, startedAt: startedAt.toISOString() } })
+      await interruptOpenReplies(tx, userId, workspaceId, new Date(end))
+    } else if (Object.keys(patch).length) await tx.update(sb_).set({ ...patch, updatedAt: new Date() }).where(and(eq(sb_.workspaceId, workspaceId), guard))
   })
 }
 
 export type SandboxUsage = { usedSeconds: number; running: number }
 
 /** Today's (UTC) sandbox seconds for a user, and how many of their other sandboxes are running or starting. */
-export async function sandboxUsage(userId: string, exceptWorkspaceId?: string): Promise<SandboxUsage> {
+async function usageIn(tx: PgTx, userId: string, exceptWorkspaceId?: string): Promise<SandboxUsage> {
   const now = Date.now()
   const day = new Date(now)
   day.setUTCHours(0, 0, 0, 0)
-  return withUser(userId, async (tx) => {
-    const a = pgSchema.auditLog
-    const [closed] = await tx
-      .select({ seconds: sql<string | null>`sum((${a.data}->>'seconds')::int)` })
-      .from(a)
-      .where(and(eq(a.userId, userId), eq(a.action, "sandbox.session"), gte(a.createdAt, day)))
-    const rows = await tx.select().from(pgSchema.sandboxes).where(eq(pgSchema.sandboxes.userId, userId))
-    let usedSeconds = Number(closed?.seconds ?? 0)
-    let running = 0
-    for (const r of rows) {
-      const open = sessionOpen(r)
-      if (open) usedSeconds += Math.max(0, sessionEndEstimate(r, now) - Math.max(r.lastSessionStartedAt!.getTime(), day.getTime())) / 1000
-      if (r.workspaceId === exceptWorkspaceId) continue
-      const starting = r.status === "starting" && now - r.updatedAt.getTime() < 90_000
-      // A "running" row can outlive its VM until a heartbeat notices; the estimate says whether it could still be up.
-      const up = r.status === "running" && open && sessionEndEstimate(r, Number.MAX_SAFE_INTEGER) > now
-      if (starting || up) running++
-    }
-    return { usedSeconds: Math.round(usedSeconds), running }
-  })
+  const a = pgSchema.auditLog
+  const [closed] = await tx
+    .select({ seconds: sql<string | null>`sum((${a.data}->>'seconds')::int)` })
+    .from(a)
+    .where(and(eq(a.userId, userId), eq(a.action, "sandbox.session"), gte(a.createdAt, day)))
+  const rows = await tx.select().from(sb_).where(eq(sb_.userId, userId))
+  let usedSeconds = Number(closed?.seconds ?? 0)
+  let running = 0
+  for (const r of rows) {
+    if (sessionOpen(r)) usedSeconds += Math.max(0, sessionEndEstimate(r, now) - Math.max(r.lastSessionStartedAt!.getTime(), day.getTime())) / 1000
+    if (r.workspaceId === exceptWorkspaceId) continue
+    // A start under a live lease, or a running row whose session could still be up: a stale row does not count.
+    if (engineLive(r, now)) running++
+  }
+  return { usedSeconds: Math.round(usedSeconds), running }
+}
+
+export async function sandboxUsage(userId: string, exceptWorkspaceId?: string): Promise<SandboxUsage> {
+  return withUser(userId, (tx) => usageIn(tx, userId, exceptWorkspaceId))
 }
 
 function hours(seconds: number): string {
@@ -322,11 +319,11 @@ function hours(seconds: number): string {
 }
 
 /** Thrown 429 when a new sandbox start would pass a cap (audit 2026-10-15 H2). */
-async function enforceSandboxCaps(userId: string, workspaceId: string) {
+async function enforceSandboxCaps(tx: PgTx, userId: string, workspaceId: string) {
   const daily = env.sandboxDailySeconds
   const max = env.sandboxMaxRunning
   if (daily <= 0 && max <= 0) return
-  const u = await sandboxUsage(userId, workspaceId)
+  const u = await usageIn(tx, userId, workspaceId)
   if (daily > 0 && u.usedSeconds >= daily) {
     slog("engine", "sandbox.cap_daily", { workspaceId, usedSeconds: u.usedSeconds, cap: daily }, { level: "warn", directory: workspaceId })
     throw Response.json({ error: `You've used today's ${hours(daily)} of workspace time. It resets at midnight UTC.`, code: "sandbox_daily_cap" }, { status: 429 })
@@ -340,48 +337,84 @@ async function enforceSandboxCaps(userId: string, workspaceId: string) {
   }
 }
 
+/**
+ * Takes the start lease (compare-and-set): the row becomes "starting", owned by `owner` until the lease ends. Caps are
+ * counted under a per-user lock in the same transaction, so two opens at once cannot both pass them. "busy" when
+ * another opener holds a live lease on this workspace.
+ */
+async function claimStart(userId: string, workspaceId: string, owner: string, exempt: boolean): Promise<SandboxRow | "busy"> {
+  return withUser(userId, async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`sandbox-start:${userId}`}))`)
+    const [cur] = await tx.select().from(sb_).where(eq(sb_.workspaceId, workspaceId))
+    if (cur && starting(cur)) return "busy"
+    // Caps first, before anything starts: a thrown 429 Response reaches the route handler as is.
+    if (!exempt) await enforceSandboxCaps(tx, userId, workspaceId)
+    const [row] = await tx
+      .update(sb_)
+      .set({ status: "starting", startOwner: owner, startUntil: sql`now() + ${`${START_LEASE_MS} milliseconds`}::interval`, lastError: null, updatedAt: new Date() })
+      .where(and(eq(sb_.workspaceId, workspaceId), notStarting(), mayRun()))
+      .returning()
+    if (row) return row
+    const [again] = await tx.select().from(sb_).where(eq(sb_.workspaceId, workspaceId))
+    if (again && starting(again)) return "busy"
+    throw new UserError("workspace not found", 404)
+  })
+}
+
+/** The opener lost its lease: the workspace was stopped, deleted or its account blocked while it was starting. */
+class LostLease extends Error {}
+
+/** A write that lands only while `owner` still holds the start lease and the workspace may run; LostLease otherwise. */
+async function saveIfOwner(tx: PgTx, workspaceId: string, owner: string, patch: Partial<typeof sb_.$inferInsert>) {
+  const done = await tx
+    .update(sb_)
+    .set({ ...patch, updatedAt: new Date() })
+    .where(and(eq(sb_.workspaceId, workspaceId), eq(sb_.startOwner, owner), eq(sb_.status, "starting"), mayRun()))
+    .returning({ id: sb_.id })
+  if (!done.length) throw new LostLease()
+}
+
+/** Ends a lease without starting: the start was taken back. Only this opener's own row state is touched. */
+const leaseCleared = { startOwner: null, startUntil: null } as const
+
 async function storedPassword(userId: string, row: SandboxRow): Promise<string | null> {
   if (!row.passwordEnc) return null
   return withUser(userId, async (tx) => openWith(await userDek(tx, userId), row.passwordEnc!))
 }
 
-async function storePassword(userId: string, workspaceId: string, password: string) {
-  await withUser(userId, async (tx) => {
-    const dek = await userDek(tx, userId)
-    await tx.update(pgSchema.sandboxes).set({ passwordEnc: sealWith(dek, password), updatedAt: new Date() }).where(eq(pgSchema.sandboxes.workspaceId, workspaceId))
-  })
-}
-
 /**
  * Makes the workspace's sandbox run with a healthy OpenCode inside and returns
  * how the browser should connect. Idempotent: a hot engine is reused, a
- * stopped one is resumed from its snapshot, a missing one is created.
+ * stopped one is resumed from its snapshot, a missing one is created. Only the
+ * opener holding the start lease starts the engine; a second open waits for it.
  */
 export async function openWorkspace(userId: string, workspaceId: string, opts: { exempt?: boolean } = {}): Promise<Connection> {
   const t0 = Date.now()
   const ws = await getWorkspace(userId, workspaceId)
   if (!ws || !ws.sandbox) throw new UserError("workspace not found", 404)
-  const row = ws.sandbox
-  slog("engine", "sandbox.open", { workspaceId, name: row.vercelName, status: row.status }, { directory: workspaceId })
-  // Caps first, before anything starts: a thrown 429 Response reaches the route handler as is.
-  if (!opts.exempt) await enforceSandboxCaps(userId, workspaceId)
-  // Another request (a second tab) is already starting this sandbox: wait for it instead of racing it.
-  if (row.status === "starting" && Date.now() - row.updatedAt.getTime() < 90_000) {
-    const other = await waitForOther(userId, workspaceId, 90_000)
+  slog("engine", "sandbox.open", { workspaceId, name: ws.sandbox.vercelName, status: ws.sandbox.status }, { directory: workspaceId })
+  const owner = crypto.randomUUID()
+  let row = await claimStart(userId, workspaceId, owner, !!opts.exempt)
+  if (row === "busy") {
+    // Another request (a second tab) is already starting this sandbox: wait for it instead of racing it.
+    const other = await waitForOther(userId, workspaceId)
     if (other) return other
+    row = await claimStart(userId, workspaceId, owner, !!opts.exempt)
+    if (row === "busy") throw new UserError("This workspace is still starting in another tab. Try again in a moment.", 409)
   }
-  await saveSandbox(userId, workspaceId, { status: "starting", lastError: null })
+  const claimed = row
 
+  let sb: Sandbox | null = null
   try {
     let created = false
     // No provider hosts: the sandbox reaches providers only through the app's relay (the ingest host is always allowed).
     const networkPolicy = egressPolicy([], ws.egressAllow)
-    const sb = await Sandbox.getOrCreate({
-      name: row.vercelName,
+    sb = await Sandbox.getOrCreate({
+      name: claimed.vercelName,
       image: IMAGE,
       region: REGION,
       ports: [PORT],
-      resources: { vcpus: row.vcpus },
+      resources: { vcpus: claimed.vcpus },
       timeout: IDLE_MS,
       networkPolicy,
       tags: { app: "syrup", workspace: workspaceId.slice(-12) },
@@ -398,8 +431,9 @@ export async function openWorkspace(userId: string, workspaceId: string, opts: {
     if (!created) await sb.update({ networkPolicy })
     const baseUrl = sb.domain(PORT)
     let start: Connection["start"] = created ? "cold" : "warm"
-    let password = created ? null : await storedPassword(userId, row)
+    let password = created ? null : await storedPassword(userId, claimed)
     let version: string | undefined
+    let sessionStart = claimed.lastSessionStartedAt
 
     if (password) {
       // The sidecar is checked alongside OpenCode: one started by an earlier deploy speaks an older protocol (and, before
@@ -415,31 +449,43 @@ export async function openWorkspace(userId: string, workspaceId: string, opts: {
         password = null
       }
     }
+    const fresh = !password
     if (!password) {
       password = crypto.randomBytes(24).toString("base64url")
-      // Saved before the sidecar starts: its ingest token is bound to this stamp, and the relay checks it from the first call.
-      const sessionStart = new Date()
+      sessionStart = new Date()
       // The previous engine session, if a heartbeat or stop never accounted it, ends now at the latest. A brand-new
       // workspace has no previous session (lastSessionStartedAt is null), so there is nothing to close.
-      if (sessionOpen(row)) await closeSession(userId, workspaceId, row, sessionEndEstimate(row))
-      await saveSandbox(userId, workspaceId, { lastSessionStartedAt: sessionStart })
+      if (sessionOpen(claimed)) await closeSession(userId, workspaceId, claimed, sessionEndEstimate(claimed))
+      // Saved before the sidecar starts: its ingest token is bound to this stamp, and the relay checks it from the first call.
+      const idleUntil = sb.expiresAt ?? new Date(Date.now() + IDLE_MS)
+      await withUser(userId, (tx) => saveIfOwner(tx, workspaceId, owner, { lastSessionStartedAt: sessionStart, idleUntil }))
       await startEngine(sb, ws, userId, password, sessionStart.getTime())
       version = (await waitHealthy(baseUrl, password, 60_000)).version
-      await storePassword(userId, workspaceId, password)
       // A healthy OpenCode still builds its per-folder instance (file watchers, skills, ~3 s) on the first request
       // for the folder. Ask for it now, so a prewarmed workspace is truly ready when the first message comes.
       void fetch(`${baseUrl}/session?directory=${encodeURIComponent(workDir(ws))}`, { headers: { authorization: basic(password) }, signal: AbortSignal.timeout(20_000) }).catch(() => {})
     }
 
-    await saveSandbox(userId, workspaceId, { status: "running", region: sb.region, engineVersion: version ?? OPENCODE_VERSION })
+    // Running, with the password, in one conditional write: only the lease holder finishes the start.
+    const finalPassword = password
+    await withUser(userId, async (tx) => {
+      const patch: Partial<typeof sb_.$inferInsert> = { status: "running", ...leaseCleared, region: sb!.region, engineVersion: version ?? OPENCODE_VERSION }
+      // A new engine reads the current skills itself; a reload still owed to the old one is moot.
+      if (fresh) Object.assign(patch, { passwordEnc: sealWith(await userDek(tx, userId), finalPassword), skillsReloadDueAt: null })
+      await saveIfOwner(tx, workspaceId, owner, patch)
+    })
     await touchWorkspace(userId, workspaceId)
     const ms = Date.now() - t0
     slog("engine", "sandbox.ready", { workspaceId, start, ms, version, expiresAt: sb.expiresAt }, { directory: workspaceId })
     await track(userId, "sandbox_started", { start, ms, created })
-    return { workspaceId, baseUrl, authorization: basic(password), directory: workDir(ws), expiresAt: sb.expiresAt?.toISOString() ?? null, engineVersion: version ?? OPENCODE_VERSION, start, ms }
+    return { workspaceId, baseUrl, authorization: basic(password), directory: workDir(ws), expiresAt: sb.expiresAt?.toISOString() ?? null, engineVersion: version ?? OPENCODE_VERSION, start, ms, sessionStartedAt: sessionStart?.toISOString() ?? null }
   } catch (err) {
+    if (err instanceof LostLease) {
+      await abandonStart(userId, workspaceId, owner, sb)
+      throw new UserError("This workspace was stopped while it was starting.", 409)
+    }
     const message = friendly(err instanceof Error ? err.message : String(err))
-    await saveSandbox(userId, workspaceId, { status: "error", lastError: message.slice(0, 1000) })
+    await withUser(userId, (tx) => saveIfOwner(tx, workspaceId, owner, { status: "error", ...leaseCleared, lastError: message.slice(0, 1000) })).catch(() => {})
     slog("engine", "sandbox.open_failed", { workspaceId, err }, { level: "error", directory: workspaceId })
     await track(userId, "sandbox_error", { stage: "open" })
     // Already phrased for the person (friendly()), and shown as the workspace's last error anyway.
@@ -447,23 +493,40 @@ export async function openWorkspace(userId: string, workspaceId: string, opts: {
   }
 }
 
-/** Polls until a concurrent open finishes, then reuses its engine if it is healthy. */
-async function waitForOther(userId: string, workspaceId: string, totalMs: number): Promise<Connection | null> {
-  const until = Date.now() + totalMs
+/**
+ * An open whose lease was taken back (stop, block, workspace delete) stops what it started. A deleted workspace's VM is
+ * destroyed outright, since the delete may have run before this open created it. Someone else's newer start is left alone.
+ */
+async function abandonStart(userId: string, workspaceId: string, owner: string, sb: Sandbox | null) {
+  const [cur] = await withUser(userId, (tx) =>
+    tx.select({ row: sb_, deletedAt: pgSchema.workspaces.deletedAt }).from(sb_).innerJoin(pgSchema.workspaces, eq(pgSchema.workspaces.id, sb_.workspaceId)).where(eq(sb_.workspaceId, workspaceId)),
+  )
+  if (cur && starting(cur.row) && cur.row.startOwner !== owner) return
+  slog("engine", "sandbox.start_abandoned", { workspaceId, deleted: !!cur?.deletedAt }, { level: "warn", directory: workspaceId })
+  if (cur?.deletedAt) {
+    if (await destroyVm(cur.row.vercelName, workspaceId)) await saveSandbox(userId, workspaceId, { vmDeletedAt: new Date() })
+  } else if (sb) await sb.stop().catch(() => {})
+  if (cur) await closeSession(userId, workspaceId, cur.row, Date.now(), { status: "stopped", passwordEnc: null })
+}
+
+/** Polls until a concurrent open finishes, then reuses its engine if it is healthy. Null when it did not end running. */
+async function waitForOther(userId: string, workspaceId: string): Promise<Connection | null> {
+  // Within the open route's own time limit (180 s); a lease that outlives it belongs to a dead opener and lapses.
+  const until = Date.now() + 150_000
   while (Date.now() < until) {
     await new Promise((r) => setTimeout(r, 2000))
     const ws = await getWorkspace(userId, workspaceId)
     const row = ws?.sandbox
-    if (!ws || !row || row.status === "error") return null
-    if (row.status === "running") {
-      const password = await storedPassword(userId, row)
-      if (!password) return null
-      const sb = await Sandbox.get({ name: row.vercelName, resume: false })
-      const baseUrl = sb.domain(PORT)
-      const h = await healthy(baseUrl, password)
-      if (!h) return null
-      return { workspaceId, baseUrl, authorization: basic(password), directory: workDir(ws), expiresAt: sb.expiresAt?.toISOString() ?? null, engineVersion: h.version ?? OPENCODE_VERSION, start: "hot", ms: 0 }
-    }
+    if (!ws || !row) return null
+    if (starting(row)) continue
+    if (row.status !== "running") return null
+    const password = await storedPassword(userId, row)
+    if (!password) return null
+    const sb = await Sandbox.get({ name: row.vercelName, resume: false })
+    const baseUrl = sb.domain(PORT)
+    const h = await healthy(baseUrl, password)
+    if (!h) return null
+    return { workspaceId, baseUrl, authorization: basic(password), directory: workDir(ws), expiresAt: sb.expiresAt?.toISOString() ?? null, engineVersion: h.version ?? OPENCODE_VERSION, start: "hot", ms: 0, sessionStartedAt: row.lastSessionStartedAt?.toISOString() ?? null }
   }
   return null
 }
@@ -477,8 +540,6 @@ function friendly(message: string): string {
 
 /** Extends the running session so the sandbox does not idle-stop while a tab is open. */
 export type Heartbeat = { running: boolean; expiresAt: string | null; sessionStartedAt: string | null; sessionCapMs: number }
-/** Hobby sandboxes stop at 45 minutes per session regardless of extensions; the UI warns before that. */
-export const SESSION_CAP_MS = 45 * 60_000
 /** The sidecar's ingest token: one session plus a margin (was 2 h). A sidecar never outlives its session. */
 const INGEST_TOKEN_TTL_MS = SESSION_CAP_MS + 15 * 60_000
 
@@ -491,13 +552,15 @@ export async function heartbeat(userId: string, workspaceId: string, opts: { exe
   } catch {
     return { running: false, expiresAt: null, sessionStartedAt: null, sessionCapMs: SESSION_CAP_MS }
   }
-  const startedAt = ws.sandbox.lastSessionStartedAt?.toISOString() ?? null
+  const row = ws.sandbox
+  const startedAt = row.lastSessionStartedAt?.toISOString() ?? null
   if (sb.status !== "running") {
-    const row = ws.sandbox
-    if (sessionOpen(row)) await closeSession(userId, workspaceId, row, Math.min(sb.statusUpdatedAt?.getTime() ?? Date.now(), sessionEndEstimate(row)), { status: "stopped" })
-    else if (row.status === "running") await saveSandbox(userId, workspaceId, { status: "stopped", lastSessionEndedAt: new Date() })
+    // The VM idled out: the session ended when it stopped, and its password with it. A start in progress is left alone.
+    if (sessionOpen(row)) await closeSession(userId, workspaceId, row, Math.min(sb.statusUpdatedAt?.getTime() ?? Date.now(), sessionEndEstimate(row)), { status: "stopped", passwordEnc: null })
+    else if (row.status === "running") await saveSandbox(userId, workspaceId, { status: "stopped", passwordEnc: null }, notStarting())
     return { running: false, expiresAt: null, sessionStartedAt: startedAt, sessionCapMs: SESSION_CAP_MS }
   }
+  if (row.skillsReloadDueAt) await retrySkillsReload(userId, ws, row, sb)
   const remaining = (sb.expiresAt?.getTime() ?? 0) - Date.now()
   let expiresAt = sb.expiresAt ?? null
   if (remaining < IDLE_MS / 2) {
@@ -510,9 +573,9 @@ export async function heartbeat(userId: string, workspaceId: string, opts: { exe
       }
     }
     await sb.extendTimeout(IDLE_MS)
-    expiresAt = new Date(Date.now() + IDLE_MS)
-    // Touching the row records that the sandbox was kept awake; the session's end estimate counts from here.
-    await saveSandbox(userId, workspaceId, {})
+    // The timer runs IDLE_MS past where it stood; the session's end estimate counts from there.
+    expiresAt = new Date(Math.max(Date.now(), sb.expiresAt?.getTime() ?? 0) + IDLE_MS)
+    await saveSandbox(userId, workspaceId, { idleUntil: expiresAt })
   }
   return { running: true, expiresAt: expiresAt?.toISOString() ?? null, sessionStartedAt: startedAt, sessionCapMs: SESSION_CAP_MS }
 }
@@ -526,28 +589,46 @@ export async function runInWorkspace(userId: string, workspaceId: string, comman
   return { exitCode: r.exitCode, stdout: (await r.stdout()).slice(-4000), stderr: (await r.stderr()).slice(-2000) }
 }
 
-/** Stops the VM (filesystem is snapshotted) and records the session's cost. */
+/**
+ * Stops the VM (filesystem is snapshotted) and records the session's cost. A start in progress is stopped too: its
+ * lease is taken back, so the opener stops what it started. When the VM had already stopped by itself, the row is
+ * brought in line all the same. Null when nothing was running.
+ */
 export async function stopWorkspace(userId: string, workspaceId: string): Promise<{ cpuMs: number } | null> {
   const ws = await getWorkspace(userId, workspaceId)
   if (!ws?.sandbox) throw new UserError("workspace not found", 404)
-  let sb: Sandbox
+  await saveSandbox(userId, workspaceId, { status: "stopped", ...leaseCleared }, eq(sb_.status, "starting"))
+  let sb: Sandbox | null = null
   try {
     sb = await Sandbox.get({ name: ws.sandbox.vercelName, resume: false })
   } catch {
-    return null
+    // Never created, or already gone.
   }
-  if (sb.status !== "running") return null
-  const r = await sb.stop()
-  const seconds = ws.sandbox.lastSessionStartedAt ? Math.max(0, Math.round((Date.now() - ws.sandbox.lastSessionStartedAt.getTime()) / 1000)) : 0
+  const r = sb?.status === "running" ? await sb.stop() : null
+  const cpuMs = Math.round(r?.activeCpuDurationMs ?? 0)
+  const row = (await getWorkspace(userId, workspaceId))?.sandbox ?? ws.sandbox
+  const end = r ? Date.now() : Math.min(sb?.statusUpdatedAt?.getTime() ?? Date.now(), sessionEndEstimate(row))
   // The password dies with the session; the next start mints a new one. The session's seconds are counted once.
-  await closeSession(userId, workspaceId, ws.sandbox, Date.now(), {
-    status: "stopped",
-    passwordEnc: null,
-    totalCpuMs: ws.sandbox.totalCpuMs + Math.round(r.activeCpuDurationMs ?? 0),
-  })
-  slog("engine", "sandbox.stopped", { workspaceId, seconds, cpuMs: r.activeCpuDurationMs, snapshot: r.snapshot?.status }, { directory: workspaceId })
-  await track(userId, "sandbox_stopped", { seconds, cpuMs: Math.round(r.activeCpuDurationMs ?? 0) })
-  return { cpuMs: Math.round(r.activeCpuDurationMs ?? 0) }
+  await closeSession(userId, workspaceId, row, end, { status: "stopped", passwordEnc: null, totalCpuMs: row.totalCpuMs + cpuMs })
+  if (!r) return null
+  const seconds = row.lastSessionStartedAt ? Math.max(0, Math.round((Date.now() - row.lastSessionStartedAt.getTime()) / 1000)) : 0
+  slog("engine", "sandbox.stopped", { workspaceId, seconds, cpuMs, snapshot: r.snapshot?.status }, { directory: workspaceId })
+  await track(userId, "sandbox_stopped", { seconds, cpuMs })
+  return { cpuMs }
+}
+
+/** Stops every workspace of a user (blocked, or deleting their account). Returns how many VMs were running. */
+export async function stopAllWorkspaces(userId: string): Promise<number> {
+  const rows = await withUser(userId, (tx) => tx.select({ workspaceId: sb_.workspaceId }).from(sb_).where(eq(sb_.userId, userId)))
+  let stopped = 0
+  for (const r of rows) {
+    try {
+      if (await stopWorkspace(userId, r.workspaceId)) stopped++
+    } catch (err) {
+      slog("engine", "sandbox.stop_failed", { workspaceId: r.workspaceId, err }, { level: "warn", directory: r.workspaceId })
+    }
+  }
+  return stopped
 }
 
 /** Applies a changed allow-list to a running sandbox immediately. */
@@ -565,10 +646,10 @@ export async function applyEgress(userId: string, workspaceId: string): Promise<
 }
 
 /**
- * Pushes the user's current skills to every running sandbox of theirs: files
- * and permissions are swapped in right away, then the engine reloads once no
- * session is busy (disposing an instance stops its running turns). A sandbox
- * still busy after a minute keeps its old skill list until its next start.
+ * Pushes the user's current skills to every sandbox of theirs whose VM is running (asked of the platform, not the row):
+ * files and permissions are swapped in right away, then the engine reloads once no session is busy (disposing an
+ * instance stops its running turns). A sandbox still busy after a minute is marked, and its next heartbeat reloads it
+ * once it is idle.
  */
 export async function syncSkills(userId: string): Promise<void> {
   let rows: { ws: Workspace; sb: SandboxRow }[]
@@ -576,10 +657,10 @@ export async function syncSkills(userId: string): Promise<void> {
   try {
     rows = await withUser(userId, (tx) =>
       tx
-        .select({ ws: pgSchema.workspaces, sb: pgSchema.sandboxes })
-        .from(pgSchema.sandboxes)
-        .innerJoin(pgSchema.workspaces, eq(pgSchema.workspaces.id, pgSchema.sandboxes.workspaceId))
-        .where(and(eq(pgSchema.sandboxes.userId, userId), eq(pgSchema.sandboxes.status, "running"), isNull(pgSchema.workspaces.deletedAt))),
+        .select({ ws: pgSchema.workspaces, sb: sb_ })
+        .from(sb_)
+        .innerJoin(pgSchema.workspaces, eq(pgSchema.workspaces.id, sb_.workspaceId))
+        .where(and(eq(sb_.userId, userId), isNull(pgSchema.workspaces.deletedAt))),
     )
     if (rows.length === 0) return
     bundle = await skillBundle(userId)
@@ -589,14 +670,21 @@ export async function syncSkills(userId: string): Promise<void> {
   await Promise.all(
     rows.map(async ({ ws, sb: row }) => {
       try {
-        const sb = await Sandbox.get({ name: row.vercelName, resume: false })
+        let sb: Sandbox
+        try {
+          sb = await Sandbox.get({ name: row.vercelName, resume: false })
+        } catch {
+          return
+        }
         if (sb.status !== "running") return
         const { files, apply } = skillFiles(bundle)
         await sb.writeFiles(files)
         const r = await sb.runCommand({ cmd: "bash", args: ["-lc", apply] })
         if (r.exitCode !== 0) throw new Error(`skills swap failed (exit ${r.exitCode}): ${(await r.stderr()).slice(-500)}`)
         const password = await storedPassword(userId, row)
-        if (password) await reloadWhenIdle(sb.domain(PORT), password, workDir(ws), ws.id)
+        if (!password) return
+        const reloaded = await reloadWhenIdle(sb.domain(PORT), password, workDir(ws), ws.id, 60_000)
+        await saveSandbox(userId, ws.id, { skillsReloadDueAt: reloaded ? null : new Date() })
       } catch (err) {
         slog("engine", "skills.sync_failed", { workspaceId: ws.id, err }, { level: "warn", directory: ws.id })
       }
@@ -604,35 +692,66 @@ export async function syncSkills(userId: string): Promise<void> {
   )
 }
 
-async function reloadWhenIdle(baseUrl: string, password: string, directory: string, workspaceId: string) {
+/** A skills reload the engine still owes (it was busy): done now if no session is busy, else left for the next heartbeat. */
+async function retrySkillsReload(userId: string, ws: Workspace, row: SandboxRow, sb: Sandbox) {
+  try {
+    const password = await storedPassword(userId, row)
+    const reloaded = !password || (await reloadWhenIdle(sb.domain(PORT), password, workDir(ws), ws.id, 0))
+    if (reloaded) await saveSandbox(userId, ws.id, { skillsReloadDueAt: null })
+  } catch (err) {
+    slog("engine", "skills.reload_failed", { workspaceId: ws.id, err }, { level: "warn", directory: ws.id })
+  }
+}
+
+/** Reloads the engine once no session is busy, waiting up to `waitMs`. False when it was still busy (the reload is deferred). */
+async function reloadWhenIdle(baseUrl: string, password: string, directory: string, workspaceId: string, waitMs: number): Promise<boolean> {
   const headers = { authorization: basic(password) }
-  const until = Date.now() + 60_000
+  const until = Date.now() + waitMs
   for (;;) {
     const res = await fetch(`${baseUrl}/session/status?directory=${encodeURIComponent(directory)}`, { headers, cache: "no-store", signal: AbortSignal.timeout(5000) })
     if (!res.ok) throw new Error(`engine: session status ${res.status}`)
     const status = (await res.json()) as Record<string, { type: string }>
     if (!Object.values(status).some((st) => st.type !== "idle")) break
-    if (Date.now() > until) return slog("engine", "reload.deferred", { reason: "skills changed", workspaceId }, { directory: workspaceId })
+    if (Date.now() >= until) {
+      slog("engine", "reload.deferred", { reason: "skills changed", workspaceId }, { directory: workspaceId })
+      return false
+    }
     await new Promise((r) => setTimeout(r, 5000))
   }
   const res = await fetch(`${baseUrl}/global/dispose`, { method: "POST", headers, signal: AbortSignal.timeout(10_000) })
   if (!res.ok) throw new Error(`engine: could not reload (${res.status})`)
   slog("engine", "instance.reloaded", { reason: "skills changed", workspaceId }, { directory: workspaceId })
+  return true
 }
 
-/** Removes the VM and its snapshots. Used when a workspace is deleted. */
-export async function destroyWorkspaceSandbox(userId: string, workspaceId: string): Promise<void> {
-  const ws = await getWorkspace(userId, workspaceId)
-  if (!ws?.sandbox) return
+/**
+ * Deletes a VM and its snapshots. True when it is gone (deleted now, or it never existed); false when the platform
+ * refused, so the caller keeps it on record and the nightly cron tries again.
+ */
+export async function destroyVm(name: string, workspaceId: string): Promise<boolean> {
   try {
-    const sb = await Sandbox.get({ name: ws.sandbox.vercelName, resume: false })
+    const sb = await Sandbox.get({ name, resume: false })
     if (sb.status === "running") await sb.stop()
     await sb.delete()
     slog("engine", "sandbox.deleted", { workspaceId }, { directory: workspaceId })
   } catch (err) {
-    // Never created, or already gone.
-    slog("engine", "sandbox.delete_skipped", { workspaceId, err }, { level: "warn", directory: workspaceId })
+    if (err instanceof APIError && err.response.status === 404) return true
+    slog("engine", "sandbox.delete_failed", { workspaceId, err }, { level: "warn", directory: workspaceId })
+    return false
   }
+  return true
+}
+
+/**
+ * Removes the VM and its snapshots, when a workspace is deleted (after the row is soft-deleted, so no open or ingest
+ * call can use it meanwhile). Accounts the session and marks the VM gone; a failed delete is retried by the cron.
+ */
+export async function destroyWorkspaceSandbox(userId: string, workspaceId: string): Promise<boolean> {
+  const [row] = await withUser(userId, (tx) => tx.select().from(sb_).where(eq(sb_.workspaceId, workspaceId)))
+  if (!row) return true
+  const gone = await destroyVm(row.vercelName, workspaceId)
+  await closeSession(userId, workspaceId, row, Math.min(Date.now(), sessionEndEstimate(row)), { status: "stopped", passwordEnc: null, ...leaseCleared, ...(gone ? { vmDeletedAt: new Date() } : {}) })
+  return gone
 }
 
 /** Files panel (cloud): the running sandbox of a workspace the user owns, and the folder the agent works in. Thrown Responses for route handlers. */

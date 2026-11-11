@@ -422,12 +422,23 @@ export async function createShare(owner: Owner, input: { sessionId: string; work
       .values({ id, directory: snap.directory ?? env.workspace, sessionId: snap.sessionId, title: t.title, snapshot: JSON.stringify(t), models: JSON.stringify(t.models), messageCount: t.stats.messages, bytes: t.stats.bytes, redactions: t.stats.redactions, createdAt: now, updatedAt: now })
     row = { id, sessionId: snap.sessionId, workspaceId: null, directory: snap.directory ?? null, title: t.title, models: t.models, messageCount: t.stats.messages, bytes: t.stats.bytes, redactions: t.stats.redactions, views: 0, createdAt: now, updatedAt: now }
   } else {
-    const [r] = await withUser(owner.userId, (tx) =>
-      tx
-        .insert(cloud())
+    // One live link per chat: a second create at the same moment (a double click) waits on the lock and finds the first.
+    const r = await withUser(owner.userId, async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`share:${owner.userId}:${snap.sessionId}`}))`)
+      const c = cloud()
+      const [live] = await tx.select({ id: c.id }).from(c).where(and(eq(c.userId, owner.userId), eq(c.sessionId, snap.sessionId), isNull(c.revokedAt))).limit(1)
+      if (live) return null
+      const [made] = await tx
+        .insert(c)
         .values({ id, userId: owner.userId, workspaceId: snap.workspaceId!, sessionId: snap.sessionId, title: t.title, snapshot: t, models: t.models, messageCount: t.stats.messages, bytes: t.stats.bytes, redactions: t.stats.redactions, createdAt: new Date(now), updatedAt: new Date(now) })
-        .returning(cloudCols()),
-    )
+        .returning(cloudCols())
+      return made
+    })
+    if (!r) {
+      const other = await findLive(owner, { sessionId: input.sessionId })
+      if (other) return { share: info(other, origin, await statsOf(owner, other.id)), existing: true }
+      throw fail(409, "Try again in a moment.")
+    }
     row = cloudRow(r)
     const { audit } = await import("./cloud/audit")
     await withUser(owner.userId, (tx) => audit(tx, { userId: owner.userId, actor: "user", action: "share.create", target: id, data: { sessionId: snap.sessionId, bytes: t.stats.bytes, redactions: t.stats.redactions } })).catch(() => {})

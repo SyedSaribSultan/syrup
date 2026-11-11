@@ -20,6 +20,7 @@ export const users = pgTable("users", {
   email: text("email").notNull().unique(),
   emailVerified: ts("email_verified"),
   image: text("image"),
+  /** Unused (no plans yet); kept because migrations are additive only. */
   plan: text("plan").notNull().default("free"),
   /** Product analytics opt-out (PLAN §6 layer B). */
   analyticsOptOut: boolean("analytics_opt_out").notNull().default(false),
@@ -28,6 +29,11 @@ export const users = pgTable("users", {
   githubTokenHint: text("github_token_hint"),
   createdAt: ts("created_at").notNull().defaultNow(),
   lastSeenAt: ts("last_seen_at"),
+  /**
+   * Set when the person asks for their account to be deleted: from then on the account is deactivated (sign-in and every
+   * API call refused, sandboxes stopped) and left out of counts and research exports. The cron deletes the row after the
+   * grace period. Account states: active (deleted_at and blocked_at null), blocked, pending deletion, deleted (no row).
+   */
   deletedAt: ts("deleted_at"),
   /** Set by an admin: sign-in and every API call are refused, running sandboxes are stopped. */
   blockedAt: ts("blocked_at"),
@@ -132,13 +138,24 @@ export const dataRequests = pgTable("data_requests", {
     .references(() => users.id, { onDelete: "cascade" }),
   /** "export" | "delete" */
   type: text("type").notNull(),
-  /** "requested" | "running" | "done" | "failed" */
+  /**
+   * "requested" | "running" | "done" | "failed" | "cancelled". A run claims the row (running, lease_until, attempts + 1);
+   * the cron takes back a running row whose lease passed and retries failed ones up to MAX_ATTEMPTS. A fulfilled
+   * deletion leaves no row (it cascades with the user); its receipt is the account.deleted audit row.
+   */
   status: text("status").notNull().default("requested"),
   requestedAt: ts("requested_at").notNull().defaultNow(),
   completedAt: ts("completed_at"),
+  /** Unused until exports are automated (they are fulfilled by hand and marked done from the admin page). */
   downloadUrlEnc: text("download_url_enc"),
   expiresAt: ts("expires_at"),
-}, (t) => [index("data_requests_user_idx").on(t.userId, t.requestedAt)])
+  attempts: integer("attempts").notNull().default(0),
+  leaseUntil: ts("lease_until"),
+  lastError: text("last_error"),
+}, (t) => [
+  index("data_requests_user_idx").on(t.userId, t.requestedAt),
+  uniqueIndex("data_requests_open_idx").on(t.userId, t.type).where(sql`${t.status} in ('requested', 'running')`),
+])
 
 export const auditLog = pgTable("audit_log", {
   id: text("id").primaryKey(),
@@ -202,8 +219,13 @@ export const sandboxes = pgTable("sandboxes", {
     .references(() => users.id, { onDelete: "cascade" }),
   vercelName: text("vercel_name").notNull(),
   region: text("region").notNull().default("fra1"),
-  /** "stopped" | "starting" | "running" | "error" */
+  /**
+   * "stopped" | "starting" | "running" | "error". Every change is a conditional write (engine/sandbox.ts). "starting" is a
+   * lease: held by start_owner until start_until, so only that opener may finish the start, and a dead one's lease lapses.
+   */
   status: text("status").notNull().default("stopped"),
+  startOwner: text("start_owner"),
+  startUntil: ts("start_until"),
   /** OpenCode server password, AES-GCM under the user's DEK. Rotated whenever the engine is (re)started. */
   passwordEnc: text("password_enc"),
   vcpus: integer("vcpus").notNull().default(1),
@@ -213,6 +235,12 @@ export const sandboxes = pgTable("sandboxes", {
   totalSessionSeconds: integer("total_session_seconds").notNull().default(0),
   totalCpuMs: integer("total_cpu_ms").notNull().default(0),
   lastError: text("last_error"),
+  /** When the VM's idle timer runs out, as of the engine start or the last heartbeat that extended it. The session's end estimate. */
+  idleUntil: ts("idle_until"),
+  /** A skills change could not reload the engine (a turn was running); the next heartbeat tries again. */
+  skillsReloadDueAt: ts("skills_reload_due_at"),
+  /** The VM and its snapshots are gone. Set by a successful delete; the cron retries until then before purging the workspace. */
+  vmDeletedAt: ts("vm_deleted_at"),
   createdAt: ts("created_at").notNull().defaultNow(),
   updatedAt: ts("updated_at").notNull().defaultNow(),
 }, (t) => [uniqueIndex("sandboxes_workspace_idx").on(t.workspaceId), index("sandboxes_user_idx").on(t.userId)])
@@ -232,6 +260,7 @@ export const chatSessions = pgTable("chat_sessions", {
   title: text("title"),
   createdAt: ts("created_at").notNull().defaultNow(),
   updatedAt: ts("updated_at").notNull().defaultNow(),
+  /** Unused (chats are live or deleted); kept because migrations are additive only. */
   archivedAt: ts("archived_at"),
   deletedAt: ts("deleted_at"),
 }, (t) => [index("chat_sessions_user_idx").on(t.userId, t.workspaceId, t.updatedAt)])

@@ -2,6 +2,7 @@ import { z } from "zod"
 import { track } from "@/server/analytics"
 import { handler, requireUser } from "@/server/cloud/session"
 import { createWorkspace, listWorkspaces } from "@/server/cloud/workspaces"
+import { liveStatus } from "@/server/engine/sandbox-state"
 
 export const dynamic = "force-dynamic"
 
@@ -18,7 +19,7 @@ export const GET = handler(async () => {
       repoUrl: w.repoUrl,
       createdAt: w.createdAt,
       lastOpenedAt: w.lastOpenedAt,
-      sandbox: w.sandbox ? { status: w.sandbox.status, lastError: w.sandbox.lastError, totalSessionSeconds: w.sandbox.totalSessionSeconds, engineVersion: w.sandbox.engineVersion } : null,
+      sandbox: w.sandbox ? { status: liveStatus(w.sandbox), lastError: w.sandbox.lastError, totalSessionSeconds: w.sandbox.totalSessionSeconds, engineVersion: w.sandbox.engineVersion } : null,
     })),
   })
 })
