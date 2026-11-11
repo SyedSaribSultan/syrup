@@ -37,8 +37,8 @@ type Learned = {
   tpm?: number
   remainingTokens?: number
   remainingTokensUntil?: number
-  /** The model rejected a thinking/reasoning-effort parameter; requests go plain from now on. */
-  noReasoningParam?: boolean
+  /** When the model rejected a thinking/reasoning-effort parameter; requests go plain for LEARNED_PROMPT_TTL_MS after. */
+  noReasoningParamAt?: number
 }
 
 const PRIOR_ERR = 0.05
@@ -57,8 +57,10 @@ const TPS_DECAY_HALF_LIFE_MS = 60 * 60_000
 /** A decode-speed sample needs this many streamed tokens over at least this long, or it is mostly noise. */
 const TPS_MIN_TOKENS = 50
 const TPS_MIN_MS = 200
-/** A learned prompt cap is forgotten after this long, so one misread error cannot exclude a backend for good. */
+/** A learned prompt cap or parameter refusal is forgotten after this long, so one misread error cannot hold for good. */
 const LEARNED_PROMPT_TTL_MS = 60 * 60_000
+/** An attempt's in-flight mark lapses after this long (longer than any attempt runs), so a missed end() cannot hold a key busy. */
+const INFLIGHT_LEASE_MS = 20 * 60_000
 
 /** Failures that say something about the backend itself, worth replaying from a previous run. */
 const REPLAY_FAILURES = new Set(["overloaded", "timeout", "error", "network", "empty"])
@@ -73,7 +75,8 @@ export class Health {
   private stats = new Map<string, Stats>()
   private cool = new Map<string, Cool>()
   private learned = new Map<string, Learned>()
-  private inflight = new Map<string, number>()
+  /** Key scope -> start times of the attempts running on it. An entry older than INFLIGHT_LEASE_MS no longer counts. */
+  private inflight = new Map<string, number[]>()
   /** Events from a previous run, replayed into a backend's stats the first time it is seen. */
   private replay = new Map<string, RouterEvent[]>()
 
@@ -198,7 +201,12 @@ export class Health {
    * just started in a fresh sandbox then knows what was overloaded or slow a
    * minute ago instead of finding out on the user's first message.
    */
-  seed(events: readonly RouterEvent[]): { cooldowns: number; backends: number } {
+  /**
+   * Takes in attempts recorded elsewhere: their cooldowns, and (unless cooldownsOnly) their speed and errors for backends
+   * not seen yet. A cooldown is kept only when it ends later than the one in force, so seeding the same events twice is
+   * harmless; the periodic reseed (core.ts) passes cooldownsOnly, so stats are never replayed twice.
+   */
+  seed(events: readonly RouterEvent[], { cooldownsOnly = false } = {}): { cooldowns: number; backends: number } {
     const t = this.now()
     let cooldowns = 0
     for (const e of [...events].sort((a, b) => a.ts - b.ts)) {
@@ -211,7 +219,7 @@ export class Health {
           cooldowns++
         }
       }
-      if ((e.status === "ok" && e.ttftMs !== null) || (e.reason && REPLAY_FAILURES.has(e.reason))) {
+      if (!cooldownsOnly && ((e.status === "ok" && e.ttftMs !== null) || (e.reason && REPLAY_FAILURES.has(e.reason)))) {
         if (this.stats.has(id)) continue
         const list = this.replay.get(id) ?? []
         list.push(e)
@@ -273,12 +281,13 @@ export class Health {
       l.maxPromptAt = this.now()
     }
     if (cls.learnedTpm) l.tpm = cls.learnedTpm
-    if (cls.learnedNoReasoningParam) l.noReasoningParam = true
+    if (cls.learnedNoReasoningParam) l.noReasoningParamAt = this.now()
     this.learned.set(c.id, l)
   }
 
   noReasoningParam(c: Candidate): boolean {
-    return !!this.learned.get(c.id)?.noReasoningParam
+    const at = this.learned.get(c.id)?.noReasoningParamAt
+    return at !== undefined && this.now() - at <= LEARNED_PROMPT_TTL_MS
   }
 
   /** Success headers. Returns the cooldown set when the request budget is exhausted ("rpd" when it lasts over an hour). */
@@ -323,18 +332,29 @@ export class Health {
 
   // ---------------------------------------------------------------- in-flight
 
+  /** Live attempts on a key scope; expired marks (an attempt that never ended) are dropped here. */
+  private running(scope: string): number[] {
+    const t = this.now()
+    const live = (this.inflight.get(scope) ?? []).filter((at) => t - at < INFLIGHT_LEASE_MS)
+    if (live.length) this.inflight.set(scope, live)
+    else this.inflight.delete(scope)
+    return live
+  }
+
   busy(c: Candidate): boolean {
-    return (this.inflight.get(c.keyScope) ?? 0) > 0
+    return this.running(c.keyScope).length > 0
   }
 
   begin(c: Candidate) {
-    this.inflight.set(c.keyScope, (this.inflight.get(c.keyScope) ?? 0) + 1)
+    this.inflight.set(c.keyScope, [...this.running(c.keyScope), this.now()])
   }
 
+  /** Ends the oldest live mark; after expiry there may be none left, which is fine. */
   end(c: Candidate) {
-    const n = (this.inflight.get(c.keyScope) ?? 1) - 1
-    if (n <= 0) this.inflight.delete(c.keyScope)
-    else this.inflight.set(c.keyScope, n)
+    const live = this.running(c.keyScope)
+    live.shift()
+    if (live.length) this.inflight.set(c.keyScope, live)
+    else this.inflight.delete(c.keyScope)
   }
 
   // ---------------------------------------------------------------- debug
@@ -346,6 +366,6 @@ export class Health {
       .filter(([, s]) => s.samples > 0 || s.lastUsed > 0)
       .map(([id, s]) => ({ id, ttftMs: Math.round(s.ttft), tps: Math.round(s.tps), errRate: Number(s.err.toFixed(3)), samples: s.samples, overloads: s.overloads, lastUsed: s.lastUsed }))
     const learned = [...this.learned.entries()].map(([id, l]) => ({ id, ...l }))
-    return { cooldowns, health, learned, inflight: Object.fromEntries(this.inflight) }
+    return { cooldowns, health, learned, inflight: Object.fromEntries([...this.inflight.keys()].map((k) => [k, this.running(k).length]).filter(([, n]) => n)) }
   }
 }

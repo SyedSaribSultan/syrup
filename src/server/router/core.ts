@@ -49,6 +49,8 @@ export type RouterTiming = {
    * title (thinking does not count, see runAttempt's scan), with no failover, then the router lets the title go and answers with a title made from the chat's first message.
    */
   leashMs: number
+  /** How often cooldowns other router processes recorded are read again after warm-up (store.recent). */
+  reseedMs: number
 }
 
 /**
@@ -73,6 +75,8 @@ const DEFAULT_TIMING: RouterTiming = {
   // 2026-10-07, Gemini's bad day: 9 had their first token within 4 s (0.6–1.4 s), and failover inside the same 4 s
   // would have saved one more, so a single attempt loses almost nothing.
   leashMs: 4_000,
+  // Another sandbox of the same user hitting a rate limit is seen here within a minute, not only at this one's start.
+  reseedMs: 60_000,
 }
 
 /** How far back a fresh router reads other processes' attempts to seed its health memory. */
@@ -302,18 +306,40 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
   // In the sandbox the sidecar starts before OpenCode listens, so the catalog is not there on the first try: retry a
   // few times in the background. `warmup` itself settles after the first try, so no request ever waits on a retry.
   const WARMUP_TRIES = 6
+  /** "warming" until the first try settles; "warm" once a try succeeded, else "retrying" and finally "gave_up". */
+  let warmState: "warming" | "warm" | "retrying" | "gave_up" = "warming"
+  let reseededAt: number | null = null
   async function warm(attempt: number): Promise<void> {
     try {
       const [cat, keys] = await Promise.all([store.catalog(), store.activeKeys()])
       const [, recent] = await Promise.all([served.filter(candidates.get(cat, keys)), store.recent ? store.recent(now() - SEED_WINDOW_MS) : Promise.resolve([])])
       const seeded = health.seed(recent)
+      reseededAt = now()
+      warmState = "warm"
       log("router", "warmup.done", { attempt, providers: [...keys.keys()], recentEvents: recent.length, ...seeded })
     } catch (err) {
+      warmState = attempt < WARMUP_TRIES ? "retrying" : "gave_up"
       log("router", "warmup.failed", { attempt, message: err instanceof Error ? err.message : String(err) }, { level: attempt < WARMUP_TRIES ? "info" : "warn" })
       if (attempt < WARMUP_TRIES) setTimeout(() => void warm(attempt + 1), 2_000 * attempt).unref?.()
     }
   }
   const warmup = warm(1)
+
+  /**
+   * Cooldowns only: each sandbox keeps its own map, so what another one learned (a key's rate limit) is read again every
+   * reseedMs, whatever warm-up's outcome. Overlapping windows are fine: Health.seed keeps the later end of a cooldown.
+   */
+  const readRecent = store.recent?.bind(store)
+  if (readRecent) {
+    setInterval(() => {
+      const since = Math.max(now() - SEED_WINDOW_MS, (reseededAt ?? 0) - timing.reseedMs)
+      void readRecent(since).then((events) => {
+        const seeded = health.seed(events, { cooldownsOnly: true })
+        reseededAt = now()
+        if (seeded.cooldowns) log("router", "reseed.done", { events: events.length, cooldowns: seeded.cooldowns })
+      })
+    }, timing.reseedMs).unref?.()
+  }
 
   // Strictly increasing, so an event recorded right after another (a cooldown after the answer that revealed it) sorts as newer.
   let lastTs = 0
@@ -326,8 +352,10 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
     json(res, 200, { object: "list", data: Object.keys(ALIASES).map((id) => ({ id, object: "model", created: 0, owned_by: "syrup" })) })
   }
 
-  function status(res: http.ServerResponse) {
-    json(res, 200, { at: now(), ...health.snapshot(), sessions: sessions.size, stuckSessions: sessions.stuck(), reasoningCache: reasoning.size, servedModels: served.snapshot() })
+  async function status(res: http.ServerResponse) {
+    // Settles after warm-up's first try, so a fresh router's status already shows what it seeded.
+    await warmup
+    json(res, 200, { at: now(), warm: warmState === "warm", warmState, reseededAt, ...health.snapshot(), sessions: sessions.size, stuckSessions: sessions.stuck(), reasoningCache: reasoning.size, servedModels: served.snapshot() })
   }
 
   // ---------------------------------------------------------------- outbound
@@ -1307,7 +1335,7 @@ export function createRouter({ store, log, secret, baseURLs, now = Date.now, tim
         return true
       }
       if (req.method === "GET" && url.pathname === "/v1/status") {
-        status(res)
+        await status(res)
         return true
       }
       return false

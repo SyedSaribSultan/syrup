@@ -32,6 +32,7 @@ await build({
       'export { describeDrops, droppedAttempt } from "./src/lib/router-status"',
       'export { routerSwitch } from "./src/lib/router-answers"',
       'export { HttpRouterStore, parseKeyMeta, relayBaseURLs } from "./sidecar/store-http"',
+      'export { startEventTap } from "./sidecar/events"',
     ].join("\n"),
     resolveDir: root,
     loader: "ts",
@@ -1737,6 +1738,7 @@ await scenario("z9) a fresh router seeds its memory from attempts another proces
   const url = `http://127.0.0.1:${server.address().port}`
   try {
     const st = await (await fetch(`${url}/v1/status`, { headers: { authorization: `Bearer ${SECRET}` } })).json()
+    eq(st.warm, true, "status answers once warm-up has settled, and says so")
     assert(st.cooldowns.some((c) => c.scope === "b:google/gemini-3.8-flash#k_google" && c.reason === "overloaded"), "the other process's cooldown is in force here")
     const res = await fetch(`${url}/v1/chat/completions`, { method: "POST", headers: { authorization: `Bearer ${SECRET}`, "content-type": "application/json", "x-session-affinity": "ses_z9" }, body: JSON.stringify({ model: "syrup/auto", stream: true, messages: [{ role: "user", content: "plan the migration" }] }) })
     await res.text()
@@ -3376,6 +3378,160 @@ await scenario("z44) expected output counts thinking on Auto; a hard turn never 
   // slow: 1 s + 600 / 5 tok/s = 121 s → 90 − 60.5 − 2 − 15; quick: 7 s → 80 − 3.5 − 2.
   eq(+by(ranked, "slow").score.toFixed(1), 12.5, "the 3-minute decoder loses 15 on a hard turn")
   eq(ranked[0].c.id, "quick", "and does not win on quality alone")
+})
+
+await scenario("z45) cooldowns other processes record later are picked up while running, not only at warm-up", async () => {
+  const clock = fakeClock()
+  const recent = []
+  let asked = 0
+  const store = { catalog: async () => CATALOG, activeKeys: async () => new Map([K.google]), record: async () => {}, recent: async () => (asked++, recent) }
+  const router = R.createRouter({ store, log: () => {}, secret: SECRET, baseURLs, timing: { ...TIMING, reseedMs: 50 }, now: clock.now })
+  const server = http.createServer((req, res) => void router.handle(req, res, new URL(req.url ?? "/", "http://localhost")))
+  await new Promise((r) => server.listen(0, "127.0.0.1", r))
+  const url = `http://127.0.0.1:${server.address().port}`
+  const status = async () => (await fetch(`${url}/v1/status`, { headers: { authorization: `Bearer ${SECRET}` } })).json()
+  try {
+    eq((await status()).cooldowns.length, 0, "nothing cooling at start")
+    const t = clock.now()
+    recent.push({ id: "q1", ts: t, alias: "auto", providerId: "google", modelId: "gemini-3.8-flash", keyId: "k_google", tier: "free", status: "rate_limited", httpStatus: 429, attempts: 1, latencyMs: 100, inputTokens: 0, outputTokens: 0, cost: 0, error: "rpm", sessionId: "s_other", ttftMs: null, retryAt: t + 60_000, reason: "rpm" })
+    await waitFor(() => asked >= 3, 2000, "periodic reseeds")
+    const st = await status()
+    assert(st.cooldowns.some((c) => c.scope === "b:google/gemini-3.8-flash#k_google" && c.reason === "rpm"), "another sandbox's cooldown reaches this router without a restart")
+    assert(typeof st.reseededAt === "number", "status says when it last reseeded")
+  } finally {
+    server.closeAllConnections?.()
+    await new Promise((r) => server.close(r))
+  }
+})
+
+await scenario("z46) learned limits and in-flight marks expire", async () => {
+  const clock = fakeClock()
+  const health = new R.Health(clock.now)
+  const c = { id: "google/gemma#k", keyScope: "google#k", info: { ttftMs: 1000, tps: 50 } }
+  health.learn(c, { learnedNoReasoningParam: true })
+  eq(health.noReasoningParam(c), true, "learned")
+  clock.advance(2 * 3600_000)
+  eq(health.noReasoningParam(c), false, "a rejected reasoning parameter is tried again after a while")
+  health.begin(c)
+  eq(health.busy(c), true, "busy while an attempt runs")
+  clock.advance(30 * 60_000)
+  eq(health.busy(c), false, "an attempt that never called end() does not keep its key busy forever")
+  health.end(c)
+  eq(health.busy(c), false, "a late end() after expiry is harmless")
+  health.begin(c)
+  health.begin(c)
+  health.end(c)
+  eq(health.busy(c), true, "one of two attempts still running")
+  health.end(c)
+  eq(health.busy(c), false, "both done")
+})
+
+/** A fake syrup app for the sidecar's writes: answers with `plan` statuses in turn (then 200) and records each body. */
+async function fakeIngest(plan = []) {
+  const got = []
+  const tries = []
+  const server = http.createServer(async (req, res) => {
+    const body = await readAll(req)
+    const code = plan.length ? plan.shift() : 200
+    tries.push({ path: req.url, code })
+    if (code === 200 && body) got.push({ path: req.url, body: JSON.parse(body) })
+    res.writeHead(code, { "content-type": "application/json" })
+    res.end(code === 200 ? "{}" : JSON.stringify({ error: "nope" }))
+  })
+  await new Promise((r) => server.listen(0, "127.0.0.1", r))
+  return {
+    url: `http://127.0.0.1:${server.address().port}`,
+    got,
+    tries,
+    plan,
+    close() {
+      server.closeAllConnections?.()
+      return new Promise((r) => server.close(r))
+    },
+  }
+}
+
+await scenario("z47) sidecar ledger: a failed router-event write is retried in order, batched, and a 401 is final", async () => {
+  const app = await fakeIngest([503])
+  const logs = []
+  const cfg = { port: 0, secret: "s", keyMeta: {}, ingestUrl: app.url, ingestToken: "t", engineUrl: "http://127.0.0.1:1", engineAuth: "Basic x", relayGzip: false }
+  const store = new R.HttpRouterStore(cfg, (source, event, data) => logs.push({ event, data }), { keysRefreshMs: 60_000, retryMs: 20, batchMs: 10 })
+  const ev = (id) => ({ id, ts: Date.now(), alias: "auto", providerId: "google", modelId: "m", keyId: "k", tier: "free", status: "ok", httpStatus: 200, attempts: 1, latencyMs: 5, inputTokens: 0, outputTokens: 0, cost: 0, error: null, sessionId: null, ttftMs: 5, retryAt: null, reason: "best" })
+  try {
+    await store.record(ev("a"))
+    await store.record(ev("b"))
+    await waitFor(() => app.got.flatMap((g) => g.body.events).length === 2, 2000, "both events written after the failure")
+    eq(app.got.flatMap((g) => g.body.events.map((e) => e.id)).join(","), "a,b", "in order")
+    eq(app.tries[0].code, 503, "the first write failed")
+    await store.flush()
+    app.plan.push(401)
+    await store.record(ev("c"))
+    await waitFor(() => logs.some((l) => l.event === "ledger.dropped"), 2000, "a refused token drops the batch")
+    await sleep(100)
+    eq(app.tries.filter((t) => t.code === 401).length, 1, "a 401 is not retried")
+  } finally {
+    await app.close()
+  }
+})
+
+await scenario("z48) event tap: a failed batch is retried in order, and every (re)connect resyncs what the stream missed", async () => {
+  const app = await fakeIngest([503, 502])
+  let stream = null
+  const sessions = [
+    { id: "ses_old", title: "old", time: { created: Date.now() - 5 * 3600_000, updated: Date.now() - 5 * 3600_000 } },
+    { id: "ses_1", title: "one", time: { created: Date.now() - 60_000, updated: Date.now() - 30_000 } },
+  ]
+  const messages = { ses_1: [{ info: { id: "msg_1", sessionID: "ses_1", role: "assistant", time: { created: Date.now() - 50_000, completed: Date.now() - 40_000 } }, parts: [{ id: "prt_1", messageID: "msg_1", sessionID: "ses_1", type: "text", text: "hi" }] }] }
+  const engine = http.createServer((req, res) => {
+    const u = new URL(req.url, "http://x")
+    if (u.pathname === "/global/event") {
+      res.writeHead(200, { "content-type": "text/event-stream" })
+      res.write(": ok\n\n")
+      stream = res
+      return
+    }
+    if (u.pathname === "/session") {
+      res.writeHead(200, { "content-type": "application/json" })
+      return res.end(JSON.stringify(sessions))
+    }
+    const m = u.pathname.match(/^\/session\/([^/]+)\/message$/)
+    if (m) {
+      res.writeHead(200, { "content-type": "application/json" })
+      return res.end(JSON.stringify(messages[m[1]] ?? []))
+    }
+    res.writeHead(404)
+    res.end()
+  })
+  await new Promise((r) => engine.listen(0, "127.0.0.1", r))
+  const cfg = { port: 0, secret: "s", keyMeta: {}, ingestUrl: app.url, ingestToken: "t", engineUrl: `http://127.0.0.1:${engine.address().port}`, engineAuth: "Basic x", relayGzip: false }
+  const logs = []
+  const tap = R.startEventTap(cfg, (source, event, data) => logs.push({ event, data }), { retryMs: 20, reconnectMs: 20, batchMs: 10 })
+  const sent = () => app.got.flatMap((g) => g.body.events)
+  const send = (type, properties) => stream.write(`data: ${JSON.stringify({ payload: { type, properties } })}\n\n`)
+  try {
+    await waitFor(() => stream, 2000, "connected")
+    await waitFor(() => sent().some((e) => e.type === "message.part.updated" && e.properties.part.id === "prt_1"), 3000, "resync on first connect")
+    assert(sent().some((e) => e.type === "session.updated" && e.properties.info.id === "ses_1"), "recent session resynced")
+    assert(sent().some((e) => e.type === "message.updated" && e.properties.info.id === "msg_1"), "its message resynced")
+    assert(!sent().some((e) => e.properties.info?.id === "ses_old"), "an old session is left alone")
+    eq(app.tries[0].code, 503, "the first batch failed and was retried")
+    send("session.updated", { info: { id: "ses_1", title: "live 1" } })
+    send("session.updated", { info: { id: "ses_1", title: "live 2" } })
+    await waitFor(() => sent().filter((e) => e.properties.info?.title?.startsWith("live")).length === 2, 2000, "live events forwarded")
+    eq(sent().filter((e) => e.properties.info?.title?.startsWith("live")).map((e) => e.properties.info.title).join(","), "live 1,live 2", "in order")
+    // The stream drops; a message is written while it is down; the reconnect's resync brings it in.
+    stream.end()
+    stream = null
+    messages.ses_1.push({ info: { id: "msg_2", sessionID: "ses_1", role: "assistant", time: { created: Date.now(), completed: Date.now() } }, parts: [{ id: "prt_2", messageID: "msg_2", sessionID: "ses_1", type: "text", text: "missed" }] })
+    sessions[1].time.updated = Date.now()
+    await waitFor(() => sent().some((e) => e.type === "message.part.updated" && e.properties.part.id === "prt_2"), 3000, "missed message resynced after reconnect")
+    await tap.flush()
+  } finally {
+    stream?.end()
+    engine.closeAllConnections?.()
+    await new Promise((r) => engine.close(r))
+    await app.close()
+  }
 })
 
 // ------------------------------------------------------------------ summary
