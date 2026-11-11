@@ -18,7 +18,8 @@ export function localHomePath(): Promise<string | null> {
   return localHome
 }
 
-export type OpenedSandbox = { baseUrl: string; authorization: string; directory: string; start: "cold" | "warm" | "hot"; ms: number; expiresAt: string | null }
+/** `sessionStartedAt`: the engine start this connection belongs to; the heartbeat reports the current one. */
+export type OpenedSandbox = { baseUrl: string; authorization: string; directory: string; start: "cold" | "warm" | "hot"; ms: number; expiresAt: string | null; sessionStartedAt?: string | null }
 
 type Opening = { promise: Promise<OpenedSandbox>; settledAt: number | null }
 const opening = new Map<string, Opening>()

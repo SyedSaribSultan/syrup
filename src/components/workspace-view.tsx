@@ -41,7 +41,11 @@ export function WorkspaceView({ workspaceId, egressAllow, hasKeys }: { workspace
   const [start, setStart] = useState<"cold" | "warm" | "hot" | null>(null)
   const [beat, setBeat] = useState<Heartbeat | null>(null)
   const [reopening, setReopening] = useState(false)
+  // Why the heartbeat was refused (the daily cap): the sandbox is no longer kept awake and sleeps soon.
+  const [refused, setRefused] = useState<string | null>(null)
   const opening = useRef(false)
+  // The engine start the current connection belongs to. A reused open result can predate a restart.
+  const session = useRef<string | null>(null)
   const ready = conn !== null
 
   const open = useCallback(
@@ -53,6 +57,7 @@ export function WorkspaceView({ workspaceId, egressAllow, hasKeys }: { workspace
       try {
         const c = await openSandbox(workspaceId, reason === "reopen")
         setStart(c.start)
+        session.current = c.sessionStartedAt ?? null
         setConn({ baseUrl: c.baseUrl, headers: { authorization: c.authorization }, directory: c.directory })
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err))
@@ -77,10 +82,15 @@ export function WorkspaceView({ workspaceId, egressAllow, hasKeys }: { workspace
       if (document.visibilityState !== "visible") return
       try {
         const r = await fetch(`/api/workspaces/${workspaceId}/heartbeat`, { method: "POST" })
-        const j = (await r.json()) as Heartbeat
-        if (stopped || !r.ok) return
-        setBeat(j)
-        if (!j.running) void open("reopen")
+        const j = (await r.json().catch(() => ({}))) as Partial<Heartbeat> & { error?: string; code?: string }
+        if (stopped) return
+        if (r.status === 429) return setRefused(j.error ?? "This workspace is no longer kept awake and will sleep soon.")
+        if (!r.ok) return
+        setRefused(null)
+        setBeat(j as Heartbeat)
+        // Stopped, or started again since this connection was made (its password is gone): open it again.
+        const moved = !!j.sessionStartedAt && !!session.current && j.sessionStartedAt !== session.current
+        if (!j.running || moved) void open("reopen")
       } catch {}
     }
     void beatOnce()
@@ -103,6 +113,7 @@ export function WorkspaceView({ workspaceId, egressAllow, hasKeys }: { workspace
         <AbortOnUnload />
         <AppShell sidebar={<Sidebar status={<SandboxStatus ready={ready} start={start} beat={beat} reopening={reopening} failed={!!error} />} footer={<SandboxControls workspaceId={workspaceId} egressAllow={egressAllow} />} />}>
           <SessionCapNotice beat={beat} />
+          {refused && <HeartbeatRefused message={refused} />}
           {error && sessionId && <OpenError error={error} onRetry={retry} />}
           <Workbench>{sessionId ? <SessionView id={sessionId} /> : <NewChat hrefFor={(id) => `/w/${workspaceId}/s/${id}`} noKeys={!hasKeys} error={error} onRetry={retry} />}</Workbench>
         </AppShell>
@@ -201,13 +212,25 @@ function AbortOnUnload() {
   useEffect(() => {
     if (!busyKey) return
     const ids = busyKey.split(",")
-    const onUnload = () => {
+    // A page kept in the back/forward cache may come back, and switching tabs never fires pagehide: only a real unload aborts.
+    const onUnload = (e: PageTransitionEvent) => {
+      if (e.persisted) return
       for (const id of ids) void abort(id)
     }
     window.addEventListener("pagehide", onUnload)
     return () => window.removeEventListener("pagehide", onUnload)
   }, [busyKey, abort])
   return null
+}
+
+/** The heartbeat was refused (the daily cap): say why the workspace is about to sleep. */
+function HeartbeatRefused({ message }: { message: string }) {
+  return (
+    <div role="status" className="s-alert s-alert--warning s-alert--banner mx-4 mt-3 w-auto">
+      <Icon name="triangle-alert" />
+      <p className="s-alert__desc">{message}</p>
+    </div>
+  )
 }
 
 /** Soft warning five minutes before the platform's 45-minute session cap. */
