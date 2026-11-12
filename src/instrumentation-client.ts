@@ -33,19 +33,7 @@ if (key && typeof window !== "undefined" && !sharePage) {
       mask_all_element_attributes: true,
       loaded(ph) {
         ph.register({ site: "syrup" })
-        // Personal links: ?via=<name> names this visitor (unless signed in), then leaves the URL clean.
-        try {
-          const u = new URL(location.href)
-          const via = (u.searchParams.get("via") || "").trim().toLowerCase().slice(0, 60)
-          if (via) {
-            if (ph.get_property("$user_state") !== "identified") ph.identify("via:" + via, { name: via, via })
-            else ph.setPersonProperties({ via })
-            ph.capture("via_link_opened", { via })
-            u.searchParams.delete("via")
-            history.replaceState(history.state, "", u.pathname + (u.search || "") + u.hash)
-          }
-        } catch {}
-        // Add-on (../analytics/TRACKING.md): machine, network, human and time-on-page signals, from one shared file.
+        // Add-on (../analytics/TRACKING.md): personal links (?via=), machine, network, human and time-on-page signals, from one shared file.
         // It reads no page text and does nothing when capture is opted out (DNT, Settings).
         try {
           ;(window as unknown as { posthog: unknown }).posthog = ph
