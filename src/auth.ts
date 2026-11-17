@@ -1,5 +1,6 @@
 import { DrizzleAdapter } from "@auth/drizzle-adapter"
 import { eq } from "drizzle-orm"
+import type { Adapter } from "next-auth/adapters"
 import NextAuth from "next-auth"
 import { headers } from "next/headers"
 import { authConfig } from "./auth.config"
@@ -25,16 +26,27 @@ async function requestMeta() {
   }
 }
 
+/** Sign-in is all syrup uses Google for, so the provider's tokens are never stored (audit 2026-11-17 F3). */
+function sanitizedAdapter(base: Adapter): Adapter {
+  return {
+    ...base,
+    linkAccount: (account) =>
+      base.linkAccount!({ ...account, access_token: undefined, refresh_token: undefined, id_token: undefined, expires_at: undefined, session_state: undefined }),
+  }
+}
+
 export const { handlers, auth, signIn, signOut } = NextAuth(async () => {
   await pgReady()
   return {
     ...authConfig,
-    adapter: DrizzleAdapter(pg(), {
-      usersTable: pgSchema.users,
-      accountsTable: pgSchema.accounts,
-      sessionsTable: pgSchema.sessions,
-      verificationTokensTable: pgSchema.verificationTokens,
-    }),
+    adapter: sanitizedAdapter(
+      DrizzleAdapter(pg(), {
+        usersTable: pgSchema.users,
+        accountsTable: pgSchema.accounts,
+        sessionsTable: pgSchema.sessions,
+        verificationTokensTable: pgSchema.verificationTokens,
+      }),
+    ),
     callbacks: {
       ...authConfig.callbacks,
       async signIn({ user, profile }) {

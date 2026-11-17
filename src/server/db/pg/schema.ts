@@ -169,6 +169,17 @@ export const auditLog = pgTable("audit_log", {
   createdAt: ts("created_at").notNull().defaultNow(),
 }, (t) => [index("audit_user_idx").on(t.userId, t.createdAt)])
 
+/**
+ * Fixed-window request counters for per-user throttles (src/server/cloud/throttle.ts). One row per user, bucket and
+ * window, so a burst costs one upsert each and no extra rows. Written as the owner role; pruned by the nightly cron.
+ */
+export const rateCounters = pgTable("rate_counters", {
+  userId: text("user_id").notNull(),
+  bucket: text("bucket").notNull(),
+  windowStart: integer("window_start").notNull(),
+  n: integer("n").notNull().default(0),
+}, (t) => [primaryKey({ columns: [t.userId, t.bucket, t.windowStart] })])
+
 // ---------------------------------------------------------------- operations
 
 export const logs = pgTable("logs", {

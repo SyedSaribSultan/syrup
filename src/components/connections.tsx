@@ -51,7 +51,7 @@ export function Connections() {
           <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noreferrer" className="s-link">
             fine-grained token
           </a>{" "}
-          with <code className="s-code">Contents: Read</code> on the repositories you want. It is encrypted with a key unique to your account, used only while cloning, and never written to a workspace&apos;s disk.
+          with <code className="s-code">Contents: Read</code> on the repositories you want. It is encrypted with a key unique to your account, used only while cloning, and never written to a workspace&apos;s disk. Classic <code className="s-code">ghp_</code> tokens grant access to every repository you can reach, so avoid them and use a fine-grained token.
         </p>
       </div>
       {state?.connected ? (

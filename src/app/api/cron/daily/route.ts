@@ -46,6 +46,11 @@ export async function GET(req: Request) {
   const pruned = await db.delete(pgSchema.logs).where(lt(pgSchema.logs.ts, cutoff)).returning({ id: pgSchema.logs.id })
   report.logsPruned = pruned.length
 
+  // 1b. Throttle counters of past windows (src/server/cloud/throttle.ts; the longest window is an hour).
+  const staleBefore = Math.floor(Date.now() / 1000) - 86_400
+  const prunedCounters = await db.delete(pgSchema.rateCounters).where(lt(pgSchema.rateCounters.windowStart, staleBefore)).returning({ n: pgSchema.rateCounters.n })
+  report.countersPruned = prunedCounters.length
+
   // 2. Deletion requests past their grace period: requested, a run's lapsed lease (or one from before leases), or failed with tries left.
   const due = new Date(Date.now() - DELETE_GRACE_DAYS * 86_400_000)
   const dr = pgSchema.dataRequests

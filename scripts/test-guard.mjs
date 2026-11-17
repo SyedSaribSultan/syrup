@@ -163,6 +163,21 @@ await check("matcher: every /api path reaches the guard (an id ending in .txt/.p
   }
 })
 
+await check("cloudOriginDecision: cookie-borne writes must be same-origin; safe methods, auth and Bearer pass", () => {
+  const base = { method: "POST", pathname: "/api/providers", host: "syrup.syedsarib.com", origin: null, secFetchSite: null, bearer: false }
+  const d = (o) => { const r = guard.cloudOriginDecision({ ...base, ...o }); return r.ok ? 200 : r.status }
+  eq(d({}), 200, "no headers (script)")
+  eq(d({ origin: "https://syrup.syedsarib.com", secFetchSite: "same-origin" }), 200, "own origin")
+  eq(d({ origin: "https://evil.test" }), 403, "foreign Origin")
+  eq(d({ origin: "null" }), 403, "null Origin")
+  eq(d({ secFetchSite: "cross-site" }), 403, "cross-site")
+  eq(d({ secFetchSite: "same-site" }), 403, "same-site sibling")
+  eq(d({ method: "GET", origin: "https://evil.test" }), 200, "GET passes")
+  eq(d({ pathname: "/api/auth/callback/google", origin: "https://evil.test" }), 200, "Auth.js has its own CSRF")
+  eq(d({ pathname: "/api/ingest/logs", origin: "https://evil.test", bearer: true }), 200, "Bearer passes")
+  eq(d({ pathname: "/legal", origin: "https://evil.test" }), 200, "pages untouched")
+})
+
 // ---- 2. Header helpers ----
 await check("proxyRequestHeaders drops origin, referer, cookie, hop-by-hop and the client's authorization", () => {
   const h = guard.proxyRequestHeaders(

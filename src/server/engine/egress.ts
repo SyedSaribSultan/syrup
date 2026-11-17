@@ -47,7 +47,6 @@ const BASE_HOSTS = [
   "index.crates.io",
   "proxy.golang.org",
   "sum.golang.org",
-  "storage.googleapis.com",
   // syrup_calc's exchange rates (src/server/calc/fx.ts): the MCP server runs in the sidecar, inside the sandbox.
   ...FX_HOSTS,
 ]

@@ -38,7 +38,9 @@ if (key && typeof window !== "undefined" && !sharePage) {
         try {
           ;(window as unknown as { posthog: unknown }).posthog = ph
           const s = document.createElement("script")
-          s.src = "https://analytics.syedsarib.com/t/plus.js"
+          s.src = "https://analytics.syedsarib.com/t/plus.v1.js"
+          s.integrity = "sha384-1s2AAFu4eJGpYiqxssEydytEhNuvWm4Oo+tOZ/7tmk2OBvmgxSH1z/qLGEwSPe0g"
+          s.crossOrigin = "anonymous"
           s.async = true
           document.head.appendChild(s)
         } catch {}

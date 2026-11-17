@@ -1,7 +1,7 @@
 import NextAuth from "next-auth"
 import { NextResponse, type NextRequest } from "next/server"
 import { authConfig } from "./auth.config"
-import { localGuardDecision } from "./server/local-guard"
+import { cloudOriginDecision, localGuardDecision } from "./server/local-guard"
 
 /**
  * Request guard, runs before every route.
@@ -83,6 +83,15 @@ const { auth } = NextAuth(authConfig)
 
 const cloudGuard = auth((req) => {
   const { pathname } = req.nextUrl
+  const origin = cloudOriginDecision({
+    method: req.method,
+    pathname,
+    host: req.headers.get("host"),
+    origin: req.headers.get("origin"),
+    secFetchSite: req.headers.get("sec-fetch-site"),
+    bearer: req.headers.get("authorization")?.startsWith("Bearer ") ?? false,
+  })
+  if (!origin.ok) return NextResponse.json({ error: origin.error }, { status: origin.status })
   if (PUBLIC.some((p) => p.test(pathname))) return NextResponse.next()
   if (LOCAL_ONLY_API.test(pathname)) return NextResponse.json({ error: "not available in the hosted version yet" }, { status: 501 })
   if (LOCAL_ONLY_PAGE.test(pathname)) return NextResponse.redirect(new URL("/", req.nextUrl.origin))

@@ -1,6 +1,7 @@
 import { z } from "zod"
 import { track } from "@/server/analytics"
 import { handler, requireUser } from "@/server/cloud/session"
+import { throttle } from "@/server/cloud/throttle"
 import { createWorkspace, listWorkspaces } from "@/server/cloud/workspaces"
 import { liveStatus } from "@/server/engine/sandbox-state"
 
@@ -28,6 +29,7 @@ const Body = z.object({ name: z.string().trim().max(80).optional(), repoUrl: z.s
 
 export const POST = handler(async (req: Request) => {
   const me = await requireUser()
+  await throttle(me.id, "workspace.create", 30, 3600)
   const parsed = Body.safeParse(await req.json().catch(() => ({})))
   if (!parsed.success) return Response.json({ error: "invalid input" }, { status: 400 })
   const ws = await createWorkspace(me.id, parsed.data)

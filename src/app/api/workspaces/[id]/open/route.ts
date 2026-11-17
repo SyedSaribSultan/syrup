@@ -1,4 +1,5 @@
 import { handler, requireUser } from "@/server/cloud/session"
+import { throttle } from "@/server/cloud/throttle"
 import { openWorkspace } from "@/server/engine/sandbox"
 
 export const dynamic = "force-dynamic"
@@ -8,6 +9,7 @@ export const maxDuration = 180
 /** Boots or wakes the workspace's sandbox and returns how the browser should connect to OpenCode inside it. */
 export const POST = handler(async (_req: Request, ctx: { params: Promise<{ id: string }> }) => {
   const me = await requireUser()
+  await throttle(me.id, "workspace.open", 60, 3600)
   const { id } = await ctx.params
   // Kill switch: pause every agent start without a deploy.
   if (process.env.SYRUP_AGENT_ENABLED === "0") return Response.json({ error: "syrup's agent is paused for maintenance. Back shortly." }, { status: 503 })

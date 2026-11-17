@@ -31,6 +31,22 @@ export function localGuardDecision(r: GuardInput): GuardDecision {
   return { ok: true }
 }
 
+/**
+ * Cloud counterpart (audit 2026-11-17 F6): state-changing /api calls made with the session cookie must come from
+ * syrup's own origin when the browser says where they come from. Safe methods, /api/auth (Auth.js has its own CSRF
+ * token) and Bearer calls (not cookie-borne, so not forgeable by another site) pass. Clients that send neither
+ * Origin nor Sec-Fetch-Site (curl, scripts) pass.
+ */
+export function cloudOriginDecision(r: GuardInput & { bearer: boolean }): GuardDecision {
+  if (["GET", "HEAD", "OPTIONS"].includes(r.method.toUpperCase())) return { ok: true }
+  if (!/^\/api(\/|$)/.test(r.pathname) || /^\/api\/auth(\/|$)/.test(r.pathname) || r.bearer) return { ok: true }
+  const site = r.secFetchSite?.trim().toLowerCase()
+  if (site && site !== "same-origin" && site !== "none") return refuse("cross-site request refused")
+  const host = (r.host ?? "").trim().toLowerCase()
+  if (r.origin !== null && r.origin.trim().toLowerCase() !== `https://${host}`) return refuse("cross-origin request refused")
+  return { ok: true }
+}
+
 /** Request headers never passed to the engine: hop-by-hop ones, the client's own authorization, and what identifies the page. */
 const DROP_REQUEST = new Set(["host", "connection", "content-length", "transfer-encoding", "keep-alive", "authorization", "origin", "referer", "cookie"])
 

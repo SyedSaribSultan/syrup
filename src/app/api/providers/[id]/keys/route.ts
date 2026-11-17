@@ -1,5 +1,6 @@
 import { z } from "zod"
 import { handler, requireUser } from "@/server/cloud/session"
+import { throttle } from "@/server/cloud/throttle"
 import { track } from "@/server/analytics"
 import { env } from "@/server/env"
 import { addKey, defaultTier } from "@/server/providers"
@@ -19,6 +20,7 @@ export const POST = handler(async (req: Request, ctx: { params: Promise<{ id: st
   const tier = parsed.data.tier ?? defaultTier(id)
   if (env.isCloud) {
     const me = await requireUser()
+    await throttle(me.id, "provider-key", 30, 3600)
     const { addKey: cloudAdd } = await import("@/server/cloud/keys")
     const out = await cloudAdd(me.id, id, parsed.data.key, parsed.data.label, tier)
     // The provider's catalog id and the tier only: never the key or its label.

@@ -6,12 +6,19 @@ import Google from "next-auth/providers/google"
  * no database adapter, no Node-only imports. auth.ts extends it.
  * Sessions are JWT cookies, so the proxy can verify them without a DB call.
  */
+const SESSION_MAX_AGE = 180 * 24 * 60 * 60
+
 export const authConfig = {
   providers: [Google({ allowDangerousEmailAccountLinking: false })],
   session: { strategy: "jwt", maxAge: 30 * 24 * 60 * 60 },
   pages: { signIn: "/signin", error: "/signin" },
   callbacks: {
     jwt({ token, user }) {
+      // Absolute session lifetime: the cookie renews while in use, but never past 180 days from the sign-in.
+      const now = Math.floor(Date.now() / 1000)
+      if (user?.id) token.authAt = now
+      else if (typeof token.authAt !== "number") token.authAt = now
+      else if (now - token.authAt > SESSION_MAX_AGE) return null
       if (user?.id) token.uid = user.id
       if (user?.email) token.email = user.email
       return token

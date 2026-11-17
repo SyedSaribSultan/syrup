@@ -2,6 +2,7 @@ import { z } from "zod"
 import { track } from "@/server/analytics"
 import { clearGithubToken, githubTokenHint, saveGithubToken } from "@/server/cloud/github"
 import { handler, requireUser } from "@/server/cloud/session"
+import { throttle } from "@/server/cloud/throttle"
 
 export const dynamic = "force-dynamic"
 
@@ -13,6 +14,7 @@ export const GET = handler(async () => {
 
 export const PUT = handler(async (req: Request) => {
   const me = await requireUser()
+  await throttle(me.id, "github-token", 20, 3600)
   const parsed = z.object({ token: z.string().min(20).max(400) }).safeParse(await req.json().catch(() => ({})))
   if (!parsed.success) return Response.json({ error: "token required" }, { status: 400 })
   const r = await saveGithubToken(me.id, parsed.data.token)

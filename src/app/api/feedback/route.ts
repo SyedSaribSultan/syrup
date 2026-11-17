@@ -1,3 +1,4 @@
+import { throttle } from "@/server/cloud/throttle"
 import { track } from "@/server/analytics"
 import { z } from "zod"
 import { handler } from "@/server/cloud/session"
@@ -29,6 +30,7 @@ export const POST = handler(async (req: Request) => {
   const owner = await currentOwner()
   const parsed = Body.safeParse(await req.json().catch(() => null))
   if (!parsed.success) return Response.json({ error: "sessionId, messageId and rating (1, -1 or 0) are required" }, { status: 400 })
+  if (owner.mode === "cloud") await throttle(owner.userId, "feedback", 600, 3600)
   await setRating(owner, parsed.data)
   // The rating and which kind of model only: never the reply.
   if (owner.mode === "cloud") await track(owner.userId, "reply_rated", { rating: parsed.data.rating, routed: !!parsed.data.alias })

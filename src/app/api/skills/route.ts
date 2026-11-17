@@ -1,3 +1,4 @@
+import { throttle } from "@/server/cloud/throttle"
 import { after } from "next/server"
 import { z } from "zod"
 import { track } from "@/server/analytics"
@@ -46,6 +47,7 @@ export async function POST(req: Request) {
   try {
     if (env.isCloud) {
       const { me, skills, push } = await cloud()
+      await throttle(me.id, "skill.install", 20, 3600)
       const result = "source" in parsed.data ? await skills.installCloudFromGit(me.id, parsed.data.source) : { installed: [await skills.createCloudSkill(me.id, parsed.data.content, parsed.data.name)], skipped: [] }
       push()
       // Counts and the kind of install only: never the skills' names, the repo or the SKILL.md text.

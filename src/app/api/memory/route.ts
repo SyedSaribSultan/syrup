@@ -1,5 +1,6 @@
 import { z } from "zod"
 import { handler, requireUser } from "@/server/cloud/session"
+import { throttle } from "@/server/cloud/throttle"
 import { env } from "@/server/env"
 import { listMemories, saveMemory, searchMemories } from "@/server/memory"
 
@@ -33,6 +34,7 @@ export const POST = handler(async (req: Request) => {
   const parsed = Body.safeParse(await req.json().catch(() => ({})))
   if (!parsed.success) return Response.json({ error: parsed.error.issues[0]?.message ?? "Invalid input" }, { status: 400 })
   if (me) {
+    await throttle(me.id, "memory.save", 600, 3600)
     const { cloudMemories } = await import("@/server/cloud/memory")
     return Response.json(await cloudMemories(me.id).save(parsed.data))
   }

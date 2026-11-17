@@ -197,6 +197,11 @@ async function waitHealthy(baseUrl: string, password: string, totalMs: number): 
   throw new Error(`OpenCode did not become healthy within ${Math.round(totalMs / 1000)} s (${String(last)})`)
 }
 
+/** Git branch names that are safe to hand to a shell-adjacent command: no leading dash, no metacharacters, bounded length. */
+export function isSafeBranch(b: string): boolean {
+  return /^[A-Za-z0-9_][A-Za-z0-9._/-]{0,199}$/.test(b) && !b.includes("..")
+}
+
 async function installEngine(sb: Sandbox, ws: Workspace, userId: string) {
   const t0 = Date.now()
   const steps: string[] = [`curl -fsSL https://opencode.ai/install | bash -s -- --version ${OPENCODE_VERSION}`]
@@ -207,8 +212,12 @@ async function installEngine(sb: Sandbox, ws: Workspace, userId: string) {
     const token = ws.repoUrl.includes("github.com") ? await githubToken(userId) : null
     if (token) env.SYRUP_GIT_TOKEN = token
     const helper = token ? "-c credential.helper='!f() { echo username=x-access-token; echo \"password=$SYRUP_GIT_TOKEN\"; }; f'" : ""
-    const branch = ws.defaultBranch ? `--branch ${JSON.stringify(ws.defaultBranch)}` : ""
-    steps.push(`git ${helper} clone --depth 1 ${branch} ${JSON.stringify(ws.repoUrl)} ${JSON.stringify(workDir(ws))}`)
+    // Branch and URL travel as env vars and are quoted in the shell, never spliced into the command text.
+    // The branch comes from the GitHub API, so it is also checked against a safe pattern.
+    const branch = ws.defaultBranch && isSafeBranch(ws.defaultBranch) ? ws.defaultBranch : null
+    env.SYRUP_REPO = ws.repoUrl
+    if (branch) env.SYRUP_BRANCH = branch
+    steps.push(`git ${helper} clone --depth 1 ${branch ? '--branch "$SYRUP_BRANCH" ' : ""}-- "$SYRUP_REPO" ${JSON.stringify(workDir(ws))}`)
   } else {
     // An empty workspace (Home, Scratch) still gets a repository: the engine snapshots only git worktrees, and without
     // them the Changes panel and revert do nothing. No commits are made.

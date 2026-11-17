@@ -1,3 +1,4 @@
+import { throttle } from "@/server/cloud/throttle"
 import { and, eq } from "drizzle-orm"
 import { ulid } from "ulid"
 import { z } from "zod"
@@ -22,6 +23,7 @@ const Body = z.object({ type: z.enum(["export", "delete"]) })
  */
 export const POST = handler(async (req: Request) => {
   const me = await requireUser()
+  await throttle(me.id, "data-request", 10, 3600)
   const parsed = Body.safeParse(await req.json().catch(() => ({})))
   if (!parsed.success) return Response.json({ error: "type must be export or delete" }, { status: 400 })
   const ip = ipHash(req.headers.get("x-forwarded-for")?.split(",")[0]?.trim())
