@@ -273,10 +273,11 @@ function LegalLinks({ onDone }: { onDone(): void }) {
   )
 }
 
-/** Light / Dark (s-seg), applied instantly and remembered on this device. Light is the default, whatever the OS theme. */
+/** System / Light / Dark (s-seg), applied instantly and remembered on this device. */
 function ThemeRow() {
   const theme = useTheme()
   const opts: [Theme, string][] = [
+    ["system", "System"],
     ["light", "Light"],
     ["dark", "Dark"],
   ]
