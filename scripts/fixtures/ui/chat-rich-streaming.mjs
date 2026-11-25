@@ -56,7 +56,7 @@ function make(name, close) {
     { count: ".chat-log figure[data-rich-kind=mermaid][data-rich-state=ready]", equals: 1 },
     { count: ".chat-log figure[data-rich-state=pending]", equals: 0 },
     { text: "Done." },
-    { hidden: "button:text-is('Stop')" },
+    { hidden: "button:has(:text-is('Stop'))" },
     // The finished diagram is followed to its end, with the thumbs above the composer.
     { inView: ".chat-log button[aria-label='Good reply']", above: "div:has(> textarea[data-composer])" },
   ]
@@ -85,7 +85,7 @@ function unclosed(name, how) {
     { count: ".chat-log figure[data-rich-state=pending]", equals: 0 },
     { count: ".chat-log figure[data-rich-kind=mermaid][data-rich-state=source]", equals: 1 },
     { text: "This diagram was cut off." },
-    { hidden: "button:text-is('Stop')" },
+    { hidden: "button:has(:text-is('Stop'))" },
   ]
   return s
 }

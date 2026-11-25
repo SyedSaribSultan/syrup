@@ -30,9 +30,10 @@ const scenarios = [
     description: "M0: bare `transition` runs on the tokens; the drawer is motion-layer below 840 px only; sidebar row actions fade in on hover.",
     steps: [{ hover: ROWS, widths: [1440] }, { wait: 300, widths: [1440] }],
     assert: [
-      // Tailwind's defaults now read the tokens: every bare `transition` is fast + move.
-      { style: 'button[aria-label="Send"]', prop: "transition-duration", equals: FAST },
-      { style: 'button[aria-label="Send"]', prop: "transition-timing-function", equals: MOVE },
+      // Tailwind's defaults now read the tokens: every bare `transition` is fast + move. The composer's frame is the
+      // sample: Send is a library button now, which lists three properties and so reports each value three times.
+      { style: "div:has(> textarea[data-composer])", prop: "transition-duration", equals: FAST },
+      { style: "div:has(> textarea[data-composer])", prop: "transition-timing-function", equals: MOVE },
       // Phones: the closed drawer leaves on slow + move (as syedsarib.com), and takes no taps while it does (MOTION.md §4.1).
       // Desktop: a column, no transition at all (sidebar ↔ rail is M3), and it must take clicks.
       { style: DRAWER, prop: "transition-duration", equals: SLOW, widths: [390] },

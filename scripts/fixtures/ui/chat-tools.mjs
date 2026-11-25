@@ -113,7 +113,7 @@ export default defineScenario({
     { text: "Edited 2 files:" },
     { visible: ".chat-log [role=status]:has-text('Running')" },
     // Busy: the composer offers Stop instead of Send.
-    { visible: "button:text-is('Stop')" },
+    { visible: "button:has(:text-is('Stop'))" },
     { visible: "button[title='Files the agent changed in this chat']:has-text('Changes')", widths: [1440] },
   ],
 })

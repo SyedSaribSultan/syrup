@@ -1,6 +1,6 @@
 "use client"
 
-import { Icon } from "./ui/s"
+import { Button, Icon, IconButton } from "./ui/s"
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type KeyboardEvent, type ReactNode } from "react"
 import { PREFILL_EVENT } from "@/lib/panel"
 import { useDismiss } from "@/lib/use-dismiss"
@@ -182,7 +182,7 @@ export function Composer({ onSend, onStop, busy, autoFocus, placeholder, draftKe
         placeholder={placeholder ?? "Ask syrup to build, fix, or explain something…"}
         className="block w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-base leading-6 text-ink outline-none placeholder:text-muted"
       />
-      {/* The composer's own buttons (attach, stop, send) are not s- components, so their pointer-coarse 44 sizes stay. */}
+      {/* Attach, Stop and Send are one matched set of library buttons at md (32 at app scale); the library gives each its 44 touch floor. */}
       <div className="flex items-center justify-between gap-2 px-2 pb-2">
         <div className="flex min-w-0 items-center gap-1">
           <AttachMenu onFiles={(l) => void addFiles(l)} />
@@ -192,22 +192,12 @@ export function Composer({ onSend, onStop, busy, autoFocus, placeholder, draftKe
           {warn && <span className="truncate text-2xs text-warn">{warn}</span>}
         </div>
         {busy ? (
-          <button type="button" onClick={onStop} className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-line px-3 text-xs font-medium text-ink-2 transition hover:border-line-2 hover:text-ink pointer-coarse:h-11 pointer-coarse:rounded-full pointer-coarse:px-4">
-            <span className="h-2 w-2 rounded-[2px] bg-current" /> Stop
-          </button>
+          <Button variant="outline" pill onClick={onStop} className="shrink-0">
+            <span aria-hidden="true" className="mr-1.5 inline-block size-2 rounded-[2px] bg-current align-middle" />
+            Stop
+          </Button>
         ) : (
-          <button
-            type="button"
-            onClick={() => void submit()}
-            disabled={empty || sending}
-            aria-label="Send"
-            // Disabled is the brand-disabled fill (sarib-design 11.1 send), not an opacity.
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-fill text-accent-ink transition disabled:bg-accent-fill-disabled pointer-coarse:h-11 pointer-coarse:w-11 pointer-coarse:rounded-full"
-          >
-            <svg width="14" height="14" viewBox="0 0 14 14">
-              <path d="M7 12V2M3 6l4-4 4 4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
+          <IconButton variant="brand" size="md" pill icon="arrow-up" label="Send" onClick={() => void submit()} disabled={empty || sending} className="shrink-0" />
         )}
       </div>
     </div>
@@ -236,18 +226,7 @@ function AttachMenu({ onFiles }: { onFiles(list: FileList | null): void }) {
 
   return (
     <div ref={ref} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        aria-label="Add photos and files"
-        data-s-tip="Add photos and files (or paste an image)"
-        className={`flex h-8 w-8 items-center justify-center rounded-lg text-ink-2 transition hover:bg-surface-2 hover:text-ink pointer-coarse:h-11 pointer-coarse:w-11 pointer-coarse:rounded-full ${open ? "bg-surface-2 text-ink" : ""}`}
-      >
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-          <path d="M8 3v10M3 8h10" />
-        </svg>
-      </button>
+      <IconButton variant={open ? "secondary" : "ghost"} size="md" icon="plus" label="Add photos and files" title="Add photos and files (or paste an image)" onClick={() => setOpen((v) => !v)} aria-expanded={open} />
       <input ref={camera} type="file" hidden accept="image/*" capture="environment" onChange={take} />
       <input ref={photos} type="file" hidden multiple accept="image/*" onChange={take} />
       <input ref={files} type="file" hidden multiple accept={FILE_TYPES} onChange={take} />

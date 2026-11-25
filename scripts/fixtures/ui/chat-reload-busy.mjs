@@ -37,7 +37,7 @@ function linkCall(scenario) {
 }
 
 const steps = (card) => [
-  { assert: { visible: "button:text-is('Stop')" } },
+  { assert: { visible: "button:has(:text-is('Stop'))" } },
   { assert: { visible: card } },
   { reload: true },
   { settle: true },
@@ -55,7 +55,7 @@ const variants = [
     },
     steps: steps("text=Allow bash?"),
     assert: [
-      { visible: "button:text-is('Stop')" },
+      { visible: "button:has(:text-is('Stop'))" },
       { visible: "text=Allow bash?" },
       { text: "git push origin main" },
       { visible: "button:text-is('Allow once')" },
@@ -89,7 +89,7 @@ const variants = [
     },
     steps: steps("text=Push to main, or to a new branch for a pull request?"),
     assert: [
-      { visible: "button:text-is('Stop')" },
+      { visible: "button:has(:text-is('Stop'))" },
       { visible: "text=Push to main, or to a new branch for a pull request?" },
       { visible: "button:has-text('cart-cents')" },
       { visible: "button:text-is('Skip')" },

@@ -109,7 +109,7 @@ scenario.assert = [
   // The finished parts of the streaming message, and the busy composer.
   { text: "Thought for 2.1s" },
   { text: "data\\orders.csv" },
-  { visible: "button:text-is('Stop')" },
+  { visible: "button:has(:text-is('Stop'))" },
   { text: "Save this as" },
   { text: LAST_LINE },
   { count: ".chat-log pre", equals: 1 },

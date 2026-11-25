@@ -115,7 +115,7 @@ const variants = []
     { wait: 800 },
     { settle: true },
   ]
-  s.assert = [{ text: "**/*.csv" }, { visible: ".chat-log div.cursor-pointer:has-text('Find files')" }, { text: "data\\orders.csv" }, { visible: "button:text-is('Stop')" }]
+  s.assert = [{ text: "**/*.csv" }, { visible: ".chat-log div.cursor-pointer:has-text('Find files')" }, { text: "data\\orders.csv" }, { visible: "button:has(:text-is('Stop'))" }]
   variants.push(s)
 }
 

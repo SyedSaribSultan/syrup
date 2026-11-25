@@ -54,7 +54,7 @@ const info = scenario.engine.messages[c.id].find((m) => m.info.id === part.messa
 
 scenario.steps = [
   { assert: { visible: ".chat-log [role=status][aria-label='Writing']" } },
-  { assert: { visible: "button:text-is('Stop')" } },
+  { assert: { visible: "button:has(:text-is('Stop'))" } },
   // The rest of the reply streams in: this page never saw its beginning, so it must not show it.
   { emit: partDeltas(part, TAIL), every: 15 },
   { settle: true },
@@ -77,7 +77,7 @@ scenario.assert = [
   { text: "Thought for 3.4s" },
   { count: ".chat-log ol > li", equals: 3 },
   { hidden: ".chat-log [role=status][aria-label='Writing']" },
-  { hidden: "button:text-is('Stop')" },
+  { hidden: "button:has(:text-is('Stop'))" },
   { count: ".chat-log button[aria-label='Good reply']", equals: 1 },
   // The router's row for the step, written when it completed: the reply names the model that answered.
   { text: "Auto → Gemini 3.5 Flash" },
