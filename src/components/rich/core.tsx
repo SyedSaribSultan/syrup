@@ -213,7 +213,7 @@ export function RichBlock({ input, closed = true, readOnly, code }: { input: Ric
         {fallback}
         <p className="rich-note">
           {note(input, "too-large")}{" "}
-          <button type="button" className="rich-link" onClick={open}>
+          <button type="button" className="s-link rich-link" onClick={open}>
             Open
           </button>
         </p>
@@ -228,10 +228,10 @@ export function RichBlock({ input, closed = true, readOnly, code }: { input: Ric
         {fallback}
         <p className="rich-note">
           {note(input, "load")}{" "}
-          <button type="button" className="rich-link" onClick={mod.retry}>
+          <button type="button" className="s-link rich-link" onClick={mod.retry}>
             Retry
           </button>{" "}
-          <button type="button" className="rich-link" onClick={() => location.reload()}>
+          <button type="button" className="s-link rich-link" onClick={() => location.reload()}>
             Reload
           </button>
         </p>
@@ -262,7 +262,7 @@ export function RichBlock({ input, closed = true, readOnly, code }: { input: Ric
         {fallback}
         <p className="rich-note">
           {note(input, outcome.error.code)}{" "}
-          <button type="button" className="rich-link" onClick={retry}>
+          <button type="button" className="s-link rich-link" onClick={retry}>
             Retry
           </button>
         </p>
@@ -320,7 +320,7 @@ export function RichView({ input }: { input: RichInput }) {
           {outcome?.state === "error" && (
             <>
               {" "}
-              <button type="button" className="rich-link" onClick={retry}>
+              <button type="button" className="s-link rich-link" onClick={retry}>
                 Retry
               </button>
             </>

@@ -69,7 +69,7 @@ export function ShareButton({ sessionId, open: openProp, onOpenChange, trigger =
           Share
         </Button>
       )}
-      <Popover open={open} onClose={close} label="Share chat" side="down" className="s-raised s-raised--md absolute top-full right-0 z-dropdown mt-2 w-[min(440px,92vw)] text-left">
+      <Popover open={open} onClose={close} label="Share chat" side="down" className="s-raised s-raised--md absolute top-full right-0 z-dropdown mt-2 w-[min(var(--container-dialog),92vw)] text-left">
         <SharePanel sessionId={sessionId} />
       </Popover>
     </div>

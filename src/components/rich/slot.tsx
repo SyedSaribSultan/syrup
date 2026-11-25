@@ -114,10 +114,10 @@ function RichFence({ input, final, closed, code }: { input: RichInput; final: bo
         {code}
         <p className="rich-note">
           Couldn&apos;t load the diagram viewer.{" "}
-          <button type="button" className="rich-link" onClick={core.retry}>
+          <button type="button" className="s-link rich-link" onClick={core.retry}>
             Retry
           </button>{" "}
-          <button type="button" className="rich-link" onClick={() => location.reload()}>
+          <button type="button" className="s-link rich-link" onClick={() => location.reload()}>
             Reload
           </button>
         </p>

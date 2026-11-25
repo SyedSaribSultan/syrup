@@ -6,9 +6,9 @@
 export default function Loading() {
   return (
     <div className="min-h-0 flex-1 overflow-hidden">
-      <div aria-busy className="skel-in mx-auto flex w-full max-w-[760px] flex-col gap-4 px-4 py-12 medium:px-6">
+      <div aria-busy className="skel-in mx-auto flex w-full max-w-reading flex-col gap-4 px-4 py-12 medium:px-6">
         <span className="s-skeleton s-skeleton--row w-48" />
-        <div className="s-skeleton-stack max-w-[520px]">
+        <div className="s-skeleton-stack max-w-copy">
           <span className="s-skeleton s-skeleton--line" />
           <span className="s-skeleton s-skeleton--line" />
         </div>

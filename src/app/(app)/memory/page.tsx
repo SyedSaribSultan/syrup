@@ -43,7 +43,7 @@ export default function MemoryPage() {
         <div className="flex items-start justify-between gap-4 medium:items-end">
           <div className="min-w-0">
             <h1 className="font-display text-heading text-ink">Memory</h1>
-            <p className="mt-2 max-w-[600px] text-base text-ink-2">
+            <p className="mt-2 max-w-copy text-base text-ink-2">
               What the agent remembers across sessions. It saves and searches these itself; you can add, correct or delete anything here.
             </p>
           </div>

@@ -144,7 +144,7 @@ export function ShareDocument({ transcript: t, id, homeHref }: { transcript: Tra
 
       <footer className="bg-bg">
         <div className="mx-auto flex w-full max-w-reading flex-col gap-4 px-4 pt-8 pb-[max(2rem,env(safe-area-inset-bottom))] medium:flex-row medium:items-center medium:justify-between medium:px-6">
-          <p className="s-help max-w-[440px]">
+          <p className="s-help max-w-dialog">
             A snapshot from {shareDate(t.snapshotAt)}. Anything said after it stays private. Secrets are redacted and file paths are shortened.
           </p>
           {homeHref && (

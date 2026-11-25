@@ -4,19 +4,18 @@ import { useState } from "react"
 import { copyText } from "@/lib/file-actions"
 import { KINDS } from "@/lib/rich/kinds"
 import { useWindowClass } from "@/lib/use-window-class"
+import { Button, IconButton } from "../ui/s"
 import { MenuList, Sheet, type MenuItem } from "../ui/sheet"
 import type { RichInput } from "./types"
 
 /**
  * A picture's toolbar (docs/RENDERING.md §2.6, §2.8): the kind label, then Open, Copy and Source. With a mouse the
- * buttons show on hover and focus; on touch they always show, 44 px each. Below 600 px there is room for Open and a
- * ⋯ only: Copy, Source and the caption go into a sheet.
+ * buttons show on hover and focus; on touch they always show. Below 600 px there is room for Open and a ⋯ only:
+ * Copy, Source and the caption go into a sheet. The buttons are the library's ghost 2xs (24 tall), which carries
+ * its own 44 px touch target.
  */
 
 export type BarAction = { label: string; run(): void }
-
-// pointer-coarse 44: these are syrup's own buttons, not s- components, so the library's touch floor does not cover them.
-const btn = "flex items-center justify-center rounded-md px-2 py-0.5 text-xs text-ink-2 transition hover:bg-surface-2 hover:text-ink pointer-coarse:min-h-11 pointer-coarse:min-w-11 pointer-coarse:px-3"
 
 export function Toolbar({ input, caption, onOpen, onSource, sourceOpen, actions = [] }: { input: RichInput; caption?: string; onOpen?: () => void; onSource(): void; sourceOpen: boolean; actions?: BarAction[] }) {
   const compact = useWindowClass() === "compact"
@@ -39,31 +38,29 @@ export function Toolbar({ input, caption, onOpen, onSource, sourceOpen, actions 
       <span className="flex-1" />
       <div className="flex items-center gap-0.5 transition pointer-fine:opacity-0 pointer-fine:group-hover/rich:opacity-100 pointer-fine:focus-within:opacity-100">
         {onOpen && (
-          <button type="button" className={btn} onClick={onOpen} aria-label={`Open the ${KINDS[input.kind].noun} at full size`}>
+          <Button variant="ghost" size="2xs" onClick={onOpen} aria-label={`Open the ${KINDS[input.kind].noun} at full size`}>
             Open
-          </button>
+          </Button>
         )}
         {compact ? (
           <>
-            <button type="button" className={btn} onClick={() => setMore(true)} aria-label={`More for this ${KINDS[input.kind].noun}`} aria-haspopup="dialog">
-              ⋯
-            </button>
+            <IconButton size="2xs" icon="ellipsis" label={`More for this ${KINDS[input.kind].noun}`} onClick={() => setMore(true)} aria-haspopup="dialog" />
             <Sheet open={more} onClose={() => setMore(false)} title={caption ?? KINDS[input.kind].label}>
               <MenuList items={items} onDone={() => setMore(false)} />
             </Sheet>
           </>
         ) : (
           <>
-            <button type="button" className={btn} onClick={copy}>
+            <Button variant="ghost" size="2xs" onClick={copy}>
               {copied ? "Copied" : "Copy"}
-            </button>
-            <button type="button" className={btn} onClick={onSource} aria-pressed={sourceOpen}>
+            </Button>
+            <Button variant="ghost" size="2xs" onClick={onSource} aria-pressed={sourceOpen}>
               Source
-            </button>
+            </Button>
             {actions.map((a) => (
-              <button key={a.label} type="button" className={btn} onClick={a.run}>
+              <Button key={a.label} variant="ghost" size="2xs" onClick={a.run}>
                 {a.label}
-              </button>
+              </Button>
             ))}
           </>
         )}

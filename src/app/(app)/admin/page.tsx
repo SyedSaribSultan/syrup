@@ -51,7 +51,7 @@ export default function AdminPage() {
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto w-full max-w-[960px] px-4 py-8 medium:px-6">
+      <div className="mx-auto w-full max-w-page px-4 py-8 medium:px-6">
         <h1 className="font-display text-heading text-ink">Admin</h1>
         <p className="mt-2 text-base text-ink-2">
           Anyone with a verified Google account can sign in. Admins: <span className="font-mono text-ink-2">{admins.join(", ") || "none set"}</span>

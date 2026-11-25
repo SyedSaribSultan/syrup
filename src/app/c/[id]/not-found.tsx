@@ -12,8 +12,8 @@ export default function ShareNotFound() {
       </div>
       <div className="s-empty">
         <h1 className="font-display text-heading text-ink">This chat isn&apos;t shared</h1>
-        <p className="s-empty__line max-w-[440px]">The link may be mistyped, or its owner stopped sharing it.</p>
-        <p className="s-help max-w-[440px]">Shared chats are snapshots their owner can take down at any time.</p>
+        <p className="s-empty__line max-w-dialog">The link may be mistyped, or its owner stopped sharing it.</p>
+        <p className="s-help max-w-dialog">Shared chats are snapshots their owner can take down at any time.</p>
         <Link href="/" prefetch={false} className={btnClass({ variant: "secondary" })}>
           <span className="s-btn__label">Try syrup</span>
         </Link>

@@ -1,14 +1,14 @@
 {
   "counts": {
     "raw-color": 5,
-    "arbitrary-value": 74,
+    "arbitrary-value": 63,
     "unmapped-scale": 6,
-    "raw-element": 48,
+    "raw-element": 36,
     "inline-style": 9
   },
   "spread": {
     "spacingSteps": 18,
-    "maxWidths": 22,
+    "maxWidths": 18,
     "radiusKeys": 9
   }
 }

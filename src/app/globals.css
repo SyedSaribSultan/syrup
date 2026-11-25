@@ -149,6 +149,7 @@
      reading column and copy block (DESIGN.md 4.5); narrow and auth read the kit's own tokens. */
   --container-auth: var(--s-auth-w);
   --container-copy: 560px;
+  --container-dialog: var(--s-dialog-w);
   --container-narrow: var(--s-container-sm);
   --container-reading: 720px;
   --container-page: 880px;
@@ -813,12 +814,7 @@ figure.rich {
   font-size: var(--s-font-size-body-xs);
   overflow-wrap: anywhere;
 }
-.rich-link {
-  color: var(--s-color-content-brand);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-/* A 44px target on touch: .rich-link is syrup's own, not an s- component, so the library floor does not reach it. */
+/* The inline actions in a picture's note are s-link buttons. s-link has no touch floor, so .rich-link adds the 44px target. */
 @media (pointer: coarse) {
   .rich-link {
     display: inline-block;

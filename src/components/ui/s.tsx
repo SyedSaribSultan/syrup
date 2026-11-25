@@ -20,7 +20,7 @@ export function Icon({ name, size, className = "" }: { name: IconName; size?: 12
 }
 
 export type ButtonVariant = "brand" | "primary" | "secondary" | "tertiary" | "outline" | "ghost" | "brand-tone" | "brand-ghost" | "success" | "warning" | "error" | "link-neutral" | "link-brand"
-export type ButtonSize = "sm" | "md" | "lg" | "xl"
+export type ButtonSize = "2xs" | "xs" | "sm" | "md" | "lg" | "xl"
 
 type Look = { variant?: ButtonVariant; size?: ButtonSize; pill?: boolean; block?: boolean; className?: string }
 
@@ -45,7 +45,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
 
 type IconButtonProps = Omit<Look, "block"> & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className" | "aria-label"> & { icon: IconName; label: string; children?: ReactNode }
 
-/** Icon-only `s-btn--icon`: a square 36 / 40 / 44 with its label for assistive tech. `title` (default: the label) is the
+/** Icon-only `s-btn--icon`: a square 24 / 28 / 36 / 40 / 44 with its label for assistive tech. `title` (default: the label) is the
  * library label tip (`data-s-tip`, ui/tips.tsx), not a native title tooltip. */
 export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(function IconButton({ variant = "ghost", size = "sm", pill, className, icon, label, title, children, type = "button", ...rest }, ref) {
   return (
