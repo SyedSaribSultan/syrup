@@ -114,7 +114,6 @@ export function PanelToggle({ className = "", compact = false }: { className?: s
         aria-pressed={panel.open}
         label={c.files > 0 ? `${label} (${c.files} changed file${c.files === 1 ? "" : "s"})` : label}
         title={`${label} (${PANEL_SHORTCUT})`}
-        variant={panel.open ? "secondary" : "ghost"}
         className={`relative ${className}`}
       >
         {c.files > 0 && (
@@ -124,11 +123,11 @@ export function PanelToggle({ className = "", compact = false }: { className?: s
         )}
       </IconButton>
     )
-  // On = the secondary fill (what is open), off = ghost: one toggle look across the header (Changes, Files). While the
+  // On = the library's pressed colours (aria-pressed, sarib-design v2.11), off = ghost: one toggle look across the header (Changes, Files). While the
   // pane is open it steps down to its icon, so the chat's title keeps room at the 440px floor.
-  if (panel.open) return <IconButton icon="panel-close" variant="secondary" aria-pressed label={label} title={`${label} (${PANEL_SHORTCUT})`} onClick={panel.toggle} className={className} />
+  if (panel.open) return <IconButton icon="panel-close" aria-pressed label={label} title={`${label} (${PANEL_SHORTCUT})`} onClick={panel.toggle} className={className} />
   return (
-    <Button variant={panel.open ? "secondary" : "ghost"} size="sm" icon="panel-open" onClick={panel.toggle} aria-pressed={panel.open} title={`${label} (${PANEL_SHORTCUT})`} className={className}>
+    <Button variant="ghost" size="sm" icon="panel-open" onClick={panel.toggle} aria-pressed={panel.open} title={`${label} (${PANEL_SHORTCUT})`} className={className}>
       Files
     </Button>
   )

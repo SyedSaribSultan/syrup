@@ -146,21 +146,21 @@ function Reasoning({ text, done, ms, ro = false }: { text: string; done: boolean
   // Read-only: a native disclosure, so it opens before hydration and in the static HTML export.
   if (ro)
     return (
-      <details className="group/think my-1">
-        <summary className="flex w-fit list-none items-center gap-1.5 text-xs text-muted transition hover:text-ink-2 [&::-webkit-details-marker]:hidden">
-          <Chevron open={false} className="group-open/think:rotate-180" />
+      <details className="s-disclosure s-disclosure--sm my-1">
+        <summary className="s-disclosure__trigger w-fit">
+          <Chevron open={false} className="s-disclosure__chevron" />
           {label}
         </summary>
-        <div className="mt-1.5 border-l-2 border-line pl-3 text-sm leading-relaxed text-ink-2 whitespace-pre-wrap">{text}</div>
+        <div className="s-disclosure__panel border-l-2 border-line pl-3 text-sm leading-relaxed text-ink-2 whitespace-pre-wrap">{text}</div>
       </details>
     )
   return (
-    <div className="my-1">
-      <button type="button" onClick={() => setOpen((v) => !v)} className="flex items-center gap-1.5 text-xs text-muted transition hover:text-ink-2">
-        <Chevron open={open} />
+    <div className="s-disclosure s-disclosure--sm my-1">
+      <button type="button" aria-expanded={open} onClick={() => setOpen((v) => !v)} className="s-disclosure__trigger">
+        <Chevron open={false} className="s-disclosure__chevron" />
         {done ? label : <Brew mood="think" timerAfter={0} />}
       </button>
-      {open && <div className="mt-1.5 border-l-2 border-line pl-3 text-sm leading-relaxed text-ink-2 whitespace-pre-wrap">{text}</div>}
+      {open && <div className="s-disclosure__panel border-l-2 border-line pl-3 text-sm leading-relaxed text-ink-2 whitespace-pre-wrap">{text}</div>}
     </div>
   )
 }

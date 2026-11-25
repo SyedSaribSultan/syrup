@@ -224,7 +224,7 @@ export function FilePreview({ target, rel }: { target: Target; rel: string }) {
           </div>
         )}
         <div ref={moreRef} className="relative shrink-0">
-          <IconButton icon="ellipsis" label="File actions" title="Reload, download, copy path…" aria-expanded={more} aria-haspopup="menu" variant={more ? "secondary" : "ghost"} onClick={() => setMore((v) => !v)} />
+          <IconButton icon="ellipsis" label="File actions" title="Reload, download, copy path…" aria-expanded={more} aria-haspopup="menu" onClick={() => setMore((v) => !v)} />
           <Popover open={more} onClose={closeMore} title={name} side="down" className="s-raised s-raised--md absolute top-full right-0 z-dropdown mt-1 w-[220px]">
             <MenuList items={actions} onDone={closeMore} />
           </Popover>

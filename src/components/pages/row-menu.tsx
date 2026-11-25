@@ -17,7 +17,7 @@ export function RowMenu({ items, label = "More actions", title, className = "" }
   useDismiss(ref, open, close)
   return (
     <div ref={ref} className={`relative shrink-0 ${className}`}>
-      <IconButton icon="ellipsis" label={label} aria-haspopup="menu" aria-expanded={open} variant={open ? "secondary" : "ghost"} onClick={() => setOpen((v) => !v)} />
+      <IconButton icon="ellipsis" label={label} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)} />
       <Popover open={open} onClose={close} title={title} label={label} side="down" className="s-raised s-raised--md absolute top-full right-0 z-dropdown mt-1 w-52">
         <MenuList items={items} onDone={close} />
       </Popover>

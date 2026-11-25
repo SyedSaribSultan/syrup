@@ -51,10 +51,10 @@ export function EgressEditor({ workspaceId, initial }: { workspaceId: string; in
           {listed.length > 0 && (
             <ul className="flex flex-wrap gap-1">
               {listed.map((h) => (
-                <li key={h} className="s-badge gap-1 font-mono">
-                  {h}
-                  <button type="button" disabled={busy} onClick={() => void save(hosts.filter((x) => x !== h))} aria-label={`Remove ${h}`} data-s-tip="Remove" className="inline-flex text-muted hover:text-ink">
-                    <Icon name="x" size={12} />
+                <li key={h} className="s-chip s-chip--sm s-chip--removable">
+                  <span className="s-chip__label">{h}</span>
+                  <button type="button" disabled={busy} onClick={() => void save(hosts.filter((x) => x !== h))} aria-label={`Remove ${h}`} data-s-tip="Remove" className="s-chip__remove">
+                    <Icon name="x" />
                   </button>
                 </li>
               ))}

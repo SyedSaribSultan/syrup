@@ -155,16 +155,16 @@ export function Composer({ onSend, onStop, busy, autoFocus, placeholder, draftKe
       {files.length > 0 && (
         <div className="flex gap-1.5 overflow-x-auto px-3 pt-3">
           {files.map((f, i) => (
-            <span key={i} className="flex shrink-0 items-center gap-1.5 rounded-lg border border-line bg-bg px-2 py-1 text-xs text-ink-2">
+            <span key={i} className="s-chip s-chip--removable">
               {f.mime.startsWith("image/") ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={f.url} alt="" className="h-5 w-5 rounded object-cover" />
+                <img src={f.url} alt="" className="s-chip__media" />
               ) : (
-                <Icon name="file" size={16} />
+                <Icon name="file" />
               )}
-              <span className="max-w-[160px] truncate">{f.name}</span>
-              <button type="button" aria-label={`Remove ${f.name}`} onClick={() => setFiles((p) => p.filter((_, j) => j !== i))} className="text-muted hover:text-ink pointer-coarse:-my-2 pointer-coarse:px-2 pointer-coarse:py-2">
-                ×
+              <span className="s-chip__label max-w-[160px]">{f.name}</span>
+              <button type="button" aria-label={`Remove ${f.name}`} onClick={() => setFiles((p) => p.filter((_, j) => j !== i))} className="s-chip__remove">
+                <Icon name="x" />
               </button>
             </span>
           ))}
@@ -226,7 +226,7 @@ function AttachMenu({ onFiles }: { onFiles(list: FileList | null): void }) {
 
   return (
     <div ref={ref} className="relative">
-      <IconButton variant={open ? "secondary" : "ghost"} size="md" icon="plus" label="Add photos and files" title="Add photos and files (or paste an image)" onClick={() => setOpen((v) => !v)} aria-expanded={open} />
+      <IconButton size="md" icon="plus" label="Add photos and files" title="Add photos and files (or paste an image)" onClick={() => setOpen((v) => !v)} aria-expanded={open} aria-haspopup="dialog" />
       <input ref={camera} type="file" hidden accept="image/*" capture="environment" onChange={take} />
       <input ref={photos} type="file" hidden multiple accept="image/*" onChange={take} />
       <input ref={files} type="file" hidden multiple accept={FILE_TYPES} onChange={take} />

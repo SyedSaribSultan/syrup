@@ -302,11 +302,11 @@ function SaribCard() {
 function SkillCard({ s, onChange, onToggle }: { s: Skill; onChange(): Promise<void>; onToggle(enabled: boolean): void }) {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
-  // p-0: the whole card head is the expand button, so the card's padding moves onto it (a hit-area reason).
+  // The library's card disclosure: the head carries the card's padding, so the whole head is the expand button.
   return (
-    <li className="s-card s-card--compact p-0">
-      <div className="flex items-center gap-3 pr-5">
-        <button type="button" aria-expanded={open} onClick={() => setOpen((v) => !v)} className="flex min-w-0 flex-1 items-start gap-3 rounded-l-xl py-4 pl-5 text-left">
+    <li className="s-card s-disclosure s-disclosure--card">
+      <div className="s-disclosure__head">
+        <button type="button" aria-expanded={open} onClick={() => setOpen((v) => !v)} className="s-disclosure__trigger items-start">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <span className={`font-mono text-sm ${s.enabled ? "text-ink" : "text-ink-2"}`}>{s.name}</span>
@@ -319,14 +319,14 @@ function SkillCard({ s, onChange, onToggle }: { s: Skill; onChange(): Promise<vo
             </div>
             <p className={`mt-1 line-clamp-2 text-sm ${s.enabled ? "text-ink-2" : "text-muted"}`}>{s.description || "No description"}</p>
           </div>
-          <Icon name="chevron-down" size={16} className={`mt-1 text-muted transition-transform ${open ? "rotate-180" : ""}`} />
+          <Icon name="chevron-down" className="s-disclosure__chevron mt-1" />
         </button>
         <label className="s-switch">
           <input type="checkbox" role="switch" checked={s.enabled} aria-label={`${s.enabled ? "Turn off" : "Turn on"} ${s.name}`} onChange={() => onToggle(!s.enabled)} />
         </label>
       </div>
       {open && (
-        <div className="flex flex-col gap-3 border-t border-line px-5 py-4">
+        <div className="s-disclosure__panel flex flex-col gap-3">
           {s.duplicates.length > 0 && (
             <div className="s-alert s-alert--warning">
               <Icon name="triangle-alert" />

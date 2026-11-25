@@ -65,7 +65,7 @@ export function ShareButton({ sessionId, open: openProp, onOpenChange, trigger =
   return (
     <div ref={ref} className="relative">
       {trigger && (
-        <Button variant={open ? "secondary" : "ghost"} size="sm" aria-expanded={open} aria-haspopup="dialog" onClick={() => setOpen(!open)}>
+        <Button variant="ghost" size="sm" aria-expanded={open} aria-haspopup="dialog" onClick={() => setOpen(!open)}>
           Share
         </Button>
       )}

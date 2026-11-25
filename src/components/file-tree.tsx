@@ -297,7 +297,7 @@ export function FileTree({ target }: { target: Target }) {
         />
         <IconButton icon="refresh-cw" label="Refresh" onClick={refresh} />
         <div ref={moreRef} className="relative">
-          <IconButton icon="ellipsis" label="More" aria-pressed={more} aria-haspopup="menu" variant={more ? "secondary" : "ghost"} onClick={() => setMore((v) => !v)} />
+          <IconButton icon="ellipsis" label="More" aria-expanded={more} aria-haspopup="menu" onClick={() => setMore((v) => !v)} />
           <Popover open={more} onClose={closeMore} title={rootName} side="down" className="s-raised s-raised--md absolute top-full right-0 z-dropdown mt-1 w-[260px]">
             <MenuList
               onDone={closeMore}

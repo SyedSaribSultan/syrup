@@ -344,7 +344,7 @@ function ChatMenu({ id, title, totals, onShare }: { id: string; title: string; t
 
   return (
     <div ref={ref} className="relative">
-      <IconButton icon="ellipsis" label="Chat options" aria-expanded={open} aria-haspopup="menu" variant={open ? "secondary" : "ghost"} onClick={() => setOpen((v) => !v)} />
+      <IconButton icon="ellipsis" label="Chat options" aria-expanded={open} aria-haspopup="menu" onClick={() => setOpen((v) => !v)} />
       <Popover open={open} onClose={close} title={title} side="down" className="s-raised s-raised--md absolute top-full right-0 z-dropdown mt-1.5 w-[220px] overflow-hidden">
         <MenuList items={items} onDone={close} />
       </Popover>

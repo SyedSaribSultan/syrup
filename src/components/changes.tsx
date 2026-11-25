@@ -100,7 +100,7 @@ export function ChangesButton({ sessionID }: { sessionID: string }) {
   const on = panel.open && panel.tab === "changes"
   // On = the secondary fill (what is open), off = ghost: the same toggle as Files beside it.
   return (
-    <Button variant={on ? "secondary" : "ghost"} size="sm" aria-pressed={on} onClick={() => (on ? panel.setOpen(false) : panel.openTab("changes"))} title="Files the agent changed in this chat">
+    <Button variant="ghost" size="sm" aria-pressed={on} onClick={() => (on ? panel.setOpen(false) : panel.openTab("changes"))} title="Files the agent changed in this chat">
       Changes
       <ChangeFigures c={c} />
     </Button>
@@ -277,7 +277,7 @@ function UnifiedDiff({ diff, wrap, onWrap, onBack }: { diff: SessionDiff; wrap: 
           <span className="s-diff-add">+{diff.additions}</span> <span className="s-diff-del">−{diff.deletions}</span>
         </span>
         {/* Phones and tablets have this in the panel's ⋯. */}
-        <Button variant={wrap ? "secondary" : "ghost"} size="sm" aria-pressed={wrap} onClick={onWrap} title="Wrap long lines" className="max-expanded:hidden">
+        <Button variant="ghost" size="sm" aria-pressed={wrap} onClick={onWrap} title="Wrap long lines" className="max-expanded:hidden">
           Wrap
         </Button>
       </div>
