@@ -60,7 +60,7 @@ export default function UsagePage() {
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto w-full max-w-[880px] px-4 py-8 medium:px-6">
+      <div className="mx-auto w-full max-w-page px-4 py-8 medium:px-6">
         {/* On phones the range control sits under the title. */}
         <div className="mb-6 flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
           <div className="w-full medium:w-auto medium:min-w-0 medium:flex-1">

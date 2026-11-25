@@ -39,7 +39,7 @@ export default function MemoryPage() {
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto w-full max-w-[880px] px-4 py-8 medium:px-6">
+      <div className="mx-auto w-full max-w-page px-4 py-8 medium:px-6">
         <div className="flex items-start justify-between gap-4 medium:items-end">
           <div className="min-w-0">
             <h1 className="font-display text-heading text-ink">Memory</h1>

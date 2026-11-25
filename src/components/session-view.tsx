@@ -245,7 +245,7 @@ export function SessionView({ id }: { id: string }) {
 
       {/* overflow-x-hidden: a guard, so nothing that still overflows can make the chat pan sideways on a phone. */}
       <div ref={scroller} onScroll={onScroll} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
-        <div className="chat-log mx-auto w-full max-w-[720px] space-y-6 px-4 pt-5 pb-40 medium:px-6 medium:pt-6">
+        <div className="chat-log mx-auto w-full max-w-reading space-y-6 px-4 pt-5 pb-40 medium:px-6 medium:pt-6">
           {!sm?.loaded && entries.length === 0 && <ChatSkeleton />}
           {entries.map((e, i) => (
             <MessageView
@@ -279,7 +279,7 @@ export function SessionView({ id }: { id: string }) {
       </div>
 
       <div className="pointer-events-none absolute inset-x-0 bottom-0 canvas-fade pt-10 pb-[max(0.75rem,env(safe-area-inset-bottom))] medium:pb-5">
-        <div className="mx-auto w-full max-w-[720px] px-3 medium:px-6">
+        <div className="mx-auto w-full max-w-reading px-3 medium:px-6">
           {/* Not an s- button: its pointer-coarse 44 stays (no library floor). */}
           {scrolledUp && (
             <button

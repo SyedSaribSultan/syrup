@@ -84,9 +84,9 @@ export default function ProvidersPage() {
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto w-full max-w-[880px] px-4 py-8 medium:px-6">
+      <div className="mx-auto w-full max-w-page px-4 py-8 medium:px-6">
         <h1 className="font-display text-heading text-ink">Providers</h1>
-        <p className="mt-2 max-w-[640px] text-base text-ink-2">
+        <p className="mt-2 max-w-narrow text-base text-ink-2">
           Add API keys from any provider. Keys are encrypted at rest and only ever used for requests you start. You can keep several keys per provider; the active one is what the agent uses.
         </p>
 

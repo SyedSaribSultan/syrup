@@ -76,7 +76,7 @@ export function NewChat({ hrefFor, noKeys, error, onRetry }: Props) {
         <PanelToggle />
       </div>
       <div className="flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-3 medium:px-6 expanded:justify-center expanded:pb-24">
-        <div className="flex w-full max-w-[720px] flex-1 flex-col expanded:flex-none">
+        <div className="flex w-full max-w-reading flex-1 flex-col expanded:flex-none">
           <div className="order-1 flex flex-1 flex-col justify-center py-6 expanded:flex-none expanded:py-0">
             {pending ? (
               <div className="mb-6 space-y-4">
@@ -118,12 +118,12 @@ export function NewChat({ hrefFor, noKeys, error, onRetry }: Props) {
           {!pending && <div className="order-4 mt-4 hidden justify-center text-xs text-muted expanded:order-3 expanded:flex">{where}</div>}
           <div className="order-2 space-y-3 pb-3 empty:hidden expanded:order-4 expanded:pb-0">
             {!pending && !error && (
-              <div className="mx-auto w-full max-w-[560px] empty:hidden expanded:mt-6">
+              <div className="mx-auto w-full max-w-copy empty:hidden expanded:mt-6">
                 <WarmupStatus />
               </div>
             )}
             {(sendError || missing) && (
-              <div role="alert" className="s-alert s-alert--critical mx-auto max-w-[560px] expanded:mt-6">
+              <div role="alert" className="s-alert s-alert--critical mx-auto max-w-copy expanded:mt-6">
                 <Icon name="circle-alert" />
                 <div className="s-alert__body">
                   {missing ? (
@@ -141,7 +141,7 @@ export function NewChat({ hrefFor, noKeys, error, onRetry }: Props) {
               </div>
             )}
             {error && (
-              <div role="alert" className="s-alert s-alert--critical mx-auto max-w-[560px] expanded:mt-6">
+              <div role="alert" className="s-alert s-alert--critical mx-auto max-w-copy expanded:mt-6">
                 <Icon name="circle-alert" />
                 <div className="s-alert__body">
                   <p className="s-alert__title">Your workspace didn&apos;t start.</p>
@@ -155,7 +155,7 @@ export function NewChat({ hrefFor, noKeys, error, onRetry }: Props) {
               </div>
             )}
             {showKeys && (
-              <div className="s-alert s-alert--info mx-auto max-w-[560px] expanded:mt-8">
+              <div className="s-alert s-alert--info mx-auto max-w-copy expanded:mt-8">
                 <Icon name="lock" />
                 <div className="s-alert__body">
                 <p className="s-alert__title">No API keys yet.</p>

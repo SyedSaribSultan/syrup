@@ -145,6 +145,13 @@
   --radius-xl: var(--s-radius-10);
   --radius-2xl: var(--s-radius-11);
   --radius-3xl: var(--site-composer-radius);
+  /* Named content widths: one home each, so pages stop typing max-w-[...px]. reading and copy are sarib-design's
+     reading column and copy block (DESIGN.md 4.5); narrow and auth read the kit's own tokens. */
+  --container-auth: var(--s-auth-w);
+  --container-copy: 560px;
+  --container-narrow: var(--s-container-sm);
+  --container-reading: 720px;
+  --container-page: 880px;
 }
 
 html,

@@ -89,9 +89,9 @@ export default function SkillsPage() {
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto w-full max-w-[880px] px-4 py-8 medium:px-6">
+      <div className="mx-auto w-full max-w-page px-4 py-8 medium:px-6">
         <h1 className="font-display text-heading text-ink">Skills</h1>
-        <p className="mt-2 max-w-[640px] text-base text-ink-2">
+        <p className="mt-2 max-w-narrow text-base text-ink-2">
           Skills are folders with a <code className="s-code">SKILL.md</code> that teach the agent a repeatable task. It loads them on demand. Installed skills work in every project.
         </p>
 
@@ -161,7 +161,7 @@ export default function SkillsPage() {
             )}
           </span>
         </div>
-        <p className="mt-1 max-w-[640px] text-sm text-ink-2">Every request lists the skills that are on, so each one costs tokens even when unused. Changes apply from the next message; running chats finish first.</p>
+        <p className="mt-1 max-w-narrow text-sm text-ink-2">Every request lists the skills that are on, so each one costs tokens even when unused. Changes apply from the next message; running chats finish first.</p>
 
         {duplicated.length > 0 && (
           <div className="s-alert s-alert--warning mt-4">

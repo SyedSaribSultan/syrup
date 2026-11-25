@@ -38,7 +38,7 @@ export default async function SignInPage({ searchParams }: PageProps<"/signin">)
     // Scrolls on a short screen (a phone in landscape); centred otherwise. Clears the notch and home bar.
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="s-auth min-h-full pt-[max(4rem,env(safe-area-inset-top))] pb-[max(4rem,env(safe-area-inset-bottom))]">
-        <div className="flex w-full max-w-[400px] flex-col items-center gap-6">
+        <div className="flex w-full max-w-auth flex-col items-center gap-6">
           <div className="s-auth__card">
             <span className="s-auth__brand">
               {/* syrup's mark (app/icon.svg, the favicon and home-screen icon) at 32. */}

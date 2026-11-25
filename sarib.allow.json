@@ -20,5 +20,38 @@
       "pattern": "fonts.googleapis.com",
       "reason": "Server-side only: the OG image renderer (Satori) needs TTF/OTF, which the vendored woff2 set can't supply; no browser ever requests Google."
     }
+  ],
+  "audit": [
+    {
+      "file": "src/app/c/[id]/opengraph-image.tsx",
+      "rule": "raw-color",
+      "reason": "Satori draws the OG image on the server with no stylesheet, so it cannot read CSS custom properties; the values copy the light tokens."
+    },
+    {
+      "file": "src/app/c/[id]/opengraph-image.tsx",
+      "rule": "inline-style",
+      "reason": "Satori lays out from inline style objects only; it has no class or stylesheet support."
+    },
+    {
+      "file": "src/app/layout.tsx",
+      "rule": "raw-color",
+      "reason": "The theme-color meta tag takes a literal colour: the browser paints its chrome before any stylesheet loads."
+    },
+    {
+      "file": "src/app/manifest.ts",
+      "rule": "raw-color",
+      "reason": "The web app manifest is static JSON read by the OS; it cannot reference CSS custom properties."
+    },
+    {
+      "file": "src/components/rich/theme-tokens.ts",
+      "rule": "raw-color",
+      "reason": "Light-mode fallbacks for the HTML export, which always draws light; test:rich checks every value against the tokens."
+    },
+    {
+      "file": "src/components/rich/renderers/mermaid.tsx",
+      "rule": "raw-color",
+      "pattern": "#",
+      "reason": "LIGHT_FOR_PARSE is a placeholder theme used only to parse a diagram; nothing is drawn with it."
+    }
   ]
 }

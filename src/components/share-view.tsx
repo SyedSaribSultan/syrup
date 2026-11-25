@@ -92,7 +92,7 @@ export function ShareDocument({ transcript: t, id, homeHref }: { transcript: Tra
     // Planes (03 §1): the wordmark bar, title block and footer are the P0 band; the conversation sits on the P1 canvas.
     <div className="h-full overflow-y-auto bg-canvas">
       <div className="sticky top-0 z-sticky bg-bg pt-[env(safe-area-inset-top)]">
-        <div className="mx-auto flex h-12 w-full max-w-[720px] items-center justify-between gap-3 px-4 medium:h-16 medium:px-6 medium:pt-2">
+        <div className="mx-auto flex h-12 w-full max-w-reading items-center justify-between gap-3 px-4 medium:h-16 medium:px-6 medium:pt-2">
           {homeHref ? (
             <Link href={homeHref} prefetch={false} className="s-appbar__brand">
               syrup
@@ -113,7 +113,7 @@ export function ShareDocument({ transcript: t, id, homeHref }: { transcript: Tra
         </div>
       </div>
       <header className="bg-bg">
-        <div className="mx-auto w-full max-w-[720px] px-4 pt-3 pb-5 medium:px-6 medium:pt-4 medium:pb-7">
+        <div className="mx-auto w-full max-w-reading px-4 pt-3 pb-5 medium:px-6 medium:pt-4 medium:pb-7">
           <h1 className="font-display text-heading break-words text-ink">{t.title}</h1>
           <p className="s-meta mt-2">
             Shared from syrup · {shareDate(t.snapshotAt)} · {n} message{n === 1 ? "" : "s"}
@@ -123,7 +123,7 @@ export function ShareDocument({ transcript: t, id, homeHref }: { transcript: Tra
       </header>
 
       {/* Long words wrap; code and tables scroll inside themselves (Markdown wraps them), never the page. */}
-      <main className="chat-log mx-auto w-full max-w-[720px] min-w-0 px-4 pt-6 pb-12 medium:px-6 medium:pt-8">
+      <main className="chat-log mx-auto w-full max-w-reading min-w-0 px-4 pt-6 pb-12 medium:px-6 medium:pt-8">
         <ReadOnlyProvider answers={t.answers}>
           <div className="space-y-6">
             {entries.map((e) => (
@@ -143,7 +143,7 @@ export function ShareDocument({ transcript: t, id, homeHref }: { transcript: Tra
       </main>
 
       <footer className="bg-bg">
-        <div className="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-4 pt-8 pb-[max(2rem,env(safe-area-inset-bottom))] medium:flex-row medium:items-center medium:justify-between medium:px-6">
+        <div className="mx-auto flex w-full max-w-reading flex-col gap-4 px-4 pt-8 pb-[max(2rem,env(safe-area-inset-bottom))] medium:flex-row medium:items-center medium:justify-between medium:px-6">
           <p className="s-help max-w-[440px]">
             A snapshot from {shareDate(t.snapshotAt)}. Anything said after it stays private. Secrets are redacted and file paths are shortened.
           </p>
