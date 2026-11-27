@@ -57,6 +57,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth(async () => {
         const [existing] = await pg().select({ blockedAt: pgSchema.users.blockedAt, deletedAt: pgSchema.users.deletedAt }).from(pgSchema.users).where(eq(pgSchema.users.email, email))
         if (existing?.blockedAt) return "/signin?error=blocked"
         if (existing?.deletedAt) return "/signin?error=deleted"
+        // Syrup is closing (11 Dec 2026): existing accounts can still sign in to export, no new ones.
+        if (!existing) return "/signin?error=closing"
         return true
       },
     },

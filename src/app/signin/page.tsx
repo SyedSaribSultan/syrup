@@ -7,6 +7,7 @@ const ERRORS: Record<string, string> = {
   blocked: "This account has been suspended. If you think that's a mistake, open an issue on syrup's GitHub.",
   deleted: "This account is being deleted, as you asked. Everything is erased within 30 days.",
   unverified: "Google reports this email as unverified. Verify it with Google and try again.",
+  closing: "Syrup is closing on 11 December 2026, so it no longer takes new accounts.",
   email: "Google did not share an email address for this account.",
   OAuthAccountNotLinked: "This email is already linked to another sign-in method.",
   AccessDenied: "Sign-in was refused.",
@@ -51,7 +52,7 @@ export default async function SignInPage({ searchParams }: PageProps<"/signin">)
               <h1 className="s-auth__title">
                 A coding agent powered by your <em>own</em> API keys.
               </h1>
-              <p className="s-auth__lede">Sign in with Google to continue.</p>
+              <p className="s-auth__lede">Syrup closes on 11 December 2026. If you have an account, sign in to export your chats before then.</p>
             </div>
 
             <form action={google}>
